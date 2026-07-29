@@ -539,7 +539,7 @@ if __name__ == "__main__":
 
     # Basic config
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--run_name", type=str, default="default_run")
+    parser.add_argument("--run_name", type=str, default="evo1_mujoco_pickplace")
     parser.add_argument("--vlm_name", type=str, default="OpenGVLab/InternVL3-1B")
     parser.add_argument("--action_head", type=str, default="flowmatching", choices=["flowmatching"])
     parser.add_argument("--return_cls_only", action="store_true")
@@ -548,7 +548,7 @@ if __name__ == "__main__":
     # Dataset
     parser.add_argument("--dataset_type", type=str, default="lerobot")
     parser.add_argument("--data_paths", type=str, required=False)
-    parser.add_argument("--dataset_config_path", type=str, required=True)
+    parser.add_argument("--dataset_config_path", type=str, default="/home/user/mujoco+evo/Evo-1/Evo_1/dataset/config.yaml")
     parser.add_argument("--image_size", type=int, default=448)
     parser.add_argument("--binarize_gripper", action="store_true", default=False, help="Whether to binarize gripper state/action (default: False).")
     parser.add_argument("--use_augmentation", action="store_true", help="Enable data augmentation on images")
@@ -557,15 +557,15 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--max_steps", type=int, default=5000)
-    parser.add_argument("--warmup_steps", type=int, default=1000)
+    parser.add_argument("--warmup_steps", type=int, default=300)
     parser.add_argument("--grad_clip_norm", type=float, default=1.0)
-    parser.add_argument("--weight_decay", type=float, default=1e-5)
+    parser.add_argument("--weight_decay", type=float, default=1e-3)
 
 
     # Logging & checkpointing
     parser.add_argument("--log_interval", type=int, default=10)
-    parser.add_argument("--ckpt_interval", type=int, default=2500)
-    parser.add_argument("--save_dir", type=str, default="./checkpoints")
+    parser.add_argument("--ckpt_interval", type=int, default=10)
+    parser.add_argument("--save_dir", type=str, default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1")
 
     # Resume
     parser.add_argument("--resume", action="store_true")
@@ -578,14 +578,19 @@ if __name__ == "__main__":
     parser.add_argument("--finetune_action_head", action="store_true")
 
     # Misc
-    parser.add_argument("--per_action_dim", type=int, default=7)
-    parser.add_argument("--state_dim", type=int, default=7)
+    parser.add_argument("--per_action_dim", type=int, default=24)
+    parser.add_argument("--state_dim", type=int, default=24)
     parser.add_argument("--horizon", type=int, default=16)
     parser.add_argument("--num_layers", type=int, default=8)
     parser.add_argument("--num_workers", type=int, default=4)
     # dropout
-    parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument("--dropout", type=float, default=0.2)
 
+    parser.set_defaults(
+        disable_wandb=True,
+        finetune_action_head=True,
+        use_augmentation=True,
+    )
     args = parser.parse_args()
     config = vars(args)
 

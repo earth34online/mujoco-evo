@@ -14,7 +14,7 @@ Evo-1 训练需要 demonstration 数据。最初没有稳定的 MuJoCo 数据采
 
 ### 修改前
 
-没有统一输出 raw episode 的脚本和目录约定。
+没有统一输出 raw episode 的脚本和目录约定
 
 ### 修改后
 
@@ -196,7 +196,7 @@ pos_enc = self.pos_encoding(H).to(out.device)
 pos_enc = self.pos_encoding(H).to(device=out.device, dtype=out.dtype)
 ```
 
-同类 dtype 对齐也用于 action head 内参与 BF16 计算的 time embedding / FFN 输入。
+同类 dtype 对齐也用于 action head 内参与 BF16 计算的 time embedding / FFN 输入
 
 ## 5. Evo-1 server 期望 payload 和 MuJoCo observation 不一致
 
@@ -234,47 +234,7 @@ return {
 }
 ```
 
-## 6. MuJoCo 有图像渲染，但默认评测不显示窗口
-
-### 遇到的问题
-
-MuJoCo 是可视化仿真环境，没有实时显示
-
-### 修改文件
-
-```text
-/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
-```
-
-### 修改前
-
-MuJoCo 环境能 render，但评测默认只把图像发给 server，没有保存或显示 rollout 的明确方式。
-
-### 修改后
-
-增加/保留：
-
-```text
---save-video
---render
-```
-
-保存视频：
-
-```python
-def save_video(frames, path, fps=20):
-    ...
-    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
-```
-
-实时窗口：
-
-```python
-cv2.imshow("MuJoCo PickPlace", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-cv2.waitKey(1)
-```
-
-## 7. 视频保存强依赖 OpenCV
+## 6. 视频保存强依赖 OpenCV
 
 ### 遇到的问题
 
@@ -298,7 +258,7 @@ writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
 这导致两个问题：
 
 ```text
-保存视频也依赖 opencv-python，但 Evo-1 + LIBERO 保存视频并不需要 OpenCV。
+保存视频也依赖 opencv-python，但 Evo-1 + LIBERO 保存视频并不需要 OpenCV
 ```
 
 ### 修改文件
@@ -356,4 +316,159 @@ def maybe_show(frame, enabled):
     except Exception as exc:
         print(f"render disabled: {exc}", flush=True)
         return False
+```
+
+## 7. 训练效果不够好
+
+### 遇到的问题
+
+进行测试的时候发现训练数据一直都不太正常，training_loss一直处于偏高状态
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo_1/Evo-1/train.py
+```
+
+### 修改后
+
+修改dataset_config_path位置，提高step和dropout
+
+```python
+    parser.add_argument("--dataset_config_path", type=str, default="/home/user/mujoco+evo/Evo-1/Evo_1/dataset/config.yaml")
+    parser.add_argument("--image_size", type=int, default=448)
+    parser.add_argument("--binarize_gripper", action="store_true", default=False, help="Whether to binarize gripper state/action (default: False).")
+    parser.add_argument("--use_augmentation", action="store_true", help="Enable data augmentation on images")
+
+    # Training
+    parser.add_argument("--lr", type=float, default=1e-5)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--max_steps", type=int, default=5000)
+    parser.add_argument("--warmup_steps", type=int, default=1000)
+    parser.add_argument("--grad_clip_norm", type=float, default=1.0)
+    parser.add_argument("--weight_decay", type=float, default=1e-3)
+
+
+    # Logging & checkpointing
+    parser.add_argument("--log_interval", type=int, default=10)
+    parser.add_argument("--ckpt_interval", type=int, default=2500)
+    parser.add_argument("--save_dir", type=str, default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1")
+```
+
+## 8. 视频画面问题
+
+### 问题
+
+```text
+视频画面不是单纯偏暗，而是经常只看到桌角，看不到 cube / goal / eef 等任务主体
+```
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+```
+
+### 修改内容
+
+`pick_place_env.py` 中调整了 MuJoCo XML 的光照、floor 和相机，让任务主体进入画面：
+
+```xml
+<headlight diffuse="0.65 0.65 0.65" ambient="0.22 0.22 0.22" specular="0.12 0.12 0.12"/>
+<light name="main_light" pos="0.1 -0.55 2.8" dir="0 0 -1" diffuse="0.7 0.7 0.7" ambient="0.18 0.18 0.18"/>
+<light name="fill_light" pos="-0.9 0.8 1.5" dir="0.4 -0.2 -1" diffuse="0.22 0.22 0.22" ambient="0.04 0.04 0.04"/>
+<camera name="front" pos="0.55 -0.95 0.95" xyaxes="0.94 0.32 0 -0.22 0.66 0.71" fovy="55"/>
+```
+
+## 9. 成功率过低的评测侧问题修正
+
+### 问题
+
+之前出现：
+
+```text
+Total Successful Episodes: 1/10
+Average Steps: 273.40
+success_rate=0.100
+```
+
+```text
+1. 默认 horizon=15，一次连续执行 15 个旧动作，反馈太慢
+2. MuJoCo render 返回 RGB，但 server 端用 OpenCV 按 BGR 转 RGB，直接发送会造成颜色通道错位
+```
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+```
+
+### 修改内容
+
+```python
+ACTION_HORIZON = 1
+```
+
+发送给 server 的图像：
+
+```python
+"image": [
+    image[..., ::-1].tolist(),
+    zero_image.tolist(),
+    zero_image.tolist(),
+]
+```
+
+## 10. 误删 Evo-1 MuJoCo checkpoint 后的恢复
+
+### 问题
+
+`Evo1_server.py` 当前从以下路径加载 MuJoCo pick-and-place checkpoint：
+
+```text
+/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_final
+```
+
+该目录下由训练生成的 checkpoint 文件被意外删除，导致启动 server 时出现以下错误：
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory:
+'/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_final/config.json'
+```
+
+缺失的主要文件包括：
+
+```text
+config.json
+norm_stats.json
+checkpoint.json
+mp_rank_00_model_states.pt
+```
+
+### 修改位置
+
+```text
+/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1
+```
+
+本次恢复没有修改 Evo-1 的源代码。缺失目录属于训练生成文件，并且被 `.gitignore` 排除，因此无法通过 git 历史直接恢复
+
+### 修改后
+
+使用当前 MuJoCo 数据集和 Evo-1 原有的 DeepSpeed 训练流程，重新启动正式的 Stage 1 训练：
+
+```text
+run_name=Evo1_mujoco_pickplace_stage1
+max_steps=5000
+batch_size=16
+warmup_steps=1000
+ckpt_interval=2500
+horizon=50
+finetune_action_head=true
+```
+
+额外问题：第一次重新启动训练时，`flash_attn` 加载了系统中的 `libstdc++.so.6`，但该动态库不包含所需的 `CXXABI_1.3.15`。随后改为预加载 Evo1 Conda 环境中兼容的动态库：
+
+```bash
+LD_PRELOAD=/home/user/miniconda3/envs/Evo1/lib/libstdc++.so.6
 ```
