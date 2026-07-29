@@ -1,7 +1,9 @@
 import argparse
 import asyncio
 import json
+from datetime import datetime
 from pathlib import Path
+
 import imageio.v2 as imageio
 import numpy as np
 import websockets
@@ -12,7 +14,7 @@ SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
 NUM_EPISODES = 10
 MAX_STEPS = 300
-ACTION_HORIZON = 15
+ACTION_HORIZON = 1
 
 
 def obs_to_payload(obs):
@@ -22,7 +24,7 @@ def obs_to_payload(obs):
 
     return {
         "image": [
-            image.tolist(),
+            image[..., ::-1].tolist(),
             zero_image.tolist(),
             zero_image.tolist(),
         ],
@@ -42,7 +44,7 @@ def parse_args():
     parser.add_argument("--render", action="store_true", help="Show a realtime OpenCV window.")
     parser.add_argument("--save-video", dest="save_video", action="store_true", default=True, help="Save each rollout as an mp4 video (default).")
     parser.add_argument("--no-save-video", dest="save_video", action="store_false", help="Disable rollout video saving.")
-    parser.add_argument("--video-dir", default="outputs/eval_videos")
+    parser.add_argument("--video-dir", default=str(DEFAULT_VIDEO_DIR))
     return parser.parse_args()
 
 
@@ -74,8 +76,10 @@ async def main():
     env = PickPlaceEnv()
     success_count, total_steps = 0, 0
     render_enabled = args.render
+    video_root = Path(args.video_dir)
 
-    print(f"========= Start task1: {PROMPT} =========", flush=True)
+    print(f"========= Start {TASK_NAME}: {PROMPT} =========", flush=True)
+    print(f"Video root: {video_root.resolve()}", flush=True)
 
     async with websockets.connect(args.server_url, max_size=100_000_000) as ws:
         for ep in range(args.num_episodes):
@@ -102,29 +106,23 @@ async def main():
                     print(f"Action parsing failed: {exc}, content: {result}", flush=True)
                     break
 
-                for action_idx in range(min(args.horizon, len(action_chunk))):
-                    action = action_chunk[action_idx, :4].astype(np.float32)
-                    print(action.astype(float).tolist(), flush=True)
-                    print("gripper action", float(action[3]), flush=True)
+                action = action_chunk[0, :4].astype(np.float32)
+                print(action.astype(float).tolist(), flush=True)
+                print("gripper action", float(action[3]), flush=True)
 
-                    obs, done = env.step(action)
-                    executed_steps += 1
-                    reward = 1.0 if done else 0.0
-                    frames.append(obs["image"])
-                    render_enabled = maybe_show(obs["image"], render_enabled)
-                    print(f"[Step {executed_steps}] reward={reward:.2f}, done={done}", flush=True)
+                obs, done = env.step(action)
+                executed_steps += 1
+                reward = 1.0 if done else 0.0
+                frames.append(obs["image"])
+                render_enabled = maybe_show(obs["image"], render_enabled)
+                print(f"[Step {executed_steps}] reward={reward:.2f}, done={done}", flush=True)
 
-                    if done:
-                        print("Task completed", flush=True)
-                        break
-                    if executed_steps >= args.max_steps:
-                        break
-
-                if done or executed_steps >= args.max_steps:
+                if done:
+                    print("Task completed", flush=True)
                     break
 
             if args.save_video:
-                video_path = Path(args.video_dir) / f"task1_episode{ep + 1}.mp4"
+                video_path = video_root / TASK_NAME / f"episode_{ep + 1:03d}.mp4"
                 save_video(frames, video_path)
 
             success_count += int(done)

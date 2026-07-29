@@ -4,29 +4,41 @@ import mujoco
 XML = """
 <mujoco model="simple_pick_place">
   <option timestep="0.02" gravity="0 0 -9.81"/>
-  <visual><global offwidth="448" offheight="448"/></visual>
+  <visual>
+    <global offwidth="448" offheight="448"/>
+    <headlight diffuse="0.65 0.65 0.65" ambient="0.22 0.22 0.22" specular="0.12 0.12 0.12"/>
+    <rgba haze="0.96 0.97 0.99 1"/>
+  </visual>
+  <asset>
+    <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.8 0.88 0.96" rgb2="1 1 1" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.72 0.74 0.76" rgb2="0.9 0.91 0.92" width="256" height="256"/>
+    <material name="floor_mat" texture="grid" texrepeat="4 4" reflectance="0.04"/>
+  </asset>
 
   <worldbody>
-    <light name="main_light" pos="0 0 2.5" dir="0 0 -1"/>
-    <camera name="front" pos="0.8 -1.0 0.7" xyaxes="1 0 0 0 0.45 0.9"/>
+    <light name="main_light" pos="0.1 -0.55 2.8" dir="0 0 -1" diffuse="0.7 0.7 0.7" ambient="0.18 0.18 0.18"/>
+    <light name="fill_light" pos="-0.9 0.8 1.5" dir="0.4 -0.2 -1" diffuse="0.22 0.22 0.22" ambient="0.04 0.04 0.04"/>
+    <camera name="front" pos="0.55 -0.95 0.95" xyaxes="0.94 0.32 0 -0.22 0.66 0.71" fovy="55"/>
 
-    <geom name="table" type="box" pos="0 0 0" size="0.45 0.35 0.03" rgba="0.65 0.65 0.65 1"/>
+    <geom name="floor" type="plane" pos="0 0 -0.005" size="1.0 1.0 0.01" material="floor_mat" contype="0" conaffinity="0"/>
+    <geom name="table" type="box" pos="0 0 0" size="0.45 0.35 0.03" rgba="0.68 0.68 0.68 1"/>
 
     <body name="cube" pos="0.12 -0.08 0.07">
       <joint name="cube_free" type="free"/>
-      <geom name="cube_geom" type="box" size="0.025 0.025 0.025" mass="0.05" rgba="0.1 0.4 0.9 1"/>
+      <geom name="cube_geom" type="box" size="0.025 0.025 0.025" mass="0.05" rgba="0.12 0.42 0.92 1"/>
     </body>
 
     <body name="goal" pos="-0.15 0.12 0.035">
-      <geom name="goal_geom" type="cylinder" size="0.04 0.005" rgba="0.1 0.8 0.25 0.45" contype="0" conaffinity="0"/>
+      <geom name="goal_geom" type="cylinder" size="0.04 0.005" rgba="0.1 0.8 0.25 0.5" contype="0" conaffinity="0"/>
     </body>
 
     <body name="eef" pos="0 -0.18 0.22">
-      <geom name="eef_geom" type="sphere" size="0.025" rgba="0.9 0.2 0.1 1"/>
+      <geom name="eef_geom" type="sphere" size="0.028" rgba="0.92 0.2 0.15 1"/>
     </body>
   </worldbody>
 </mujoco>
 """
+
 
 class PickPlaceEnv:
     def __init__(self, image_size=448):
