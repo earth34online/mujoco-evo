@@ -1,0 +1,11 @@
+# do not change max_action_dim, max_state_dim, max_views
+max_action_dim: 24
+max_state_dim: 24
+max_views: 3
+
+data_groups:
+  mujoco_pickplace:
+    MuJoCo_PickPlace_Dataset:
+      path: /home/user/mujoco+evo/Mujoco_training_dataset/MuJoCo_PickPlace_Dataset
+      view_map:
+        image_1: observation.images.image

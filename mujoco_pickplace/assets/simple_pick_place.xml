@@ -1,0 +1,24 @@
+<mujoco model="simple_pick_place">
+  <option timestep="0.02" gravity="0 0 -9.81"/>
+  <visual><global offwidth="448" offheight="448"/></visual>
+
+  <worldbody>
+    <light pos="0 0 2.5"/>
+    <camera name="front" pos="0.8 -1.0 0.7" xyaxes="1 0 0 0 0.45 0.9"/>
+
+    <geom name="table" type="box" pos="0 0 0" size="0.45 0.35 0.03" rgba="0.65 0.65 0.65 1"/>
+
+    <body name="cube" pos="0.12 -0.08 0.07">
+      <joint name="cube_free" type="free"/>
+      <geom type="box" size="0.025 0.025 0.025" mass="0.05" rgba="0.1 0.4 0.9 1"/>
+    </body>
+
+    <body name="goal" pos="-0.15 0.12 0.035">
+      <geom type="cylinder" size="0.04 0.005" rgba="0.1 0.8 0.25 0.45" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="eef" pos="0 -0.18 0.22">
+      <geom type="sphere" size="0.025" rgba="0.9 0.2 0.1 1"/>
+    </body>
+  </worldbody>
+</mujoco>

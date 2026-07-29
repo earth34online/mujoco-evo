@@ -1,0 +1,144 @@
+# =========================
+# Python cache
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# =========================
+# Python environments
+# =========================
+.env
+.venv/
+venv/
+env/
+
+# Conda environments
+conda-meta/
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS generated files
+# =========================
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+
+# =========================
+# Logs / checkpoints / datasets
+# =========================
+ckpt/
+checkpoints/
+
+logs/
+**/logs/
+
+outputs/
+**/outputs/
+
+Mujoco_training_dataset/
+mujoco_training_dataset/
+
+datasets/
+data/
+
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# =========================
+# Video / media generated
+# =========================
+*.mp4
+*.avi
+*.mov
+*.gif
+
+# =========================
+# MuJoCo generated files
+# =========================
+*.xml.bak
+*.mjb
+
+# =========================
+# MuJoCo PickPlace temporary files
+# =========================
+mujoco_pickplace/annotated/
+mujoco_pickplace/logs/
+mujoco_pickplace/outputs/
+
+
+# =========================
+# Markdown backup files
+# =========================
+markdown_encoding_backup_*/
+md/
+
+
+# =========================
+# Evo-1
+# Keep only required source files
+# =========================
+
+Evo-1/*
+
+!Evo-1/README.md
+!Evo-1/LICENSE
+!Evo-1/deepspeed_setup_example.txt
+
+!Evo-1/Evo_1/
+
+Evo-1/Evo_1/*
+
+!Evo-1/Evo_1/requirements.txt
+!Evo-1/Evo_1/ds_config.json
+
+
+# scripts
+!Evo-1/Evo_1/scripts/
+Evo-1/Evo_1/scripts/*
+
+!Evo-1/Evo_1/scripts/Evo1.py
+!Evo-1/Evo_1/scripts/Evo1_server.py
+!Evo-1/Evo_1/scripts/train.py
+
+
+# dataset code
+!Evo-1/Evo_1/dataset/
+Evo-1/Evo_1/dataset/*
+
+!Evo-1/Evo_1/dataset/__init__.py
+!Evo-1/Evo_1/dataset/config.yaml
+!Evo-1/Evo_1/dataset/lerobot_dataset_pretrain_mp.py
+
+
+# model code
+!Evo-1/Evo_1/model/
+
+Evo-1/Evo_1/model/*
+
+
+# action head
+!Evo-1/Evo_1/model/action_head/
+Evo-1/Evo_1/model/action_head/*
+
+!Evo-1/Evo_1/model/action_head/__init__.py
+!Evo-1/Evo_1/model/action_head/flow_matching.py
+
+
+# internvl3
+!Evo-1/Evo_1/model/internvl3/
+Evo-1/Evo_1/model/internvl3/*
+
+!Evo-1/Evo_1/model/internvl3/__init__.py
+!Evo-1/Evo_1/model/internvl3/internvl3_embedder.py
