@@ -15,6 +15,9 @@ PROMPT = "pick up the blue cube and place it on the green target"
 NUM_EPISODES = 10
 MAX_STEPS = 300
 ACTION_HORIZON = 1
+TASK_NAME = "task1"
+RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
+DEFAULT_VIDEO_DIR = Path("outputs/eval_videos") / RUN_ID
 
 
 def obs_to_payload(obs):
