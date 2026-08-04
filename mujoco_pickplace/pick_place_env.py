@@ -6,7 +6,11 @@ XML = """
   <compiler angle="radian"/>
   <option timestep="0.02" gravity="0 0 -9.81"/>
   <default>
-    <joint damping="4.0" armature="0.02"/>
+    <!-- damping tuned for critically-damped position control: with the stock
+         kp (600-850) a damping of 4.0 makes the arm underdamped and oscillate
+         forever (observed eef ringing of ~0.04 m per action step). damping=10
+         gives clean, non-overshooting step responses (see tune_control.py). -->
+    <joint damping="10.0" armature="0.02"/>
     <geom friction="0.8 0.1 0.1"/>
   </default>
   <visual>
@@ -124,6 +128,13 @@ class PickPlaceEnv:
         [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
         dtype=np.float64,
     )
+    # Each env.step advances CONTROL_NSTEP physics substeps (timestep=0.02s),
+    # i.e. 0.2 s of simulated time per action. The original nstep=30 (0.6 s)
+    # left the position controller in a permanent limit cycle: with an open-loop
+    # hold that long the underdamped arm kept ringing, so the rendered eef
+    # position jumped every frame (the "trembling"). nstep=10 closes the loop
+    # tight enough that the arm settles cleanly (see tune_control.py).
+    CONTROL_NSTEP = 10
 
     def __init__(self, image_size=448):
         self.model = mujoco.MjModel.from_xml_string(XML)
@@ -215,13 +226,59 @@ class PickPlaceEnv:
             self.data.qpos[self.arm_qpos_ids].copy(),
         )
         self._set_actuator_targets(arm_targets)
-        mujoco.mj_step(self.model, self.data, nstep=30)
+        mujoco.mj_step(self.model, self.data, nstep=self.CONTROL_NSTEP)
         self._update_grasp_logic()
         mujoco.mj_forward(self.model, self.data)
 
         obs = self.obs()
         done = self.success()
         return obs, done
+
+    def step_video(self, action, frames_per_step=4, cameras=("front", "overhead", "wrist")):
+        """Execute one action while rendering intermediate physics frames.
+
+        Used by the eval client to produce a smooth, natural-speed video:
+        CONTROL_NSTEP * timestep (0.2 s) of sim is spread over
+        ``frames_per_step`` rendered frames instead of a single one.
+
+        Returns (frames, obs, done) where ``frames`` is a dict
+        {camera: [np.ndarray HxWx3, ...]} with len == frames_per_step.
+        """
+        action = np.asarray(action, dtype=np.float32)
+        dpos = np.clip(action[:3], -0.03, 0.03)
+        self.gripper = float(np.clip(action[3], 0.0, 1.0))
+        current_eef = self.data.body("eef").xpos.copy()
+        self.target_eef[:] = np.clip(
+            current_eef + dpos,
+            [-0.22, -0.30, 0.07],
+            [0.20, 0.22, 0.38],
+        )
+        arm_targets = self._solve_ik(
+            self.target_eef,
+            self.data.qpos[self.arm_qpos_ids].copy(),
+        )
+        self._set_actuator_targets(arm_targets)
+
+        # NOTE: _update_grasp_logic() is intentionally only applied after the
+        # full sweep (exactly like step()) so the physics/obs are identical to
+        # what the policy was trained on. The intermediate rendered frames show
+        # the cube in its physical position.
+        sub_per_frame = max(1, self.CONTROL_NSTEP // frames_per_step)
+        frames = {cam: [] for cam in cameras}
+        step_in_sweep = 0
+        for _ in range(self.CONTROL_NSTEP):
+            mujoco.mj_step(self.model, self.data)
+            step_in_sweep += 1
+            if step_in_sweep % sub_per_frame == 0 or step_in_sweep == self.CONTROL_NSTEP:
+                mujoco.mj_forward(self.model, self.data)
+                for cam in cameras:
+                    frames[cam].append(self.render(cam).copy())
+
+        mujoco.mj_forward(self.model, self.data)
+        self._update_grasp_logic()
+        obs = self.obs()
+        done = self.success()
+        return frames, obs, done
 
     def _set_actuator_targets(self, arm_targets):
         for actuator_name, target in zip(self.arm_actuators, arm_targets):
