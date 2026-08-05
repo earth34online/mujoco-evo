@@ -1,8 +1,3 @@
-"""Legacy NPZ adapter for existing Evo-1 experiments.
-
-New demonstrations are written directly by collect_data.py in the project-owned
-mujoco-evo-episodes format and do not pass through this converter.
-"""
 from pathlib import Path
 import argparse
 import json
@@ -43,7 +38,6 @@ def write_jsonl(path, rows):
 
 
 def build_feature_map():
-    """Return per-frame features (v2.1 'features' dict + v3 'features' dict)."""
     features = {
         "observation.state": {"dtype": "float32", "shape": [10], "names": STATE_NAMES},
         "action": {"dtype": "float32", "shape": [4], "names": ACTION_NAMES},
@@ -88,10 +82,6 @@ def load_raw_episodes(raw_dir):
     episodes.sort(key=lambda e: e["index"])
     return episodes
 
-
-# ---------------------------------------------------------------------------
-# v2.1  (per-episode parquet + per-episode mp4 + jsonl meta) - what Evo-1 reads
-# ---------------------------------------------------------------------------
 def write_v21(episodes, out_dir):
     data_dir = out_dir / "data" / "chunk-000"
     meta_dir = out_dir / "meta"
@@ -168,10 +158,6 @@ def write_v21(episodes, out_dir):
     return out_dir
 
 
-# ---------------------------------------------------------------------------
-# v3.0  (consolidated chunk parquet + concatenated mp4 + parquet meta) -
-#       readable by the lerobot-main v3.0 loader in Evo-1/so100_evo1
-# ---------------------------------------------------------------------------
 def write_v30(episodes, out_dir):
     data_dir = out_dir / "data" / "chunk-000"
     meta_dir = out_dir / "meta"
@@ -216,7 +202,6 @@ def write_v30(episodes, out_dir):
 
     pd.concat(data_rows, ignore_index=True).to_parquet(data_dir / "file-000.parquet")
 
-    # --- concatenated videos per camera, recording from/to timestamps ---
     duration = 0.0
     for cam, frames_key in CAMERAS.items():
         video_dir = out_dir / "videos" / f"observation.images.{cam}" / "chunk-000"
@@ -235,7 +220,6 @@ def write_v30(episodes, out_dir):
             frames.extend(ep_frames)
         imageio.mimsave(video_dir / "file-000.mp4", frames, fps=FPS, macro_block_size=1)
 
-    # per-episode stats as flattened columns in the episodes parquet
     all_states = np.concatenate(all_states, axis=0)
     all_actions = np.concatenate(all_actions, axis=0)
     for ep in episodes:

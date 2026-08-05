@@ -1,4 +1,4 @@
-# MuJoCo Pick-and-Place Client
+﻿# MuJoCo Pick-and-Place Client
 
 This folder is the MuJoCo side of the project. It plays the same role as Evo-1's benchmark clients such as `LIBERO_evaluation/libero_client_4tasks.py`: create the simulation environment, render observations, send them to the Evo-1 server, receive action chunks, execute actions, and report rollout results.
 
@@ -20,15 +20,15 @@ inspired by LeRobot v2.1/v3 organization and LIBERO episode semantics, but is
 not labeled as an official LeRobot dataset:
 
 ```text
-../Mujoco_training_dataset/MuJoCo_Evo_Episodes/
+../Mujoco_training_dataset/MuJoCo_Panda7_Multiview_V2/
   data/chunk-000/episode_000000.parquet
-  videos/front/chunk-000/episode_000000.mp4
-  videos/overhead/chunk-000/episode_000000.mp4
-  videos/wrist/chunk-000/episode_000000.mp4
+  videos/chunk-000/observation.images.front/episode_000000.mp4
+  videos/chunk-000/observation.images.overhead/episode_000000.mp4
+  videos/chunk-000/observation.images.wrist/episode_000000.mp4
   meta/dataset.json
   meta/tasks.jsonl
   meta/episodes.jsonl
-  meta/episode_stats.jsonl
+  meta/episodes_stats.jsonl
   meta/stats.json
 ```
 
@@ -49,9 +49,9 @@ experiments. The old collector is preserved as `collect_data_legacy_npz.py`.
 Neither is the default path for new demonstrations.
 
 ```text
-/home/user/mujoco+evo/Mujoco_training_dataset/MuJoCo_PickPlace_Dataset
+/home/user/mujoco+evo/Mujoco_training_dataset/MuJoCo_Panda7_Multiview_Small
 ├── data/chunk-000/*.parquet
-├── videos/chunk-000/observation.images.image/*.mp4
+├── videos/chunk-000/observation.images.{front,overhead,wrist}/*.mp4
 └── meta/*.jsonl, *.json
 ```
 
@@ -74,7 +74,17 @@ action (50, 24) float32
 
 > Note: Evo-1 loader pads the 10-dim state and 4-dim action to 24 dimensions with zeros.
 
-## 4. Start Evo-1 Inference Server
+## 4. Train with Evo-1
+
+The Evo-1 source tree is kept unchanged. Training uses its original entry point and is not started by the cleanup/check workflow:
+
+```bash
+conda activate Evo1
+cd /home/user/mujoco+evo/Evo-1/Evo_1
+python scripts/train.py --save_dir /home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2
+```
+
+## 5. Start Evo-1 Inference Server
 
 **Terminal 1:**
 
@@ -84,13 +94,13 @@ cd /home/user/mujoco+evo/Evo-1/Evo_1
 python scripts/Evo1_server.py
 ```
 
-The current `scripts/Evo1_server.py` reads its checkpoint path internally. Make sure it points to:
+The unchanged `scripts/Evo1_server.py` reads its checkpoint path internally:
 
 ```text
-/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_final
+/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best
 ```
 
-## 5. Evaluate in MuJoCo
+## 6. Evaluate in MuJoCo
 
 **Terminal 2:**
 
@@ -105,11 +115,11 @@ Full CLI flags:
 ```text
 --server-url    WebSocket server URL
 --num-episodes  Number of evaluation episodes (default: 10)
---max-steps     Max environment steps per episode (default: 300)
---horizon       Actions to unroll per server call (default: 15, must be ≤ training horizon 50)
+--max-steps     Max environment steps per episode (default: 100)
+--horizon       Actions to unroll per server call (default: 3)
 --render        Show real-time OpenCV window (requires GUI)
 --save-video    Save each rollout as MP4 (default)
---video-dir     Output directory for videos (default: outputs/eval_videos)
+--video-dir     Output directory for videos (default: outputs/eval_videos/<timestamp>)
 ```
 
 ## Environment Summary

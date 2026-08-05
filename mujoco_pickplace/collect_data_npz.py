@@ -11,25 +11,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "raw_mujoco_panda7_multiview_small"
 NUM_EPISODES = 50
 MAX_STEPS = 80
-# Quality gates (with the tuned controller the scripted expert is smooth; these
-# only reject pathological episodes so bad data never reaches training):
-MIN_LEN = 10          # too short => probably a degenerate reset
-MAX_LEN = 120         # too long  => expert got stuck / circling
-MAX_VEL_FLIP_RATIO = 0.25  # fraction of steps where eef-x velocity flips sign
-                           # (a clean pick-place flips ~3-4 times total)
+MIN_LEN = 10          
+MAX_LEN = 120         
+MAX_VEL_FLIP_RATIO = 0.25 
 
 
 def _quality_ok(states: np.ndarray, actions: np.ndarray) -> bool:
-    """Reject jittery / stuck trajectories so training data is smooth."""
     length = len(states)
     if length < MIN_LEN or length > MAX_LEN:
         return False
 
-    vel = np.diff(states[:, :3], axis=0)  # eef per-step displacement
+    vel = np.diff(states[:, :3], axis=0)  
     if length <= 1 or np.linalg.norm(vel, axis=1).max() < 1e-6:
-        return False  # never moved
-
-    # Jitter metric: how often the eef-x velocity flips sign.
+        return False 
     sgn = np.sign(vel[:, 0])
     flips = int((np.diff(sgn) != 0).sum())
     if flips / len(vel) > MAX_VEL_FLIP_RATIO:

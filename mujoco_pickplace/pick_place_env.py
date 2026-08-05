@@ -138,16 +138,9 @@ class PickPlaceEnv:
          0.0, np.pi - 0.2, np.pi / 4.0],
         dtype=np.float64,
     )
-    # Preserve the collected data's 0.2s action period while using LIBERO's
-    # 0.002s internal simulation step. The finer integration removes the
-    # high-frequency controller reversals visible with the old 0.02s step.
     CONTROL_NSTEP = 100
-    # Bound changes in IK actuator targets between policy steps. This prevents
-    # equivalent IK branches from producing a visible wrist/elbow snap.
     MAX_JOINT_TARGET_DELTA = 0.04
 
-    # In the LIBERO Panda frame the fingers extend along local +z; at HOME_QPOS
-    # that axis points down toward the table.
     MAX_DPOS = 0.012
     FINGER_TRAVEL = 0.022
     GRASP_OFFSET = 0.055
@@ -264,15 +257,6 @@ class PickPlaceEnv:
         return obs, done
 
     def step_video(self, action, frames_per_step=4, cameras=("front", "overhead", "wrist")):
-        """Execute one action while rendering intermediate physics frames.
-
-        Used by the eval client to produce a smooth, natural-speed video:
-        CONTROL_NSTEP * timestep (0.2 s) of sim is spread over
-        ``frames_per_step`` rendered frames instead of a single one.
-
-        Returns (frames, obs, done) where ``frames`` is a dict
-        {camera: [np.ndarray HxWx3, ...]} with len == frames_per_step.
-        """
         action = np.asarray(action, dtype=np.float32)
         dpos = np.clip(action[:3], -self.MAX_DPOS, self.MAX_DPOS)
         self.gripper = float(np.clip(action[3], 0.0, 1.0))
@@ -336,12 +320,6 @@ class PickPlaceEnv:
             self.data.ctrl[self.model.actuator(actuator_name).id] = finger_target
 
     def _solve_ik(self, target, seed_q, target_z=None):
-        """Position IK using the LIBERO Panda tool axis measured at reset.
-
-        This avoids forcing the hand onto world +z, which selected the wrong
-        elbow / wrist branch. Roll remains free because this task has no rotation
-        action dimension.
-        """
         original_q = self.data.qpos[self.arm_qpos_ids].copy()
         q = np.clip(np.asarray(seed_q, dtype=np.float64), self.arm_ranges[:, 0], self.arm_ranges[:, 1])
         target = np.asarray(target, dtype=np.float64)
@@ -359,7 +337,6 @@ class PickPlaceEnv:
 
             pos_err = target - self.data.body("eef").xpos
 
-            # orientation error: rotate the eef local +z axis onto target_z
             R = self.data.xmat[self.eef_body_id].reshape(3, 3)
             current_z = R[:, 2]
             axis = np.cross(current_z, target_z)
@@ -408,7 +385,6 @@ class PickPlaceEnv:
             self.data.xfrc_applied[self.cube_body_id] = 0.0
 
     def _apply_grasp_force(self):
-        """Compliant contact grasp; applies force only after two-pad contact."""
         self.data.xfrc_applied[self.cube_body_id] = 0.0
         if not self.attached or self.gripper >= 0.5:
             return
@@ -421,7 +397,6 @@ class PickPlaceEnv:
         force = 40.0 * (target - cube) - 2.8 * cube_vel
         self.data.xfrc_applied[self.cube_body_id, :3] = np.clip(force, -4.0, 4.0)
     def _has_two_sided_grasp_contact(self):
-        """Return true only after both physical fingertip pads touch the cube."""
         cube_id = self.model.geom("cube_geom").id
         contacted = set()
         pad_names = {"left_finger_tip", "right_finger_tip"}
@@ -453,8 +428,6 @@ def scripted_expert(obs):
     gripper = state[9]
 
     safe_z = 0.18
-    # eef is GRASP_OFFSET above the finger centre; lower until the fingers reach
-    # the cube, and lower until the cube rests on the goal.
     grasp_z = cube[2] + PickPlaceEnv.GRASP_OFFSET
     place_z = 0.15  # reachable release height; cube settles onto the target
     xy_tol = 0.025
@@ -492,7 +465,6 @@ def scripted_expert(obs):
     return np.r_[dpos, grip_cmd].astype(np.float32)
 
 class ScriptedExpertPolicy:
-    """Stateful contact-aware teacher used to collect smooth demonstrations."""
 
     def __init__(self, env):
         self.env = env

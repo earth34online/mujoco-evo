@@ -1,4 +1,4 @@
-# MuJoCo + Evo-1 全流程问题修复报告
+﻿# MuJoCo + Evo-1 全流程问题修复报告
 
 ## 1. 没有 demonstration 数据采集入口
 
@@ -426,14 +426,14 @@ ACTION_HORIZON = 1
 `Evo1_server.py` 当前从以下路径加载 MuJoCo pick-and-place checkpoint：
 
 ```text
-/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_final
+/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best
 ```
 
 该目录下由训练生成的 checkpoint 文件被意外删除，导致启动 server 时出现以下错误：
 
 ```text
 FileNotFoundError: [Errno 2] No such file or directory:
-'/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_final/config.json'
+'/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best/config.json'
 ```
 
 缺失的主要文件包括：
@@ -465,10 +465,4 @@ warmup_steps=1000
 ckpt_interval=2500
 horizon=50
 finetune_action_head=true
-```
-
-额外问题：第一次重新启动训练时，`flash_attn` 加载了系统中的 `libstdc++.so.6`，但该动态库不包含所需的 `CXXABI_1.3.15`。随后改为预加载 Evo1 Conda 环境中兼容的动态库：
-
-```bash
-LD_PRELOAD=/home/user/miniconda3/envs/Evo1/lib/libstdc++.so.6
 ```
