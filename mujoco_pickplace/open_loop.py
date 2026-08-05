@@ -1,17 +1,4 @@
-# eval_open_loop.py
-#
-# 开环策略测试：加载训练好的 Evo-1 模型，对每个 episode 只做一次推理，
-# 得到 action chunk 后【不回传观测】整段执行，判断：
-#   1) 模型生成的 action chunk 本身是否平滑（抖动是否来自模型）；
-#   2) 开环执行该 chunk 是否让任务有进展 / 成功。
-#
-# 这个脚本不启动 websocket server，直接进程内加载模型推理，
-# 需要 Evo1 conda 环境（有 torch + InternVL3-1B + CUDA）。
-#
-# 用法（WSL Evo1 环境）：
-#   MUJOCO_GL=egl /home/user/miniconda3/envs/Evo1/bin/python eval_open_loop.py \
-#       --ckpt <dir> --num-episodes 8
-#
+# 开环测试
 import argparse
 import os
 import sys
@@ -60,12 +47,6 @@ def infer_chunk(model, normalizer, obs):
 
 
 def action_jitter_metrics(chunk):
-    """How jumpy is the model's action chunk on its own?
-
-    Reports position (dx,dy,dz) and gripper (dim 3) jitter separately, because a
-    binary-ish gripper inflates the all-dims mean and hides whether the *arm*
-    motion is actually smooth.
-    """
     rows = chunk[:, :4]
     pos = rows[:, :3]
     grp = rows[:, 3]
@@ -102,7 +83,6 @@ def main():
         horizon = chunk.shape[0]
         jit = action_jitter_metrics(chunk)
 
-        # open-loop: execute the whole chunk without re-inference
         ee = [obs["state"][:3].copy()]
         done = False
         for i in range(horizon):

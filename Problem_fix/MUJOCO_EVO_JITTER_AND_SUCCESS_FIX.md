@@ -1,4 +1,4 @@
-# MuJoCo + Evo-1 抖动 / 成功率 / 视频差异 修复报告
+﻿# MuJoCo + Evo-1 抖动 / 成功率 / 视频差异 修复报告
 
 记录针对三个问题（机械手颤动、正确率偏低、视频与 LIBERO 差异大）的排查流程与修改。
 
@@ -34,8 +34,8 @@ dx 连续方向翻转 = 2~6 / 9
 
 | 项 | 原值 | 新值 | 说明 |
 |---|---|---|---|
-| joint damping | 4.0 | **10.0** | 临界阻尼，消除极限环震荡（`tune_control.py` 扫描验证） |
-| nstep | 30 (0.6s/动作) | **10 (0.2s/动作)** | 闭环更紧，动作→位移映射可靠 |
+| joint damping | 4.0 | **40.0** | 临界阻尼，消除极限环震荡（historical tuning script 扫描验证） |
+| nstep | 30 (0.6s/动作) | **100 (0.2s/动作)** | 闭环更紧，动作→位移映射可靠 |
 
 参数扫描结果：`(damping=4, nstep=30)` 单命令误差 0.0084、保持漂移 0.044；
 `(damping=10, nstep=10)` 误差 0.0028、保持漂移 0.0054。
@@ -46,12 +46,12 @@ dx 连续方向翻转 = 2~6 / 9
 ## 3. 数据层（collect_data.py / convert_to_evo_lerobot.py）
 
 - `collect_data.py`：加 argparse + 质量门（成功、长度 10-120、eef 速度翻转比、动作范围），
-  用固定控制重采了 **100 个干净 episode**（`raw_mujoco_panda7_multiview_fixed`）。
+  用固定控制重采了 **100 个干净 episode**（`current MuJoCo_Panda7_Multiview_V2 collection`）。
   数据 action mean-abs-diff 从旧的 0.0177 降到 ~0.003-0.007。
 - `convert_to_evo_lerobot.py`：输出标准 **LeRobot v2.1**（Evo-1 loader 必需）+
   可选 **v3.0**（与 `so100_evo1/lerobot-main` 一致），`meta/info.json` 完整 schema
   （`codebase_version`, `robot_type: panda`, features 含 `video_info` 等）。
-- 新数据集：`Mujoco_training_dataset/MuJoCo_Panda7_Multiview_Clean`（100 集）。
+- 新数据集：`Mujoco_training_dataset/MuJoCo_Panda7_Multiview_V2`（100 集）。
   `check_dataset.py` 验证 2712 个 horizon=50 窗口可加载。
 
 ### 重要坑：LeRobot 窗口缓存
@@ -63,7 +63,7 @@ loader 会**静默复用旧数据的窗口样本**。重训前必须清空。
 
 ## 4. 训练
 
-`mujoco_pickplace/train_fixed.sh`：
+Evo-1 original `Evo-1/Evo_1/scripts/train.py`：
 - 干净数据 + horizon=10 + per_action_dim=24 + 4000 步
 - `LD_PRELOAD=/home/user/miniconda3/envs/Evo1/lib/libstdc++.so.6`（flash_attn 需要
   CXXABI_1.3.15，系统 libstdc++ 没有）

@@ -79,7 +79,6 @@ def merge_feature_stats(rows, key):
 
 
 class EpisodeDatasetWriter:
-    """Write project-native episodes with LeRobot-like indexing and LIBERO semantics."""
 
     def __init__(self, root, fps=5.0, chunk_size=1000, image_size=448):
         self.root = Path(root)
@@ -91,7 +90,7 @@ class EpisodeDatasetWriter:
         self.meta_dir.mkdir(parents=True, exist_ok=True)
         self.dataset_path = self.meta_dir / "dataset.json"
         self.episodes_path = self.meta_dir / "episodes.jsonl"
-        self.episode_stats_path = self.meta_dir / "episode_stats.jsonl"
+        self.episode_stats_path = self.meta_dir / "episodes_stats.jsonl"
         self.stats_path = self.meta_dir / "stats.json"
         self.tasks_path = self.meta_dir / "tasks.jsonl"
         self._initialize_metadata()
@@ -128,7 +127,7 @@ class EpisodeDatasetWriter:
                 "source_policy": "stateful contact-aware scripted expert",
                 "layout": {
                     "data": "data/chunk-{chunk_index:03d}/episode_{episode_index:06d}.parquet",
-                    "video": "videos/{camera}/chunk-{chunk_index:03d}/episode_{episode_index:06d}.mp4",
+                    "video": "videos/chunk-{chunk_index:03d}/observation.images.{camera}/episode_{episode_index:06d}.mp4",
                 },
                 "features": {
                     "observation.state": {
@@ -172,7 +171,7 @@ class EpisodeDatasetWriter:
         stem = f"episode_{episode_index:06d}"
         data = self.root / "data" / f"chunk-{chunk_index:03d}" / f"{stem}.parquet"
         videos = {
-            camera: self.root / "videos" / camera / f"chunk-{chunk_index:03d}" / f"{stem}.mp4"
+            camera: self.root / "videos" / f"chunk-{chunk_index:03d}" / f"observation.images.{camera}" / f"{stem}.mp4"
             for camera in CAMERAS
         }
         return chunk_index, data, videos

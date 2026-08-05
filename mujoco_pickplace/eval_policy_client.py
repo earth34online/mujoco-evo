@@ -13,10 +13,7 @@ SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
 NUM_EPISODES = 10
 MAX_STEPS = 100
-# Replan before the noisy tail of each 10-step model chunk. The local action
-# diagnostic shows most adjacent reversals occur later in the chunk.
 ACTION_HORIZON = 3
-# Match the scripted expert / collected-data range and limit action acceleration.
 MAX_POSITION_DELTA = 0.012
 MAX_DELTA_CHANGE = 0.004
 REVERSAL_DEADBAND = 0.0005
@@ -25,9 +22,6 @@ TASK_NAME = "task1"
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 DEFAULT_VIDEO_DIR = Path("outputs/eval_videos") / RUN_ID
 VIDEO_FPS = 20
-# Frames rendered per action for a natural-speed video. Each env.step advances
-# CONTROL_NSTEP * timestep = 0.2 s of simulation; spreading it over this many
-# frames and saving at VIDEO_FPS gives ~real-time playback.
 FRAMES_PER_STEP = 4
 
 
@@ -39,9 +33,6 @@ def obs_to_payload(obs):
         obs["image_wrist"],
     ]
     return {
-        # Mirror what the LIBERO client does: MuJoCo/renderer gives RGB, the
-        # server decodes with cv2.cvtColor(BGR2RGB), so we send the flipped
-        # (BGR) array and let the server restore RGB.
         "image": [image[..., ::-1].astype(np.uint8).tolist() for image in images],
         "image_mask": [1, 1, 1],
         "state": state.astype(float).tolist(),
@@ -51,7 +42,6 @@ def obs_to_payload(obs):
 
 
 def compose_video_frame(views):
-    """Stack camera views side-by-side (LIBERO-style video layout)."""
     return np.hstack(views)
 
 
@@ -104,12 +94,6 @@ def save_video(frames, path, fps=VIDEO_FPS):
 
 
 def apply_gripper_hysteresis(raw_gripper, prev_gripper):
-    """Convert the model's noisy gripper into a stable open/close command.
-
-    The flow-matching head outputs a continuous gripper that flaps around 0.5
-    (measured mean|dd| ~0.2-0.36), which would otherwise open/close the fingers
-    every step. Only switch on a strong signal; otherwise hold the last state.
-    """
     if raw_gripper > 0.7:
         return 1.0
     if raw_gripper < 0.3:
@@ -127,13 +111,6 @@ def smooth_positions(
     max_delta_change=MAX_DELTA_CHANGE,
     reversal_deadband=REVERSAL_DEADBAND,
 ):
-    """Bound and rate-limit model deltas before they reach the controller.
-
-    Evo-1 emits a 10-step chunk. Diagnostics found adjacent direction reversals
-    inside the raw chunk, so this filter applies a causal low-pass followed by
-    an acceleration limit. Starting from zero also ramps the first command in
-    instead of applying a full position step.
-    """
     bounded = np.clip(
         np.asarray(raw, dtype=np.float32),
         -max_position_delta,
@@ -148,8 +125,6 @@ def smooth_positions(
         max_delta_change,
     )
 
-    # Suppress isolated one-step reversals. A persistent reverse command is
-    # allowed on the following step after the previous direction reaches zero.
     prev_norm = np.linalg.norm(prev)
     if prev_norm > reversal_deadband:
         prev_direction = prev / prev_norm

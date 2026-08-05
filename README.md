@@ -1,4 +1,4 @@
-# MuJoCo + Evo-1 Pick-and-Place Demo
+﻿# MuJoCo + Evo-1 Pick-and-Place Demo
 
 This repository is a minimal end-to-end demo for:
 
@@ -36,26 +36,26 @@ __pycache__/
 ```bash
 conda activate mujoco
 cd /home/user/mujoco+evo/mujoco_pickplace
-python collect_data.py --raw-dir /home/user/mujoco+evo/Mujoco_training_dataset/raw_mujoco_panda7_multiview_fixed --num-episodes 100 --max-steps 80
+python collect_data.py
 ```
 
 `collect_data.py` runs `scripted_expert()` in `pick_place_env.py` and only keeps
 episodes that succeed AND pass quality gates (smooth, no wild action spikes).
 This keeps the training data clean: the current controller is critically damped
-(`joint damping=10`, `CONTROL_NSTEP=10`, i.e. 0.2 s of sim per action) so the
+(`joint damping=40`, `CONTROL_NSTEP=100`, i.e. 0.2 s of sim per action) so the
 recorded arm motion is smooth and non-overshooting.
 
 > Note: the original controller (`damping=4.0`, `nstep=30` = 0.6 s open-loop
 > hold) was underdamped and made the arm ring permanently — every rendered
 > frame showed the eef at a random point of the oscillation, which is the
-> "trembling" seen in old videos. `tune_control.py` documents the fix.
+> "trembling" seen in old videos. The historical tuning script has been removed; the current controller is in `pick_place_env.py`.
 
 ## 2. Convert Data to LeRobot v2.1 / v3.0
 
 ```bash
 conda activate mujoco
 cd /home/user/mujoco+evo/mujoco_pickplace
-python convert_to_evo_lerobot.py --raw-dir .../raw_mujoco_panda7_multiview_fixed --out-dir .../MuJoCo_Panda7_Multiview_Clean --format both
+python convert_to_evo_lerobot.py
 ```
 
 - `--format v21` (default): LeRobot **v2.1** layout with a standards-compliant
@@ -69,7 +69,7 @@ python convert_to_evo_lerobot.py --raw-dir .../raw_mujoco_panda7_multiview_fixed
 The training config points at:
 
 ```text
-Evo-1/Evo_1/dataset/config.yaml  ->  .../MuJoCo_Panda7_Multiview_Clean
+Evo-1/Evo_1/dataset/config.yaml  ->  .../MuJoCo_Panda7_Multiview_V2
 ```
 
 > IMPORTANT: the LeRobot window cache is keyed by the config *name*, not the
@@ -81,7 +81,7 @@ Evo-1/Evo_1/dataset/config.yaml  ->  .../MuJoCo_Panda7_Multiview_Clean
 
 ```bash
 conda activate Evo1
-cd /home/user/mujoco+evo/mujoco_pickplace
+cd /home/user/mujoco+evo/Evo-1/Evo_1
 python check_dataset.py
 ```
 
@@ -97,17 +97,14 @@ The raw MuJoCo state/action are smaller, then padded by the Evo-1 loader to 24 d
 
 ## 4. Train with Evo-1
 
-Run training from the Evo-1 directory (see `mujoco_pickplace/train_fixed.sh`):
+Use Evo-1 original `train.py`; the MuJoCo wrapper scripts were removed and the Evo-1 tree is unchanged:
 
 ```bash
 conda activate Evo1
-cd /home/user/mujoco+evo/mujoco_pickplace
-bash train_fixed.sh          # or run the accelerate launch it wraps
+cd /home/user/mujoco+evo/Evo-1/Evo_1
+python scripts/train.py --save_dir /home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2
 ```
 
-`train_fixed.sh` exports `LD_PRELOAD=/home/user/miniconda3/envs/Evo1/lib/libstdc++.so.6`
-(the system libstdc++ lacks `CXXABI_1.3.15` for flash_attn) and trains on the
-clean dataset with `horizon=10`, `per_action_dim=24`, `max_steps=4000`.
 
 ## 5. Open-Loop Policy Test (before closed-loop eval)
 
@@ -134,10 +131,10 @@ Terminal 1:
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/Evo-1/Evo_1
-python scripts/Evo1_server.py --ckpt-dir /home/user/mujoco+evo/ckpt/<run>/step_best --port 9000
+python scripts/Evo1_server.py
 ```
 
-`--ckpt-dir` selects which checkpoint to serve.
+The unchanged server defaults to `/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best`; use `--ckpt-dir` when serving another checkpoint.
 
 ## 7. Evaluate in MuJoCo (closed loop)
 
