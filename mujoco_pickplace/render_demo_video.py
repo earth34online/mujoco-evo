@@ -14,7 +14,7 @@ import imageio.v2 as imageio
 import numpy as np
 
 os.environ["MUJOCO_GL"] = "egl"
-from pick_place_env import PickPlaceEnv, scripted_expert
+from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 
 
 def compose(views):
@@ -27,12 +27,13 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for seed in range(3):
+        expert = ScriptedExpertPolicy(env)
         obs = env.reset(seed=seed)
         frames = [compose([obs["image_front"], obs["image_overhead"], obs["image_wrist"]])]
         done = False
         step = 0
-        while not done and step < 80:
-            action = scripted_expert(obs)
+        while not done and step < 140:
+            action = expert(obs)
             views, obs, done = env.step_video(action, frames_per_step=4)
             for k in range(len(views["front"])):
                 frames.append(compose([views["front"][k], views["overhead"][k], views["wrist"][k]]))

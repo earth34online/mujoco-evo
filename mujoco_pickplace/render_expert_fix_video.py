@@ -6,10 +6,10 @@ os.environ["MUJOCO_GL"] = "egl"
 import imageio.v2 as imageio
 import numpy as np
 
-from pick_place_env import PickPlaceEnv, scripted_expert
+from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 
 
-OUTPUT = Path("outputs/demo_videos/expert_libero_wrist_small_palm_seed0.mp4")
+OUTPUT = Path("outputs/demo_videos/expert_stateful_contact_smooth_seed0.mp4")
 
 
 def compose(views):
@@ -18,13 +18,14 @@ def compose(views):
 
 def main():
     env = PickPlaceEnv()
+    expert = ScriptedExpertPolicy(env)
     obs = env.reset(seed=0)
     frames = [compose([obs["image_front"], obs["image_overhead"], obs["image_wrist"]])]
     had_two_pad_contact = False
     done = False
 
     for step in range(100):
-        views, obs, done = env.step_video(scripted_expert(obs), frames_per_step=4)
+        views, obs, done = env.step_video(expert(obs), frames_per_step=4)
         had_two_pad_contact |= env.attached
         for index in range(len(views["front"])):
             frames.append(compose([

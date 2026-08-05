@@ -4,7 +4,6 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-import imageio.v2 as imageio
 import numpy as np
 import websockets
 from pick_place_env import PickPlaceEnv
@@ -14,10 +13,13 @@ SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
 NUM_EPISODES = 10
 MAX_STEPS = 100
-# How many actions of each received chunk to execute before asking the server
-# again. Must be <= the model's horizon (10 for the h10 checkpoint; set to the
-# model horizon for maximum closed-loop stability, or 1 for tightest feedback).
-ACTION_HORIZON = 10
+# Replan before the noisy tail of each 10-step model chunk. The local action
+# diagnostic shows most adjacent reversals occur later in the chunk.
+ACTION_HORIZON = 3
+# Match the scripted expert / collected-data range and limit action acceleration.
+MAX_POSITION_DELTA = 0.012
+MAX_DELTA_CHANGE = 0.004
+REVERSAL_DEADBAND = 0.0005
 TASK_ID = 1
 TASK_NAME = "task1"
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -63,8 +65,12 @@ def parse_args():
     parser.add_argument("--smooth", action="store_true", default=True,
                         help="Exponentially smooth the executed position deltas.")
     parser.add_argument("--no-smooth", dest="smooth", action="store_false")
-    parser.add_argument("--smooth-alpha", type=float, default=0.6,
-                        help="Smoothing factor: 1.0 = no smoothing, lower = more smoothing.")
+    parser.add_argument("--smooth-alpha", type=float, default=0.25,
+                        help="Causal action low-pass factor; lower is smoother.")
+    parser.add_argument("--max-position-delta", type=float, default=MAX_POSITION_DELTA,
+                        help="Per-axis action bound, matched to the collected expert data.")
+    parser.add_argument("--max-delta-change", type=float, default=MAX_DELTA_CHANGE,
+                        help="Maximum per-axis change between consecutive executed deltas.")
     parser.add_argument("--render", action="store_true", help="Show the composed three-camera view.")
     parser.add_argument("--save-video", dest="save_video", action="store_true", default=True)
     parser.add_argument("--no-save-video", dest="save_video", action="store_false")
@@ -91,6 +97,8 @@ def save_video(frames, path, fps=VIDEO_FPS):
         return
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    import imageio.v2 as imageio
+
     imageio.mimsave(path, frames, fps=fps, macro_block_size=1)
     print(f"Video saved: {path} ({len(frames)} frames)", flush=True)
 
@@ -111,16 +119,45 @@ def apply_gripper_hysteresis(raw_gripper, prev_gripper):
 
 
 
-def smooth_positions(raw, prev, alpha=0.5):
-    """Light exponential smoothing of the position deltas to damp model jitter.
+def smooth_positions(
+    raw,
+    prev,
+    alpha=0.25,
+    max_position_delta=MAX_POSITION_DELTA,
+    max_delta_change=MAX_DELTA_CHANGE,
+    reversal_deadband=REVERSAL_DEADBAND,
+):
+    """Bound and rate-limit model deltas before they reach the controller.
 
-    ``raw`` is the model's dpos (delta). If ``prev`` is None (first action of the
-    episode), the raw delta is used unchanged.
+    Evo-1 emits a 10-step chunk. Diagnostics found adjacent direction reversals
+    inside the raw chunk, so this filter applies a causal low-pass followed by
+    an acceleration limit. Starting from zero also ramps the first command in
+    instead of applying a full position step.
     """
+    bounded = np.clip(
+        np.asarray(raw, dtype=np.float32),
+        -max_position_delta,
+        max_position_delta,
+    )
     if prev is None:
-        return raw, raw
-    smoothed = alpha * raw + (1.0 - alpha) * prev
-    return smoothed, smoothed
+        prev = np.zeros(3, dtype=np.float32)
+    low_pass = alpha * bounded + (1.0 - alpha) * prev
+    filtered = prev + np.clip(
+        low_pass - prev,
+        -max_delta_change,
+        max_delta_change,
+    )
+
+    # Suppress isolated one-step reversals. A persistent reverse command is
+    # allowed on the following step after the previous direction reaches zero.
+    prev_norm = np.linalg.norm(prev)
+    if prev_norm > reversal_deadband:
+        prev_direction = prev / prev_norm
+        reverse_component = float(np.dot(filtered, prev_direction))
+        if reverse_component < 0.0:
+            filtered = filtered - reverse_component * prev_direction
+
+    return filtered.astype(np.float32), filtered.astype(np.float32)
 
 
 async def main():
@@ -141,7 +178,7 @@ async def main():
             done = False
             executed_steps = 0
             gripper_state = 1.0
-            prev_smooth = None  # previous smoothed dpos (delta, not absolute)
+            prev_smooth = np.zeros(3, dtype=np.float32)
             frames = [compose_video_frame([obs["image_front"], obs["image_overhead"], obs["image_wrist"]])]
             render_enabled = maybe_show(frames[0], render_enabled)
 
@@ -170,7 +207,19 @@ async def main():
                     action[3] = gripper_state
                     # light position smoothing to damp residual model jitter
                     if args.smooth:
-                        action[:3], prev_smooth = smooth_positions(action[:3], prev_smooth, alpha=args.smooth_alpha)
+                        action[:3], prev_smooth = smooth_positions(
+                            action[:3],
+                            prev_smooth,
+                            alpha=args.smooth_alpha,
+                            max_position_delta=args.max_position_delta,
+                            max_delta_change=args.max_delta_change,
+                        )
+                    else:
+                        action[:3] = np.clip(
+                            action[:3],
+                            -args.max_position_delta,
+                            args.max_position_delta,
+                        )
 
                     if args.save_video:
                         frames_in, obs, done = env.step_video(action, frames_per_step=FRAMES_PER_STEP)
