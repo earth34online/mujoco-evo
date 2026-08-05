@@ -1,4 +1,3 @@
-# do not change max_action_dim, max_state_dim, max_views
 max_action_dim: 24
 max_state_dim: 24
 max_views: 3
@@ -6,9 +5,6 @@ max_views: 3
 data_groups:
   mujoco_pickplace:
     MuJoCo_PickPlace_Dataset:
-      # V2 scene: two-finger gripper (red fingertips), 40mm cube clamped between
-      # the fingers, orientation-constrained IK, and a grasp-tracking side camera.
-      # Collected with the fixed critically-damped controller (damping=10, nstep=10).
       path: /home/user/mujoco+evo/Mujoco_training_dataset/MuJoCo_Panda7_Multiview_V2
       view_map:
         image_1: observation.images.front

@@ -1,7 +1,5 @@
 ﻿# MuJoCo + Evo-1 Pick-and-Place Demo
 
-This repository is a minimal end-to-end demo for:
-
 ```text
 MuJoCo pick-and-place task
 -> scripted expert data collection
@@ -10,8 +8,6 @@ MuJoCo pick-and-place task
 -> Evo-1 websocket inference server
 -> MuJoCo rollout evaluation
 ```
-
-The goal is not to rewrite Evo-1. MuJoCo only replaces the benchmark environment/client layer, similar to how Evo-1 uses `LIBERO_evaluation/libero_client_4tasks.py` or `MetaWorld_evaluation/mt50_evo1_client_prompt.py`.
 
 ## Repository Layout
 
@@ -38,12 +34,6 @@ conda activate mujoco
 cd /home/user/mujoco+evo/mujoco_pickplace
 python collect_data.py
 ```
-
-`collect_data.py` runs `scripted_expert()` in `pick_place_env.py` and only keeps
-episodes that succeed AND pass quality gates (smooth, no wild action spikes).
-This keeps the training data clean: the current controller is critically damped
-(`joint damping=40`, `CONTROL_NSTEP=100`, i.e. 0.2 s of sim per action) so the
-recorded arm motion is smooth and non-overshooting.
 
 > Note: the original controller (`damping=4.0`, `nstep=30` = 0.6 s open-loop
 > hold) was underdamped and made the arm ring permanently — every rendered
@@ -93,8 +83,6 @@ state: [24]
 action: [50, 24]
 ```
 
-The raw MuJoCo state/action are smaller, then padded by the Evo-1 loader to 24 dimensions.
-
 ## 4. Train with Evo-1
 
 Use Evo-1 original `train.py`; the MuJoCo wrapper scripts were removed and the Evo-1 tree is unchanged:
@@ -102,11 +90,11 @@ Use Evo-1 original `train.py`; the MuJoCo wrapper scripts were removed and the E
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/Evo-1/Evo_1
-python scripts/train.py --save_dir /home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2
+python scripts/train.py
 ```
 
 
-## 5. Open-Loop Policy Test (before closed-loop eval)
+## 5. Open-Loop Policy Test (before closed-loop eval) (choice)
 
 Before wiring up the websocket loop, check whether the *model's own actions*
 are smooth (isolates model jitter from control jitter):
@@ -114,15 +102,8 @@ are smooth (isolates model jitter from control jitter):
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/mujoco_pickplace
-MUJOCO_GL=egl python eval_open_loop.py --ckpt /home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best --num-episodes 8
+MUJOCO_GL=egl python eval_open_loop.py
 ```
-
-It feeds one observation, generates the action chunk, then executes the whole
-chunk open-loop. The position jitter (`pos` metric) of the trained model is
-~0.008-0.014 (the old under-trained model measured 0.05-0.13).
-
-Result (step_best, 4000 steps on the clean data): closed-loop success **6/10
-(0.60)** on the eval client vs 0/10 for the old model.
 
 ## 6. Start Evo-1 Inference Server
 
@@ -134,8 +115,6 @@ cd /home/user/mujoco+evo/Evo-1/Evo_1
 python scripts/Evo1_server.py
 ```
 
-The unchanged server defaults to `/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best`; use `--ckpt-dir` when serving another checkpoint.
-
 ## 7. Evaluate in MuJoCo (closed loop)
 
 Terminal 2:
@@ -143,14 +122,5 @@ Terminal 2:
 ```bash
 conda activate mujoco
 cd /home/user/mujoco+evo/mujoco_pickplace
-python eval_policy_client.py --horizon 10 --save-video
-```
-
-The eval client executes `--horizon` actions of each received chunk, then
-re-infers. Videos are rendered with `PickPlaceEnv.step_video`, which spreads the
-0.2 s per action over several rendered frames, so playback is ~real-time and
-smooth (the old videos advanced 0.6 s per frame at 30 fps = 6x and jumped).
-
-```text
-mujoco_pickplace/outputs/eval_videos/
+python eval_policy_client.py
 ```
