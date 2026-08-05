@@ -136,7 +136,7 @@ async def handle_request(websocket, model, normalizer):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evo-1 websocket inference server.")
     parser.add_argument("--ckpt-dir", type=str,
-                        default="/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best",
+                        default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best",
                         help="Checkpoint directory containing config.json + norm_stats.json + mp_rank_00_model_states.pt")
     parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()

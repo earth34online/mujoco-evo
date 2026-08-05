@@ -66,7 +66,7 @@ def main():
     parser = argparse.ArgumentParser(description="Open-loop Evo-1 policy test in MuJoCo.")
     parser.add_argument("--ckpt", type=str,
                         default=os.path.join(PROJECT_ROOT, "ckpt",
-                                             "evo1_mujoco_panda7_multiview_h10_clean_ds", "step_best"))
+                                             "evo1_mujoco_pickplace_stage1", "step_best"))
     parser.add_argument("--num-episodes", type=int, default=8)
     parser.add_argument("--seed-base", type=int, default=1000)
     args = parser.parse_args()

@@ -53,8 +53,7 @@ def trajectory_quality(states, actions, joint_targets, had_two_pad_contact):
         and metrics["eef_reversals"] <= MAX_EEF_REVERSALS
         and metrics["max_action_jump"] <= MAX_ACTION_JUMP
         and metrics["max_eef_step"] <= MAX_EEF_STEP
-        and metrics["max_joint_target_delta"]
-        <= PickPlaceEnv.MAX_JOINT_TARGET_DELTA + 1e-8
+        and metrics["max_joint_target_delta"] <= PickPlaceEnv.MAX_JOINT_TARGET_DELTA + 1e-8
     )
     return accepted, metrics
 
@@ -200,13 +199,13 @@ def main():
         env.renderer.close()
 
     print(
-        f"Collected {saved} smooth episodes; rejected {rejected}; "
+        f"Collected {saved} episodes; "
         f"dataset={args.dataset_dir.resolve()}",
         flush=True,
     )
     if saved < args.num_episodes:
         raise RuntimeError(
-            f"Only {saved}/{args.num_episodes} episodes passed quality gates "
+            f"Only {saved}/{args.num_episodes} episodes passed "
             f"within {max_attempts} attempts"
         )
 
