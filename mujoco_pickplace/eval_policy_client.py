@@ -109,6 +109,8 @@ def apply_gripper_hysteresis(raw_gripper, prev_gripper):
     return prev_gripper
 
 
+
+
 def smooth_positions(raw, prev, alpha=0.5):
     """Light exponential smoothing of the position deltas to damp model jitter.
 

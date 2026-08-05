@@ -19,7 +19,7 @@ export LD_PRELOAD=/home/user/miniconda3/envs/Evo1/lib/libstdc++.so.6
 
 accelerate launch --num_processes 1 --num_machines 1 --use_deepspeed --deepspeed_config_file ds_config.json \
     scripts/train.py \
-    --run_name Evo1_mujoco_panda7_h10_clean_v2 \
+    --run_name Evo1_mujoco_panda7_v2 \
     --action_head flowmatching \
     --use_augmentation \
     --lr 3e-5 \
@@ -38,4 +38,4 @@ accelerate launch --num_processes 1 --num_machines 1 --use_deepspeed --deepspeed
     --dataset_config_path dataset/config.yaml \
     --per_action_dim 24 \
     --state_dim 24 \
-    --save_dir /home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2
+    --save_dir /home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_v2

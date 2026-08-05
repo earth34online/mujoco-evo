@@ -37,6 +37,7 @@ Thumbs.db
 # Logs / checkpoints / datasets
 # =========================
 checkpoints/
+ckpt/
 
 logs/
 **/logs/
