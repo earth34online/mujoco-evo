@@ -171,7 +171,9 @@ class LeRobotDataset(Dataset):
 
 
         if cache_dir is None:
-            self.cache_dir = Path("/home/user/code/lintao/Evo_1/training_data_cache/")
+            self.cache_dir = (
+                Path(__file__).resolve().parents[1] / "training_data_cache" / f"horizon_{action_horizon}"
+            )
         else:
             self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)

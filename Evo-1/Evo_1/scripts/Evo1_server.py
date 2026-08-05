@@ -64,7 +64,9 @@ def load_model_and_normalizer(ckpt_dir):
 
     config["finetune_vlm"] = False
     config["finetune_action_head"] = False
-    config["num_inference_timesteps"] = 32
+    # 64 ODE steps gives a smoother flow-matching integration than the default 32
+    # (fewer residual direction reversals in the generated action chunk).
+    config["num_inference_timesteps"] = 64
 
     model = EVO1(config).eval()
     ckpt_path = os.path.join(ckpt_dir, "mp_rank_00_model_states.pt")
@@ -132,11 +134,16 @@ async def handle_request(websocket, model, normalizer):
 
 
 if __name__ == "__main__":
-    ckpt_dir = "/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_final"
-    #Example: ckpt_dir = "/home/user/checkpoints/Evo1/Evo1_MetaWorld/"
-    
-    port = 9000
-    
+    parser = argparse.ArgumentParser(description="Evo-1 websocket inference server.")
+    parser.add_argument("--ckpt-dir", type=str,
+                        default="/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best",
+                        help="Checkpoint directory containing config.json + norm_stats.json + mp_rank_00_model_states.pt")
+    parser.add_argument("--port", type=int, default=9000)
+    args = parser.parse_args()
+
+    ckpt_dir = args.ckpt_dir
+    port = args.port
+
     print("Loading EVO_1 model...")
     model, normalizer = load_model_and_normalizer(ckpt_dir)
     
