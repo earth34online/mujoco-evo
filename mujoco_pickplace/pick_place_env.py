@@ -4,13 +4,12 @@ import mujoco
 XML = """
 <mujoco model="handwritten_panda_pick_place">
   <compiler angle="radian"/>
-  <option timestep="0.02" gravity="0 0 -9.81"/>
+  <option timestep="0.002" gravity="0 0 -9.81"/>
   <default>
-    <!-- damping tuned for critically-damped position control: with the stock
-         kp (600-850) a damping of 4.0 makes the arm underdamped and oscillate
-         forever (observed eef ringing of ~0.04 m per action step). damping=10
-         gives clean, non-overshooting step responses (see tune_control.py). -->
-    <joint damping="10.0" armature="0.02"/>
+    <!-- Match LIBERO's 2ms physics integration. With this handwritten
+         position-actuated Panda, damping=40 removes substep direction reversals
+         while retaining enough authority for the scripted grasp. -->
+    <joint damping="40.0" armature="0.02"/>
     <geom friction="0.8 0.1 0.1"/>
   </default>
   <visual>
@@ -139,15 +138,17 @@ class PickPlaceEnv:
          0.0, np.pi - 0.2, np.pi / 4.0],
         dtype=np.float64,
     )
-    # Each env.step advances CONTROL_NSTEP physics substeps (timestep=0.02s),
-    # i.e. 0.2 s of simulated time per action. The original nstep=30 (0.6 s)
-    # left the position controller in a permanent limit cycle: with an open-loop
-    # hold that long the underdamped arm kept ringing, so the rendered eef
-    # position jumped every frame (the "trembling"). nstep=10 closes the loop
-    # tight enough that the arm settles cleanly (see tune_control.py).
-    CONTROL_NSTEP = 10
+    # Preserve the collected data's 0.2s action period while using LIBERO's
+    # 0.002s internal simulation step. The finer integration removes the
+    # high-frequency controller reversals visible with the old 0.02s step.
+    CONTROL_NSTEP = 100
+    # Bound changes in IK actuator targets between policy steps. This prevents
+    # equivalent IK branches from producing a visible wrist/elbow snap.
+    MAX_JOINT_TARGET_DELTA = 0.04
+
     # In the LIBERO Panda frame the fingers extend along local +z; at HOME_QPOS
     # that axis points down toward the table.
+    MAX_DPOS = 0.012
     FINGER_TRAVEL = 0.022
     GRASP_OFFSET = 0.055
     TABLE_TOP = 0.03
@@ -177,13 +178,17 @@ class PickPlaceEnv:
         self.attached = False
         self.tool_z_ref = np.array([0.0, 0.0, -1.0], dtype=np.float64)
         self.target_eef = np.array([0.105, -0.18, 0.225], dtype=np.float64)
+        self.arm_target = self.HOME_QPOS.copy()
 
     def reset(self, seed=None):
         rng = np.random.default_rng(seed)
         mujoco.mj_resetData(self.model, self.data)
 
-        cube_xy = rng.uniform([-0.18, -0.12], [0.18, 0.05])
-        goal_xy = rng.uniform([-0.18, 0.08], [0.18, 0.18])
+        # LIBERO-style placement sampling stays inside the robot's validated
+        # task workspace. Sampling the whole table creates unreachable scenes,
+        # which are reset failures rather than useful expert demonstrations.
+        cube_xy = rng.uniform([0.025, -0.10], [0.085, -0.045])
+        goal_xy = rng.uniform([-0.15, 0.08], [-0.06, 0.13])
         self.model.body("goal").pos[:] = [goal_xy[0], goal_xy[1], 0.035]
 
         cube_qadr = self.model.joint("cube_free").qposadr[0]
@@ -203,6 +208,7 @@ class PickPlaceEnv:
 
         self.gripper = 1.0
         self.attached = False
+        self.arm_target = arm_targets.copy()
         self._set_actuator_targets(arm_targets)
         self._apply_grasp_force()
         mujoco.mj_forward(self.model, self.data)
@@ -234,7 +240,7 @@ class PickPlaceEnv:
 
     def step(self, action):
         action = np.asarray(action, dtype=np.float32)
-        dpos = np.clip(action[:3], -0.03, 0.03)
+        dpos = np.clip(action[:3], -self.MAX_DPOS, self.MAX_DPOS)
         self.gripper = float(np.clip(action[3], 0.0, 1.0))
 
         current_eef = self.data.body("eef").xpos.copy()
@@ -245,7 +251,7 @@ class PickPlaceEnv:
         )
         arm_targets = self._solve_ik(
             self.target_eef,
-            self.data.qpos[self.arm_qpos_ids].copy(),
+            self.arm_target.copy(),
         )
         self._set_actuator_targets(arm_targets)
         self._apply_grasp_force()
@@ -268,7 +274,7 @@ class PickPlaceEnv:
         {camera: [np.ndarray HxWx3, ...]} with len == frames_per_step.
         """
         action = np.asarray(action, dtype=np.float32)
-        dpos = np.clip(action[:3], -0.03, 0.03)
+        dpos = np.clip(action[:3], -self.MAX_DPOS, self.MAX_DPOS)
         self.gripper = float(np.clip(action[3], 0.0, 1.0))
         current_eef = self.data.body("eef").xpos.copy()
         self.target_eef[:] = np.clip(
@@ -278,7 +284,7 @@ class PickPlaceEnv:
         )
         arm_targets = self._solve_ik(
             self.target_eef,
-            self.data.qpos[self.arm_qpos_ids].copy(),
+            self.arm_target.copy(),
         )
         self._set_actuator_targets(arm_targets)
         self._apply_grasp_force()
@@ -287,14 +293,18 @@ class PickPlaceEnv:
         # full sweep (exactly like step()) so the physics/obs are identical to
         # what the policy was trained on. The intermediate rendered frames show
         # the cube in its physical position.
-        sub_per_frame = max(1, self.CONTROL_NSTEP // frames_per_step)
+        render_count = min(max(1, frames_per_step), self.CONTROL_NSTEP)
+        render_steps = set(np.linspace(
+            1,
+            self.CONTROL_NSTEP,
+            num=render_count,
+            dtype=int,
+        ))
         frames = {cam: [] for cam in cameras}
-        step_in_sweep = 0
-        for _ in range(self.CONTROL_NSTEP):
+        for step_in_sweep in range(1, self.CONTROL_NSTEP + 1):
             self._apply_grasp_force()
             mujoco.mj_step(self.model, self.data)
-            step_in_sweep += 1
-            if step_in_sweep % sub_per_frame == 0 or step_in_sweep == self.CONTROL_NSTEP:
+            if step_in_sweep in render_steps:
                 mujoco.mj_forward(self.model, self.data)
                 for cam in cameras:
                     frames[cam].append(self.render(cam).copy())
@@ -306,6 +316,18 @@ class PickPlaceEnv:
         return frames, obs, done
 
     def _set_actuator_targets(self, arm_targets):
+        arm_targets = np.asarray(arm_targets, dtype=np.float64)
+        arm_targets = self.arm_target + np.clip(
+            arm_targets - self.arm_target,
+            -self.MAX_JOINT_TARGET_DELTA,
+            self.MAX_JOINT_TARGET_DELTA,
+        )
+        arm_targets = np.clip(
+            arm_targets,
+            self.arm_ranges[:, 0],
+            self.arm_ranges[:, 1],
+        )
+        self.arm_target = arm_targets.copy()
         for actuator_name, target in zip(self.arm_actuators, arm_targets):
             self.data.ctrl[self.model.actuator(actuator_name).id] = target
 
@@ -328,6 +350,8 @@ class PickPlaceEnv:
         target_z = np.asarray(target_z, dtype=np.float64)
         target_z = target_z / (np.linalg.norm(target_z) + 1e-12)
         identity = np.eye(len(self.arm_joints))
+        best_q = q.copy()
+        best_cost = np.inf
 
         for _ in range(80):
             self.data.qpos[self.arm_qpos_ids] = q
@@ -348,7 +372,13 @@ class PickPlaceEnv:
                 ori_err = axis * np.arctan2(s, c)
 
             if np.linalg.norm(pos_err) < 5e-4 and np.linalg.norm(ori_err) < 1e-3:
+                best_q = q.copy()
                 break
+
+            cost = np.linalg.norm(pos_err) + 0.05 * np.linalg.norm(ori_err)
+            if cost < best_cost:
+                best_cost = cost
+                best_q = q.copy()
 
             jacp = np.zeros((3, self.model.nv), dtype=np.float64)
             jacr = np.zeros((3, self.model.nv), dtype=np.float64)
@@ -360,12 +390,12 @@ class PickPlaceEnv:
             delta = jac_pinv @ error
             nullspace = identity - jac_pinv @ jac
             delta += nullspace @ (0.01 * (self.HOME_QPOS - q))
-            q += np.clip(delta, -0.14, 0.14)
+            q += np.clip(delta, -0.08, 0.08)
             q = np.clip(q, self.arm_ranges[:, 0], self.arm_ranges[:, 1])
 
         self.data.qpos[self.arm_qpos_ids] = original_q
         mujoco.mj_forward(self.model, self.data)
-        return q
+        return best_q
 
     def _update_grasp_logic(self):
         eef = self.data.body("eef").xpos.copy()
@@ -460,3 +490,94 @@ def scripted_expert(obs):
 
     dpos = np.clip(target - eef, -0.012, 0.012)
     return np.r_[dpos, grip_cmd].astype(np.float32)
+
+class ScriptedExpertPolicy:
+    """Stateful contact-aware teacher used to collect smooth demonstrations."""
+
+    def __init__(self, env):
+        self.env = env
+        self.phase = "approach"
+        self.phase_steps = 0
+        self.previous_dpos = np.zeros(3, dtype=np.float32)
+
+    def _set_phase(self, phase):
+        if phase != self.phase:
+            self.phase = phase
+            self.phase_steps = 0
+            self.previous_dpos[:] = 0.0
+
+    def _move(self, target, gripper):
+        eef = self.env.data.body("eef").xpos.copy()
+        error = np.asarray(target, dtype=np.float64) - eef
+        distance = np.linalg.norm(error)
+        if distance < 1e-8:
+            raw = np.zeros(3, dtype=np.float64)
+        else:
+            raw = error * (min(self.env.MAX_DPOS, 0.65 * distance) / distance)
+
+        low_pass = 0.45 * raw + 0.55 * self.previous_dpos
+        dpos = self.previous_dpos + np.clip(
+            low_pass - self.previous_dpos, -0.004, 0.004
+        )
+        self.previous_dpos = dpos.astype(np.float32)
+        return np.r_[self.previous_dpos, gripper].astype(np.float32)
+
+    def __call__(self, obs):
+        self.phase_steps += 1
+        state = obs["state"]
+        eef, cube, goal = state[:3], state[3:6], state[6:9]
+        safe_z = 0.18
+        grasp_z = cube[2] + self.env.GRASP_OFFSET
+        place_z = 0.15
+
+        if self.phase == "approach":
+            target = np.array([cube[0], cube[1], safe_z])
+            if np.linalg.norm(eef - target) < 0.014:
+                self._set_phase("descend")
+                target = np.array([cube[0], cube[1], grasp_z])
+            return self._move(target, 1.0)
+
+        if self.phase == "descend":
+            target = np.array([cube[0], cube[1], grasp_z])
+            if (np.linalg.norm(eef[:2] - cube[:2]) < 0.012 and
+                    eef[2] - cube[2] < 0.073):
+                self._set_phase("close")
+                return self._move(eef, 0.0)
+            return self._move(target, 1.0)
+
+        if self.phase == "close":
+            if self.env.attached:
+                self._set_phase("lift")
+                return self._move(np.array([eef[0], eef[1], safe_z]), 0.0)
+            if self.phase_steps > 8:
+                self._set_phase("approach")
+                return self._move(np.array([cube[0], cube[1], safe_z]), 1.0)
+            return self._move(eef, 0.0)
+
+        if self.phase == "lift":
+            target = np.array([eef[0], eef[1], safe_z])
+            if eef[2] > safe_z - 0.012:
+                self._set_phase("transfer")
+                target = np.array([goal[0], goal[1], safe_z])
+            return self._move(target, 0.0)
+
+        if self.phase == "transfer":
+            target = np.array([goal[0], goal[1], safe_z])
+            if np.linalg.norm(eef - target) < 0.014:
+                self._set_phase("lower")
+                target = np.array([goal[0], goal[1], place_z])
+            return self._move(target, 0.0)
+
+        if self.phase == "lower":
+            target = np.array([goal[0], goal[1], place_z])
+            if np.linalg.norm(eef - target) < 0.010:
+                self._set_phase("release")
+                return self._move(eef, 1.0)
+            return self._move(target, 0.0)
+
+        if self.phase == "release":
+            if self.phase_steps >= 3:
+                self._set_phase("settle")
+            return self._move(eef, 1.0)
+
+        return self._move(eef, 1.0)

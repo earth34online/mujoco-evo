@@ -1,3 +1,8 @@
+"""Legacy NPZ adapter for existing Evo-1 experiments.
+
+New demonstrations are written directly by collect_data.py in the project-owned
+mujoco-evo-episodes format and do not pass through this converter.
+"""
 from pathlib import Path
 import argparse
 import json
@@ -11,7 +16,8 @@ from tqdm import tqdm
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "raw_mujoco_panda7_multiview_small"
 OUT_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "MuJoCo_Panda7_Multiview_Small"
-FPS = 20
+# One saved frame corresponds to one 0.2-second environment action.
+FPS = 5
 TASK = "pick up the blue cube and place it on the green target"
 ROBOT_TYPE = "panda"
 CAMERAS = {

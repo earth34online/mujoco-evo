@@ -22,7 +22,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EVO_ROOT = os.path.join(PROJECT_ROOT, "Evo-1", "Evo_1")
 sys.path.insert(0, EVO_ROOT)
 
-from pick_place_env import PickPlaceEnv, scripted_expert
+from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 from scripts.Evo1_server import load_model_and_normalizer, decode_image_from_list
 
 PROMPT = "pick up the blue cube and place it on the green target"
@@ -68,10 +68,11 @@ def main():
         model_chunk = infer_chunk(model, normalizer, obs)
 
         # expert 10 步 chunk：滚动执行 expert，收集前 10 个动作
+        expert = ScriptedExpertPolicy(env)
         expert_actions = []
         o = obs
         for _ in range(10):
-            a = scripted_expert(o)
+            a = expert(o)
             expert_actions.append(a)
             o, _ = env.step(a)
         expert_chunk = np.array(expert_actions)

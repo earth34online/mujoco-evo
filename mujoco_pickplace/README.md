@@ -4,20 +4,39 @@ This folder is the MuJoCo side of the project. It plays the same role as Evo-1's
 
 ## 1. Collect Data
 
+`collect_data.py` uses the stateful, contact-aware scripted expert. This
+expert is a teacher that generates demonstrations; it is not a visualization
+of an already-trained Evo-1 checkpoint.
+
+
 ```bash
 conda activate mujoco
 cd /home/user/mujoco+evo/mujoco_pickplace
 python collect_data.py
 ```
 
-Defaults are `NUM_EPISODES = 100` and `MAX_STEPS = 300` per episode. Output:
+New episodes use the project-owned `mujoco-evo-episodes/1.0` format. It is
+inspired by LeRobot v2.1/v3 organization and LIBERO episode semantics, but is
+not labeled as an official LeRobot dataset:
 
 ```text
-../Mujoco_training_dataset/raw_mujoco_pickplace/episode_000000.npz
-../Mujoco_training_dataset/raw_mujoco_pickplace/episode_000001.npz
+../Mujoco_training_dataset/MuJoCo_Evo_Episodes/
+  data/chunk-000/episode_000000.parquet
+  videos/front/chunk-000/episode_000000.mp4
+  videos/overhead/chunk-000/episode_000000.mp4
+  videos/wrist/chunk-000/episode_000000.mp4
+  meta/dataset.json
+  meta/tasks.jsonl
+  meta/episodes.jsonl
+  meta/episode_stats.jsonl
+  meta/stats.json
 ```
 
-## 2. Convert Data
+Only successful two-pad-contact episodes passing smoothness gates are saved.
+Writes are atomic and existing episodes are appended, never overwritten. One
+action spans 0.2 seconds, so per-action videos and rows are both 5 FPS.
+
+## 2. Legacy NPZ Conversion
 
 ```bash
 conda activate mujoco
@@ -25,7 +44,9 @@ cd /home/user/mujoco+evo/mujoco_pickplace
 python convert_to_evo_lerobot.py
 ```
 
-Converted dataset path (referenced by `Evo-1/Evo_1/dataset/config.yaml`):
+The converter below remains for existing NPZ archives and legacy Evo-1
+experiments. The old collector is preserved as `collect_data_legacy_npz.py`.
+Neither is the default path for new demonstrations.
 
 ```text
 /home/user/mujoco+evo/Mujoco_training_dataset/MuJoCo_PickPlace_Dataset

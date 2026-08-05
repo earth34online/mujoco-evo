@@ -4,99 +4,211 @@ import argparse
 import numpy as np
 from tqdm import tqdm
 
-from pick_place_env import PickPlaceEnv, scripted_expert
+from episode_dataset import CAMERAS, EpisodeDatasetWriter
+from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-RAW_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "raw_mujoco_panda7_multiview_small"
+DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "MuJoCo_Evo_Episodes"
 NUM_EPISODES = 50
-MAX_STEPS = 80
-# Quality gates (with the tuned controller the scripted expert is smooth; these
-# only reject pathological episodes so bad data never reaches training):
-MIN_LEN = 10          # too short => probably a degenerate reset
-MAX_LEN = 120         # too long  => expert got stuck / circling
-MAX_VEL_FLIP_RATIO = 0.25  # fraction of steps where eef-x velocity flips sign
-                           # (a clean pick-place flips ~3-4 times total)
+MAX_STEPS = 140
+MIN_LEN = 20
+MAX_ACTION_REVERSALS = 4
+MAX_EEF_REVERSALS = 6
+MAX_ACTION_JUMP = 0.018
+MAX_EEF_STEP = 0.025
 
 
-def _quality_ok(states: np.ndarray, actions: np.ndarray) -> bool:
-    """Reject jittery / stuck trajectories so training data is smooth."""
-    length = len(states)
-    if length < MIN_LEN or length > MAX_LEN:
-        return False
+def _reversal_count(vectors, motion_epsilon=1e-5):
+    vectors = np.asarray(vectors, dtype=np.float64)
+    if len(vectors) < 2:
+        return 0
+    moving = np.linalg.norm(vectors, axis=1) > motion_epsilon
+    valid = moving[1:] & moving[:-1]
+    dots = np.sum(vectors[1:] * vectors[:-1], axis=1)
+    return int(np.sum(valid & (dots < -motion_epsilon ** 2)))
 
-    vel = np.diff(states[:, :3], axis=0)  # eef per-step displacement
-    if length <= 1 or np.linalg.norm(vel, axis=1).max() < 1e-6:
-        return False  # never moved
 
-    # Jitter metric: how often the eef-x velocity flips sign.
-    sgn = np.sign(vel[:, 0])
-    flips = int((np.diff(sgn) != 0).sum())
-    if flips / len(vel) > MAX_VEL_FLIP_RATIO:
-        return False
+def trajectory_quality(states, actions, joint_targets, had_two_pad_contact):
+    eef_delta = np.diff(states[:, :3], axis=0)
+    action_delta = np.diff(actions[:, :3], axis=0)
+    metrics = {
+        "two_pad_contact": bool(had_two_pad_contact),
+        "action_reversals": _reversal_count(actions[:, :3]),
+        "eef_reversals": _reversal_count(eef_delta),
+        "max_action_jump": float(
+            np.max(np.linalg.norm(action_delta, axis=1))
+        ) if len(action_delta) else 0.0,
+        "max_eef_step": float(
+            np.max(np.linalg.norm(eef_delta, axis=1))
+        ) if len(eef_delta) else 0.0,
+        "max_joint_target_delta": float(
+            np.max(np.abs(np.diff(joint_targets, axis=0)))
+        ) if len(joint_targets) > 1 else 0.0,
+    }
+    accepted = (
+        len(states) >= MIN_LEN
+        and had_two_pad_contact
+        and metrics["action_reversals"] <= MAX_ACTION_REVERSALS
+        and metrics["eef_reversals"] <= MAX_EEF_REVERSALS
+        and metrics["max_action_jump"] <= MAX_ACTION_JUMP
+        and metrics["max_eef_step"] <= MAX_EEF_STEP
+        and metrics["max_joint_target_delta"]
+        <= PickPlaceEnv.MAX_JOINT_TARGET_DELTA + 1e-8
+    )
+    return accepted, metrics
 
-    # No wild action spikes beyond the expert's clip range.
-    if np.abs(actions[:, :3]).max() > 0.026 + 1e-6:
-        return False
-    return True
+
+def remove_redundant_static_frames(trajectory):
+    states = np.asarray(trajectory["states"])
+    actions = np.asarray(trajectory["actions"])
+    phases = trajectory["phases"]
+    dones = trajectory["dones"]
+    keep = [0]
+    protected_phases = {"close", "release", "settle"}
+
+    for index in range(1, len(states)):
+        previous = keep[-1]
+        static = (
+            index != len(states) - 1
+            and phases[index] not in protected_phases
+            and phases[index] == phases[previous]
+            and np.linalg.norm(states[index, :9] - states[previous, :9]) < 2e-5
+            and np.linalg.norm(actions[index, :3]) < 5e-5
+            and abs(float(actions[index, 3] - actions[previous, 3])) < 1e-6
+            and not dones[index]
+        )
+        if not static:
+            keep.append(index)
+
+    compact = {
+        key: [values[index] for index in keep]
+        for key, values in trajectory.items()
+        if key != "images"
+    }
+    compact["images"] = {
+        camera: [trajectory["images"][camera][index] for index in keep]
+        for camera in CAMERAS
+    }
+    return compact, len(states) - len(keep)
+
+
+def collect_attempt(env, seed, max_steps):
+    obs = env.reset(seed=seed)
+    expert = ScriptedExpertPolicy(env)
+    trajectory = {
+        "states": [],
+        "actions": [],
+        "phases": [],
+        "dones": [],
+        "joint_targets": [],
+        "images": {camera: [] for camera in CAMERAS},
+    }
+    done = False
+    had_two_pad_contact = False
+
+    for _ in range(max_steps):
+        phase = expert.phase
+        action = expert(obs)
+        trajectory["states"].append(obs["state"].copy())
+        trajectory["actions"].append(action.copy())
+        trajectory["phases"].append(phase)
+        for camera in CAMERAS:
+            trajectory["images"][camera].append(obs[f"image_{camera}"].copy())
+
+        obs, done = env.step(action)
+        had_two_pad_contact |= env.attached
+        trajectory["dones"].append(done)
+        trajectory["joint_targets"].append(env.arm_target.copy())
+        if done:
+            break
+
+    arrays = {
+        "states": np.asarray(trajectory["states"], dtype=np.float32),
+        "actions": np.asarray(trajectory["actions"], dtype=np.float32),
+        "joint_targets": np.asarray(trajectory["joint_targets"], dtype=np.float64),
+    }
+    accepted, quality = trajectory_quality(
+        arrays["states"],
+        arrays["actions"],
+        arrays["joint_targets"],
+        had_two_pad_contact,
+    )
+    accepted = bool(done and accepted)
+    quality["success"] = bool(done)
+    quality["raw_length"] = len(trajectory["states"])
+    return trajectory, accepted, quality
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Collect scripted pick-and-place demonstrations.")
-    parser.add_argument("--raw-dir", type=str, default=str(RAW_DIR))
+    parser = argparse.ArgumentParser(
+        description="Collect smooth contact-aware demonstrations in the project dataset format."
+    )
+    parser.add_argument("--dataset-dir", type=Path, default=DATASET_DIR)
     parser.add_argument("--num-episodes", type=int, default=NUM_EPISODES)
     parser.add_argument("--max-steps", type=int, default=MAX_STEPS)
+    parser.add_argument("--max-attempts", type=int, default=None)
+    parser.add_argument("--start-seed", type=int, default=0)
+    parser.add_argument("--image-size", type=int, default=448)
     args = parser.parse_args()
-    raw_dir = Path(args.raw_dir)
 
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    env = PickPlaceEnv()
+    max_attempts = args.max_attempts
+    if max_attempts is None:
+        max_attempts = max(args.num_episodes * 20, args.num_episodes)
+
+    env = PickPlaceEnv(image_size=args.image_size)
+    action_period = env.model.opt.timestep * env.CONTROL_NSTEP
+    writer = EpisodeDatasetWriter(
+        args.dataset_dir,
+        fps=1.0 / action_period,
+        image_size=args.image_size,
+    )
     saved = 0
-    seed = 0
     rejected = 0
+    seed = args.start_seed
 
-    with tqdm(total=args.num_episodes) as progress:
-        while saved < args.num_episodes:
-            obs = env.reset(seed=seed)
-            seed += 1
-            front_images, overhead_images, wrist_images = [], [], []
-            states, actions = [], []
-            done = False
-
-            for _ in range(args.max_steps):
-                action = scripted_expert(obs)
-                front_images.append(obs["image_front"])
-                overhead_images.append(obs["image_overhead"])
-                wrist_images.append(obs["image_wrist"])
-                states.append(obs["state"])
-                actions.append(action)
-
-                obs, done = env.step(action)
-                if done and len(actions) > MIN_LEN:
+    try:
+        with tqdm(total=args.num_episodes, desc="accepted episodes") as progress:
+            for _ in range(max_attempts):
+                if saved >= args.num_episodes:
                     break
+                trajectory, accepted, quality = collect_attempt(
+                    env, seed=seed, max_steps=args.max_steps
+                )
+                attempt_seed = seed
+                seed += 1
+                if not accepted:
+                    rejected += 1
+                    continue
 
-            states = np.asarray(states, dtype=np.float32)
-            actions = np.asarray(actions, dtype=np.float32)
+                compact, removed = remove_redundant_static_frames(trajectory)
+                quality["removed_static_frames"] = removed
+                row = writer.write_episode(
+                    states=compact["states"],
+                    actions=compact["actions"],
+                    images=compact["images"],
+                    phases=compact["phases"],
+                    dones=compact["dones"],
+                    seed=attempt_seed,
+                    quality=quality,
+                    success=True,
+                )
+                writer.validate_episode(row["episode_index"])
+                saved += 1
+                progress.update(1)
+    finally:
+        env.renderer.close()
 
-            if not done:
-                rejected += 1
-                continue
-            if not _quality_ok(states, actions):
-                rejected += 1
-                continue
-
-            np.savez_compressed(
-                raw_dir / f"episode_{saved:06d}.npz",
-                images_front=np.asarray(front_images, dtype=np.uint8),
-                images_overhead=np.asarray(overhead_images, dtype=np.uint8),
-                images_wrist=np.asarray(wrist_images, dtype=np.uint8),
-                states=states,
-                actions=actions,
-            )
-            saved += 1
-            progress.update(1)
-
-    print(f"\nCollected {saved} episodes (rejected {rejected}) -> {raw_dir}", flush=True)
+    print(
+        f"Collected {saved} smooth episodes; rejected {rejected}; "
+        f"dataset={args.dataset_dir.resolve()}",
+        flush=True,
+    )
+    if saved < args.num_episodes:
+        raise RuntimeError(
+            f"Only {saved}/{args.num_episodes} episodes passed quality gates "
+            f"within {max_attempts} attempts"
+        )
 
 
 if __name__ == "__main__":
