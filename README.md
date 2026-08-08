@@ -3,28 +3,28 @@
 ```text
 MuJoCo pick-and-place task
 -> scripted expert data collection
--> Evo-1/LeRobot-style dataset conversion
+-> LeRobot-style parquet/mp4/meta dataset in cache/
 -> Evo-1 DeepSpeed training
 -> Evo-1 websocket inference server
 -> MuJoCo rollout evaluation
 ```
 
+## Current Canonical State
+
+- Dataset root: `/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace`
+- No `npz` intermediate pipeline remains.
+- `collect_data.py` writes the final dataset directly.
+- Training uses `accelerate launch --use_deepspeed` with `Evo-1/Evo_1/scripts/train.py`.
+- Server default checkpoint: `/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best`
+- Evaluation client saves videos under `mujoco_pickplace/outputs/eval_videos/<timestamp>/task1/`
+
 ## Repository Layout
 
 ```text
-mujoco_pickplace/                 MuJoCo task, data collection, conversion, evaluation client
+mujoco_pickplace/                 MuJoCo task, data collection, dataset check, evaluation client
 Evo-1/Evo_1/                      Minimal Evo-1 files needed for training/server inference
-.gitignore                        Excludes datasets, checkpoints, videos, caches, logs
-```
-
-Generated data and training outputs are intentionally not tracked:
-
-```text
-Mujoco_training_dataset/
-ckpt/
-mujoco_pickplace/outputs/
-mujoco_pickplace/logs/
-__pycache__/
+Mujoco_training_dataset/cache/     Current canonical dataset location
+ckpt/                              Training checkpoint outputs
 ```
 
 ## 1. Collect MuJoCo Demonstrations
@@ -35,43 +35,19 @@ cd /home/user/mujoco+evo/mujoco_pickplace
 python collect_data.py
 ```
 
-> Note: the original controller (`damping=4.0`, `nstep=30` = 0.6 s open-loop
-> hold) was underdamped and made the arm ring permanently — every rendered
-> frame showed the eef at a random point of the oscillation, which is the
-> "trembling" seen in old videos. The historical tuning script has been removed; the current controller is in `pick_place_env.py`.
-
-## 2. Convert Data to LeRobot v2.1 / v3.0
-
-```bash
-conda activate mujoco
-cd /home/user/mujoco+evo/mujoco_pickplace
-python convert_to_evo_lerobot.py
-```
-
-- `--format v21` (default): LeRobot **v2.1** layout with a standards-compliant
-  `meta/info.json` (`codebase_version: v2.1`, `robot_type: panda`, features
-  schema). This is what the Evo-1 loader requires.
-- `--format v30`: LeRobot **v3.0** consolidated layout (shared chunk parquet +
-  concatenated videos + parquet meta), readable by the lerobot-main in
-  `Evo-1/so100_evo1/lerobot-main`.
-- `--format both`: write both.
-
-The training config points at:
+This writes direct LeRobot-like episodes to:
 
 ```text
-Evo-1/Evo_1/dataset/config.yaml  ->  .../MuJoCo_Panda7_Multiview_V2
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
 ```
 
-> IMPORTANT: the LeRobot window cache is keyed by the config *name*, not the
-> dataset path. When switching to a different dataset, delete
-> `Mujoco_training_dataset/cache/mujoco_pickplace/mujoco_pickplace/MuJoCo_PickPlace_Dataset`
-> before training, otherwise the loader reuses stale windows.
+The old npz collection and conversion scripts have been removed.
 
-## 3. Check Evo-1 Dataset Loading
+## 2. Check Evo-1 Dataset Loading
 
 ```bash
 conda activate Evo1
-cd /home/user/mujoco+evo/Evo-1/Evo_1
+cd /home/user/mujoco+evo/mujoco_pickplace
 python check_dataset.py
 ```
 
@@ -83,31 +59,27 @@ state: [24]
 action: [50, 24]
 ```
 
-## 4. Train with Evo-1
-
-Use Evo-1 original `train.py`; the MuJoCo wrapper scripts were removed and the Evo-1 tree is unchanged:
+## 3. Train with Evo-1
 
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/Evo-1/Evo_1
-python scripts/train.py
+accelerate launch --num_processes 1 --num_machines 1 --deepspeed_config_file ds_config.json scripts/train.py \
+  --run_name Your_own_name --action_head flowmatching --use_augmentation --lr 1e-5 --dropout 0.2 \
+  --weight_decay 1e-3 --batch_size 16 --image_size 448 --max_steps 5000 \
+  --log_interval 10 --ckpt_interval 2500 --warmup_steps 1000 --grad_clip_norm 1.0 \
+  --num_layers 8 --horizon 50 --finetune_vlm --finetune_action_head --disable_wandb \
+  --vlm_name OpenGVLab/InternVL3-1B --dataset_config_path dataset/config.yaml \
+  --per_action_dim 24 --state_dim 24 --save_dir /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1
 ```
 
+Default checkpoint root:
 
-## 5. Open-Loop Policy Test (before closed-loop eval) (choice)
-
-Before wiring up the websocket loop, check whether the *model's own actions*
-are smooth (isolates model jitter from control jitter):
-
-```bash
-conda activate Evo1
-cd /home/user/mujoco+evo/mujoco_pickplace
-MUJOCO_GL=egl python eval_open_loop.py
+```text
+/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1
 ```
 
-## 6. Start Evo-1 Inference Server
-
-Terminal 1:
+## 4. Start Evo-1 Inference Server
 
 ```bash
 conda activate Evo1
@@ -115,12 +87,11 @@ cd /home/user/mujoco+evo/Evo-1/Evo_1
 python scripts/Evo1_server.py
 ```
 
-## 7. Evaluate in MuJoCo (closed loop)
-
-Terminal 2:
+## 5. Evaluate in MuJoCo
 
 ```bash
 conda activate mujoco
 cd /home/user/mujoco+evo/mujoco_pickplace
 python eval_policy_client.py
 ```
+
