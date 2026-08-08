@@ -229,21 +229,8 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
         "config": config,
     } if accelerator.is_main_process else {} 
 
-    try:
-        model_engine.save_checkpoint(save_dir, tag=tag, client_state=client_state)
-    except AttributeError:
-        # accelerator did not wrap the model in a DeepSpeedEngine (e.g. the
-        # --use_deepspeed flag was omitted). Fall back to a plain torch.save so
-        # training never dies on checkpointing. The layout {module: state_dict}
-        # matches what Evo1_server.py expects (DeepSpeed's mp_rank_00_model_states.pt).
-        logging.warning("DeepSpeed engine not detected; falling back to plain torch.save.")
-        if accelerator.is_main_process:
-            os.makedirs(checkpoint_dir, exist_ok=True)
-            torch.save(
-                {"module": model_engine.state_dict()},
-                os.path.join(checkpoint_dir, "mp_rank_00_model_states.pt"),
-            )
-
+    model_engine.save_checkpoint(save_dir, tag=tag, client_state=client_state)
+    
     if accelerator.is_main_process:
         if config is not None:
             config_path = os.path.join(checkpoint_dir, "config.json")

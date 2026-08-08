@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -13,7 +14,7 @@ SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
 NUM_EPISODES = 10
 MAX_STEPS = 100
-ACTION_HORIZON = 3
+ACTION_HORIZON = 10
 MAX_POSITION_DELTA = 0.012
 MAX_DELTA_CHANGE = 0.004
 REVERSAL_DEADBAND = 0.0005
@@ -23,6 +24,13 @@ RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 DEFAULT_VIDEO_DIR = Path("outputs/eval_videos") / RUN_ID
 VIDEO_FPS = 20
 FRAMES_PER_STEP = 4
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+log = logging.getLogger(__name__)
 
 
 def obs_to_payload(obs):
@@ -142,7 +150,7 @@ async def main():
     render_enabled = args.render
     video_root = Path(args.video_dir)
 
-    print(f"========= Start task{TASK_ID}: {PROMPT} =========", flush=True)
+    log.info(f"\n========= Start task{TASK_ID}: {PROMPT} =========")
 
     async with websockets.connect(args.server_url, max_size=100_000_000) as ws:
         for ep in range(args.num_episodes):
@@ -165,11 +173,7 @@ async def main():
                 result = await ws.recv()
                 try:
                     action_chunk = np.asarray(json.loads(result), dtype=np.float32)
-                    print(
-                        f"[Step {executed_steps}] recivied actions "
-                        f"(shape={action_chunk.shape}, gripper={float(action_chunk[0][3])})",
-                        flush=True,
-                    )
+                    print(f"[Step {executed_steps}] recivied actions (shape={action_chunk.shape})", flush=True)
                 except Exception as exc:
                     print(f"Action parsing failed: {exc}, content: {result}", flush=True)
                     break
@@ -223,13 +227,14 @@ async def main():
 
             success_count += int(done)
             total_steps += executed_steps
-            result_text = "Success" if done else "Fail"
-            print(f"Task {TASK_ID - 1} | Episode {ep + 1}: {result_text}", flush=True)
+            result_text = "✅ Success" if done else "❌ Fail"
+            log.info(f"Task {TASK_ID - 1} | Episode {ep + 1}: {result_text}")
 
-        print("\n========= Overall Task Summary =========", flush=True)
-        print(f"Total Successful Episodes: {success_count}/{args.num_episodes}", flush=True)
-        print(f"Average Steps: {total_steps / max(args.num_episodes, 1):.2f}", flush=True)
-        print(f"success_rate={success_count / max(args.num_episodes, 1):.3f}", flush=True)
+        log.info(f"========= Task {TASK_ID} Summary: {success_count}/{args.num_episodes} Successful =========")
+        log.info("\n========= Overall Task Summary =========")
+        log.info(f"✅ Total Successful Episodes: {success_count}/{args.num_episodes}")
+        log.info(f"📊 Average Steps: {total_steps / max(args.num_episodes, 1):.2f}")
+        log.info(f"success_rate={success_count / max(args.num_episodes, 1):.3f}")
 
 
 if __name__ == "__main__":

@@ -63,7 +63,7 @@ Evo-1 原训练 loader 需要 LeRobot/Evo-1 风格目录，包括 parquet、vide
 ### 修改文件
 
 ```text
-/home/user/mujoco+evo/mujoco_pickplace/convert_to_evo_lerobot.py
+/home/user/mujoco+evo/mujoco_pickplace/removed npz conversion script
 ```
 
 ### 修改前
@@ -71,7 +71,7 @@ Evo-1 原训练 loader 需要 LeRobot/Evo-1 风格目录，包括 parquet、vide
 只有：
 
 ```text
-Mujoco_training_dataset/raw_mujoco_pickplace/episode_*.npz
+Mujoco_training_dataset/cache/mujoco_pickplace/data/chunk-000/episode_*.parquet
 ```
 
 ### 修改后
@@ -426,14 +426,14 @@ ACTION_HORIZON = 1
 `Evo1_server.py` 当前从以下路径加载 MuJoCo pick-and-place checkpoint：
 
 ```text
-/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best
+/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
 ```
 
 该目录下由训练生成的 checkpoint 文件被意外删除，导致启动 server 时出现以下错误：
 
 ```text
 FileNotFoundError: [Errno 2] No such file or directory:
-'/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best/config.json'
+'/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best/config.json'
 ```
 
 缺失的主要文件包括：
@@ -466,3 +466,60 @@ ckpt_interval=2500
 horizon=50
 finetune_action_head=true
 ```
+## Current Canonical State (2026-08-06)
+
+The current project no longer uses an npz intermediate dataset pipeline. The removed files include `mujoco_pickplace/collect_data_npz.py` and `mujoco_pickplace/convert_to_evo_lerobot.py`.
+
+Current data flow:
+
+```text
+mujoco_pickplace/collect_data.py
+-> /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
+-> Evo-1/Evo_1/dataset/config.yaml
+-> Evo-1/Evo_1/scripts/train.py
+```
+
+Canonical dataset layout:
+
+```text
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/data/chunk-000/episode_*.parquet
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/videos/chunk-000/observation.images.front/episode_*.mp4
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/videos/chunk-000/observation.images.overhead/episode_*.mp4
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/videos/chunk-000/observation.images.wrist/episode_*.mp4
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/dataset.json
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/tasks.jsonl
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/episodes.jsonl
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/episodes_stats.jsonl
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/stats.json
+```
+
+Current training command:
+
+```bash
+conda activate Evo1
+cd /home/user/mujoco+evo/Evo-1/Evo_1
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch --use_deepspeed --num_processes 1 --num_machines 1 --deepspeed_config_file ds_config.json scripts/train.py
+```
+
+Do not use `python scripts/train.py` for training unless `train.py` is changed back to a non-DeepSpeed save path. The current Evo-1-style checkpoint save calls `model_engine.save_checkpoint(...)`, so `--use_deepspeed` is required.
+
+Current inference/evaluation commands:
+
+```bash
+conda activate Evo1
+cd /home/user/mujoco+evo/Evo-1/Evo_1
+python scripts/Evo1_server.py
+```
+
+```bash
+conda activate mujoco
+cd /home/user/mujoco+evo/mujoco_pickplace
+python eval_policy_client.py
+```
+
+Default checkpoint used by the server:
+
+```text
+/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+```
+

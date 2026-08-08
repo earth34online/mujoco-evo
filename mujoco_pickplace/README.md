@@ -1,6 +1,14 @@
 ﻿# MuJoCo Pick-and-Place Client
 
-This folder is the MuJoCo side of the project. It plays the same role as Evo-1's benchmark clients: create the environment, render observations, send them to the Evo-1 server, receive action chunks, execute actions, and report rollout results.
+This folder is the MuJoCo side of the project. It creates the environment, collects demonstration data, checks Evo-1 dataset loading, sends observations to the Evo-1 server, and renders evaluation rollouts.
+
+## Current Canonical State
+
+- Dataset root: `/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace`
+- No `npz` collection or conversion step remains.
+- `collect_data.py` writes the final parquet/mp4/meta dataset directly.
+- `check_dataset.py` validates the dataset through the Evo-1 loader.
+- `eval_policy_client.py` is the closed-loop evaluator and saves MP4 videos.
 
 ## 1. Collect Data
 
@@ -10,8 +18,7 @@ cd /home/user/mujoco+evo/mujoco_pickplace
 python collect_data.py
 ```
 
-Only successful two-pad-contact episodes passing smoothness gates are saved.
-Writes are atomic and existing episodes are appended, never overwritten.
+Only successful two-pad-contact episodes passing the quality gates are saved.
 
 ## 2. Check Dataset Loading
 
@@ -25,26 +32,20 @@ Expected output:
 
 ```text
 dataset length: ...
-images (3, 3, 448, 448) float32
-state (24,) float32
-action (50, 24) float32
+images torch.Size([3, 3, 448, 448])
+state torch.Size([24])
+action torch.Size([50, 24])
 ```
 
-> Note: Evo-1 loader pads the 10-dim state and 4-dim action to 24 dimensions with zeros.
-
 ## 3. Train with Evo-1
-
-The Evo-1 source tree is kept unchanged. Training uses its original entry point and is not started by the cleanup/check workflow:
 
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/Evo-1/Evo_1
-python scripts/train.py
+accelerate launch --num_processes 1 --num_machines 1 --deepspeed_config_file ds_config.json scripts/train.py --run_name Evo1_mujoco_pickplace_stage1 --action_head flowmatching --use_augmentation --lr 1e-5 --dropout 0.2 --weight_decay 1e-3 --batch_size 16 --image_size 448 --max_steps 5000 --log_interval 10 --ckpt_interval 2500 --warmup_steps 1000 --grad_clip_norm 1.0 --num_layers 8 --horizon 50 --finetune_action_head --disable_wandb --vlm_name OpenGVLab/InternVL3-1B --dataset_config_path dataset/config.yaml --per_action_dim 24 --state_dim 24 --save_dir /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1
 ```
 
 ## 4. Start Evo-1 Inference Server
-
-**Terminal 1:**
 
 ```bash
 conda activate Evo1
@@ -52,15 +53,13 @@ cd /home/user/mujoco+evo/Evo-1/Evo_1
 python scripts/Evo1_server.py
 ```
 
-The unchanged `scripts/Evo1_server.py` reads its checkpoint path internally:
+The server default checkpoint is:
 
 ```text
-/home/user/mujoco+evo/ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/step_best
+/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
 ```
 
-## 6. Evaluate in MuJoCo
-
-**Terminal 2:**
+## 5. Evaluate in MuJoCo
 
 ```bash
 conda activate mujoco
@@ -68,14 +67,15 @@ cd /home/user/mujoco+evo/mujoco_pickplace
 python eval_policy_client.py
 ```
 
-Full CLI flags:
+Common flags:
 
 ```text
---server-url    WebSocket server URL
---num-episodes  Number of evaluation episodes (default: 10)
---max-steps     Max environment steps per episode (default: 100)
---horizon       Actions to unroll per server call (default: 3)
---render        Show real-time OpenCV window (requires GUI)
---save-video    Save each rollout as MP4 (default)
---video-dir     Output directory for videos (default: outputs/eval_videos/<timestamp>)
+--server-url
+--num-episodes
+--max-steps
+--horizon
+--render
+--save-video
+--video-dir
 ```
+

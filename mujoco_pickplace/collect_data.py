@@ -9,7 +9,7 @@ from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "MuJoCo_Panda7_Multiview_V2"
+DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "raw_mujoco_pickplace"
 NUM_EPISODES = 50
 MAX_STEPS = 140
 MIN_LEN = 20

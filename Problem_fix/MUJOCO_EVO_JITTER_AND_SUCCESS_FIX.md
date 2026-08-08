@@ -43,15 +43,15 @@ dx 连续方向翻转 = 2~6 / 9
 另新增 `PickPlaceEnv.step_video(action, frames_per_step)`：把 0.2s 的物理推进分摊到
 多帧渲染，eval 视频从"每帧跳 0.6s / 6 倍速"变成接近实时、平滑。
 
-## 3. 数据层（collect_data.py / convert_to_evo_lerobot.py）
+## 3. 数据层（collect_data.py / removed npz conversion script）
 
 - `collect_data.py`：加 argparse + 质量门（成功、长度 10-120、eef 速度翻转比、动作范围），
-  用固定控制重采了 **100 个干净 episode**（`current MuJoCo_Panda7_Multiview_V2 collection`）。
+  用固定控制重采了 **100 个干净 episode**（`current cache/mujoco_pickplace collection`）。
   数据 action mean-abs-diff 从旧的 0.0177 降到 ~0.003-0.007。
-- `convert_to_evo_lerobot.py`：输出标准 **LeRobot v2.1**（Evo-1 loader 必需）+
+- `removed npz conversion script`：输出标准 **LeRobot v2.1**（Evo-1 loader 必需）+
   可选 **v3.0**（与 `so100_evo1/lerobot-main` 一致），`meta/info.json` 完整 schema
   （`codebase_version`, `robot_type: panda`, features 含 `video_info` 等）。
-- 新数据集：`Mujoco_training_dataset/MuJoCo_Panda7_Multiview_V2`（100 集）。
+- 新数据集：`Mujoco_training_dataset/cache/mujoco_pickplace`（100 集）。
   `check_dataset.py` 验证 2712 个 horizon=50 窗口可加载。
 
 ### 重要坑：LeRobot 窗口缓存
@@ -67,7 +67,7 @@ Evo-1 original `Evo-1/Evo_1/scripts/train.py`：
 - 干净数据 + horizon=10 + per_action_dim=24 + 4000 步
 - `LD_PRELOAD=/home/user/miniconda3/envs/Evo1/lib/libstdc++.so.6`（flash_attn 需要
   CXXABI_1.3.15，系统 libstdc++ 没有）
-- 保存到 `ckpt/evo1_mujoco_panda7_multiview_h10_clean_v2/`
+- 保存到 `ckpt/evo1_mujoco_pickplace_stage1/`
 
 （结果以训练日志 + 开环/闭环测试为准，见文末。）
 
@@ -118,7 +118,7 @@ Evo-1 original `Evo-1/Evo_1/scripts/train.py`：
 - `Evo1_server.py`：flow-matching ODE 步数 32→64（更平滑的积分，减少反转）。
 - `eval_policy_client.py`：EMA 平滑 + 夹爪滞回（沿用第 7 段的推理端改进）。
 
-V2 数据：`raw_mujoco_panda7_multiview_v2/` → `MuJoCo_Panda7_Multiview_V2`（lerobot v2.1 + v3）。
+V2 数据：`raw_cache/mujoco_pickplace/` → `cache/mujoco_pickplace`（lerobot v2.1 + v3）。
 
 ### V2 训练与评测结果
 
@@ -131,3 +131,60 @@ V2 数据：`raw_mujoco_panda7_multiview_v2/` → `MuJoCo_Panda7_Multiview_V2`�
 - 视频：6 集已保存到 `outputs/eval_videos/20260805_015906/task1/`，帧分析确认**红色指尖（1121px）与蓝色 cube（1226px）清晰可见**。
 - 剩余限制：成功率受模型位置引导能力限制（40mm 小 cube 更难精确抓取/放置）；夹爪原始输出偶有搬运中重新打开，
   `eval_policy_client.py` 已用滞回 + 平滑处理。
+## Current Canonical State (2026-08-06)
+
+The current project no longer uses an npz intermediate dataset pipeline. The removed files include `mujoco_pickplace/collect_data_npz.py` and `mujoco_pickplace/convert_to_evo_lerobot.py`.
+
+Current data flow:
+
+```text
+mujoco_pickplace/collect_data.py
+-> /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
+-> Evo-1/Evo_1/dataset/config.yaml
+-> Evo-1/Evo_1/scripts/train.py
+```
+
+Canonical dataset layout:
+
+```text
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/data/chunk-000/episode_*.parquet
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/videos/chunk-000/observation.images.front/episode_*.mp4
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/videos/chunk-000/observation.images.overhead/episode_*.mp4
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/videos/chunk-000/observation.images.wrist/episode_*.mp4
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/dataset.json
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/tasks.jsonl
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/episodes.jsonl
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/episodes_stats.jsonl
+/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/stats.json
+```
+
+Current training command:
+
+```bash
+conda activate Evo1
+cd /home/user/mujoco+evo/Evo-1/Evo_1
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch --use_deepspeed --num_processes 1 --num_machines 1 --deepspeed_config_file ds_config.json scripts/train.py
+```
+
+Do not use `python scripts/train.py` for training unless `train.py` is changed back to a non-DeepSpeed save path. The current Evo-1-style checkpoint save calls `model_engine.save_checkpoint(...)`, so `--use_deepspeed` is required.
+
+Current inference/evaluation commands:
+
+```bash
+conda activate Evo1
+cd /home/user/mujoco+evo/Evo-1/Evo_1
+python scripts/Evo1_server.py
+```
+
+```bash
+conda activate mujoco
+cd /home/user/mujoco+evo/mujoco_pickplace
+python eval_policy_client.py
+```
+
+Default checkpoint used by the server:
+
+```text
+/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+```
+
