@@ -84,12 +84,12 @@ XML = """
                            pads collide with the cube. -->
                       <body name="left_finger_body" pos="0 0.018 0.055">
                         <joint name="left_finger_joint" axis="0 1 0" type="slide" range="0 0.022"/>
-                        <geom name="left_finger" type="box" pos="0 0 0" size="0.010 0.006 0.025" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
+                        <geom name="left_finger" type="box" pos="0 0 -0.006" size="0.010 0.006 0.012" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
                         <geom name="left_finger_tip" type="box" pos="0 0 0" size="0.010 0.006 0.006" rgba="0.92 0.20 0.15 1" contype="2" conaffinity="2" friction="5 0.05 0.0001" condim="4" solref="0.01 0.5"/>
                       </body>
                       <body name="right_finger_body" pos="0 -0.018 0.055">
                         <joint name="right_finger_joint" axis="0 -1 0" type="slide" range="0 0.022"/>
-                        <geom name="right_finger" type="box" pos="0 0 0" size="0.010 0.006 0.025" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
+                        <geom name="right_finger" type="box" pos="0 0 -0.006" size="0.010 0.006 0.012" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
                         <geom name="right_finger_tip" type="box" pos="0 0 0" size="0.010 0.006 0.006" rgba="0.92 0.20 0.15 1" contype="2" conaffinity="2" friction="5 0.05 0.0001" condim="4" solref="0.01 0.5"/>
                       </body>
                     </body>
@@ -147,6 +147,7 @@ class PickPlaceEnv:
     TABLE_TOP = 0.03
     CUBE_HALF = 0.016
     CUBE_SUPPORT_Z = TABLE_TOP + CUBE_HALF
+    MIN_EEF_Z = TABLE_TOP + 0.062
 
     def __init__(self, image_size=448):
         self.model = mujoco.MjModel.from_xml_string(XML)
@@ -169,6 +170,7 @@ class PickPlaceEnv:
         self.finger_actuators = ("left_finger_motor", "right_finger_motor")
         self.gripper = 1.0
         self.attached = False
+        self.release_counter = 0
         self.tool_z_ref = np.array([0.0, 0.0, -1.0], dtype=np.float64)
         self.target_eef = np.array([0.105, -0.18, 0.225], dtype=np.float64)
         self.arm_target = self.HOME_QPOS.copy()
@@ -201,6 +203,7 @@ class PickPlaceEnv:
 
         self.gripper = 1.0
         self.attached = False
+        self.release_counter = 0
         self.arm_target = arm_targets.copy()
         self._set_actuator_targets(arm_targets)
         self._apply_grasp_force()
@@ -239,7 +242,7 @@ class PickPlaceEnv:
         current_eef = self.data.body("eef").xpos.copy()
         self.target_eef[:] = np.clip(
             current_eef + dpos,
-            [-0.22, -0.30, 0.07],
+            [-0.22, -0.30, self.MIN_EEF_Z],
             [0.20, 0.22, 0.38],
         )
         arm_targets = self._solve_ik(
@@ -263,7 +266,7 @@ class PickPlaceEnv:
         current_eef = self.data.body("eef").xpos.copy()
         self.target_eef[:] = np.clip(
             current_eef + dpos,
-            [-0.22, -0.30, 0.07],
+            [-0.22, -0.30, self.MIN_EEF_Z],
             [0.20, 0.22, 0.38],
         )
         arm_targets = self._solve_ik(
@@ -330,6 +333,7 @@ class PickPlaceEnv:
         identity = np.eye(len(self.arm_joints))
         best_q = q.copy()
         best_cost = np.inf
+        ori_weight = 0.35
 
         for _ in range(80):
             self.data.qpos[self.arm_qpos_ids] = q
@@ -360,8 +364,11 @@ class PickPlaceEnv:
             jacp = np.zeros((3, self.model.nv), dtype=np.float64)
             jacr = np.zeros((3, self.model.nv), dtype=np.float64)
             mujoco.mj_jacBody(self.model, self.data, jacp, jacr, self.eef_body_id)
-            jac = np.vstack([jacp[:, self.arm_dof_ids], jacr[:, self.arm_dof_ids]])
-            error = np.concatenate([pos_err, ori_err])
+            jac = np.vstack([
+                jacp[:, self.arm_dof_ids],
+                ori_weight * jacr[:, self.arm_dof_ids],
+            ])
+            error = np.concatenate([pos_err, ori_weight * ori_err])
             damping = 2e-3
             jac_pinv = jac.T @ np.linalg.inv(jac @ jac.T + damping * np.eye(6))
             delta = jac_pinv @ error
@@ -375,14 +382,27 @@ class PickPlaceEnv:
         return best_q
 
     def _update_grasp_logic(self):
-        eef = self.data.body("eef").xpos.copy()
-        cube = self.data.body("cube").xpos.copy()
-
         if self.gripper < 0.5 and not self.attached:
-            self.attached = self._has_two_sided_grasp_contact()
-        if self.gripper > 0.8:
-            self.attached = False
-            self.data.xfrc_applied[self.cube_body_id] = 0.0
+            self.attached = (
+                self._has_two_sided_grasp_contact()
+                or self._tips_enclose_cube()
+            )
+            if self.attached:
+                self.release_counter = 0
+        if self.attached:
+            if self.gripper > 0.8:
+                self.release_counter += 1
+            else:
+                self.release_counter = 0
+
+            if self.release_counter >= 3:
+                self.attached = False
+                self.release_counter = 0
+                self.data.xfrc_applied[self.cube_body_id] = 0.0
+        else:
+            self.release_counter = 0
+            if self.gripper > 0.8:
+                self.data.xfrc_applied[self.cube_body_id] = 0.0
 
     def _apply_grasp_force(self):
         self.data.xfrc_applied[self.cube_body_id] = 0.0
@@ -402,7 +422,7 @@ class PickPlaceEnv:
         pad_names = {"left_finger_tip", "right_finger_tip"}
         for i in range(self.data.ncon):
             contact = self.data.contact[i]
-            if contact.dist > 1e-4:
+            if contact.dist > 1e-3:
                 continue
             names = {
                 self.model.geom(contact.geom1).name,
@@ -411,6 +431,24 @@ class PickPlaceEnv:
             if cube_id in (contact.geom1, contact.geom2):
                 contacted.update(names & pad_names)
         return contacted == pad_names
+
+    def _tips_enclose_cube(self, tol=0.025, z_tol=0.030):
+        """Fallback for near-grasp: both red pads are beside the cube at cube
+        height while the gripper is closed, even if the contact solver reports
+        a sub-millimeter gap."""
+        cube = self.data.body("cube").xpos
+        tips = []
+        for pad in ("left_finger_tip", "right_finger_tip"):
+            gid = self.model.geom(pad).id
+            tips.append(self.data.geom_xpos[gid].copy())
+        for t in tips:
+            if abs(t[2] - cube[2]) > z_tol:
+                return False
+            if np.linalg.norm(t[:2] - cube[:2]) > tol:
+                return False
+        sep = tips[0][:2] - tips[1][:2]
+        mid = 0.5 * (tips[0][:2] + tips[1][:2])
+        return float(np.dot(sep, cube[:2] - mid)) < 0.0
 
     def success(self):
         cube = self.data.body("cube").xpos.copy()
@@ -429,7 +467,7 @@ def scripted_expert(obs):
 
     safe_z = 0.18
     grasp_z = cube[2] + PickPlaceEnv.GRASP_OFFSET
-    place_z = 0.15  # reachable release height; cube settles onto the target
+    place_z = 0.10  # lower release height so the cube can settle before timeout
     xy_tol = 0.025
     z_tol = 0.018
 
@@ -500,7 +538,7 @@ class ScriptedExpertPolicy:
         eef, cube, goal = state[:3], state[3:6], state[6:9]
         safe_z = 0.18
         grasp_z = cube[2] + self.env.GRASP_OFFSET
-        place_z = 0.15
+        place_z = 0.10
 
         if self.phase == "approach":
             target = np.array([cube[0], cube[1], safe_z])
@@ -548,7 +586,7 @@ class ScriptedExpertPolicy:
             return self._move(target, 0.0)
 
         if self.phase == "release":
-            if self.phase_steps >= 3:
+            if self.phase_steps >= 5:
                 self._set_phase("settle")
             return self._move(eef, 1.0)
 

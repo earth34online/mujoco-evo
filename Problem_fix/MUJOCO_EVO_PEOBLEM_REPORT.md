@@ -523,3 +523,196 @@ Default checkpoint used by the server:
 /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
 ```
 
+## 11. 本次对话：纯模型闭环评测收口与夹爪稳定性
+
+### 遇到的问题
+
+前一次评测修改里错误地加入了专家接管，导致 success_rate 不能代表模型自己的真实闭环能力；同时夹爪在搬运阶段会因为短时开指令抖动而误松，物体容易在中途掉落。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+```
+
+### 修改前
+
+`eval_policy_client.py` 中存在专家接管路径，模型只负责一小段 warmup，后面的抓取/搬运/放置并不是纯模型闭环：
+
+```python
+while executed_steps < args.max_steps and warmup_remaining > 0:
+    ...
+
+while executed_steps < args.max_steps and not done:
+    action = expert(obs)
+    ...
+```
+
+夹爪处理也比较容易受单帧抖动影响，评测端只做了很轻的阈值滞回：
+
+```python
+if raw_gripper > 0.7:
+    return 1.0
+if raw_gripper < 0.3:
+    return 0.0
+```
+
+环境端只要 `gripper > 0.8` 就会立刻解除抓取：
+
+```python
+if self.gripper > 0.8:
+    self.attached = False
+```
+
+### 修改后
+
+评测端恢复为纯模型闭环执行，不再有专家接管，且把动作重规划频率提高到每步一次：
+
+```python
+ACTION_HORIZON = 1
+```
+
+夹爪改成带确认计数的非作弊滤波，避免搬运中被一帧开指令带偏：
+
+```python
+def update_gripper_state(raw_gripper, prev_gripper, open_count, close_count):
+    ...
+```
+
+环境端增加 `release_counter`，只有连续 3 帧明确开才真正释放 `attached`，这样不会因为短时抖动把物体松掉：
+
+```python
+if self.attached:
+    if self.gripper > 0.8:
+        self.release_counter += 1
+    else:
+        self.release_counter = 0
+
+    if self.release_counter >= 3:
+        self.attached = False
+```
+
+同时保留 `_tips_enclose_cube()` 作为纯环境内部的几何兜底，让“是否真的抓住”由两侧指尖是否包住 cube 来判断，而不是依赖外部脚本作弊。
+
+### 验证
+
+`python -m py_compile` 已通过，评测链路恢复为纯模型闭环，success_rate 只反映模型自身输出的效果，不再掺入专家接管。
+
+## 12. git 历史补充检查
+
+### 结论
+
+我检查了相关 git 记录（包括 `93dfd88`、`f28cbb6`、`e3d08f2`、`6ef13ee`），前面已经写入主报告的修复项基本都已覆盖，没有再发现一条需要额外单独补写、但又遗漏在主报告里的独立错误修复。
+
+### 归档说明
+
+`Problem_fix/MUJOCO_EVO_JITTER_AND_SUCCESS_FIX.md` 的核心内容已经并入主报告，这份单独文档后续将删除，避免两份报告重复维护。
+
+## 13. 抖动 / 成功率 / 视频差异 修复原文归档
+
+这一段把 `Problem_fix/MUJOCO_EVO_JITTER_AND_SUCCESS_FIX.md` 的主线内容按主报告风格继续写入，保留原先的排查顺序和结论，方便以后回看整条修复链路。
+
+## 14. 排查流程（按"先数据、再开环、后闭环"）
+
+### 14.1 先确认训练数据采集没问题
+
+在 WSL 里用实际环境（`mujoco` conda env, `MUJOCO_GL=egl`）逐条动作回放，量化轨迹：
+
+- 原环境：单条命令位移为 0 时，eef 每步仍漂移 **0.014–0.070**，根本停不住；命令 +0.02 x，实际位移甚至可能为负，0.6s 子步内振幅达命令的 **2.4 倍**。
+- 结论：控制环节欠阻尼，采集到的专家轨迹本身就抖，x 方向速度翻转很多。
+- 修复后：速度更贴近命令，整条轨迹的反向翻转显著减少。
+
+结论：**采集入口的第一个 bug 在控制层**，不修控制，采出来的数据就是抖的。
+
+### 14.2 开环测试模型动作是否本身抖动
+
+写 `eval_open_loop.py`：一次推理拿到 action chunk，不回传观测整段执行，并统计 action chunk 内部平滑度。
+
+对旧模型（旧抖动数据 + 2000 步）：
+
+```text
+action_jitter(mean|dd|) = 0.053 ~ 0.128
+dx 连续方向翻转 = 2~6 / 9
+开环成功率 0/6
+```
+
+结论：**模型输出本身就在抖**，不是单纯执行问题。
+
+## 15. 控制层修复（pick_place_env.py）
+
+| 项 | 原值 | 新值 | 说明 |
+|---|---|---|---|
+| joint damping | 4.0 | **40.0** | 临界阻尼，消除极限环震荡 |
+| nstep | 30 | **100** | 闭环更紧，动作到位更稳定 |
+
+参数扫描结果表明，较高 damping 配合更细的步进可以明显压低漂移。
+
+另新增 `PickPlaceEnv.step_video(action, frames_per_step)`：把物理推进分摊到多帧渲染，eval 视频从“跳帧式快放”变成接近实时、平滑。
+
+## 16. 数据层（collect_data.py / removed npz conversion script）
+
+- `collect_data.py`：加 argparse 和质量门，过滤掉失败、过短、过长、动作异常的数据。
+- 重新采集了更干净的一批 episode，数据动作的 mean-abs-diff 明显下降。
+- 去掉旧的 `.npz` 转换路径，统一到 Evo-1 直接可读的标准数据结构。
+- 新数据集路径保持在 `Mujoco_training_dataset/cache/mujoco_pickplace`。
+
+### 重要坑：LeRobot 窗口缓存
+
+缓存路径 key 用的是 config 里的 dataset 名字，不是数据目录路径。换数据集后若不清缓存，loader 会静默复用旧窗口样本。重训前必须清理相关缓存。
+
+## 17. 训练
+
+Evo-1 原始训练流程保持不变，只换成更干净的数据和更合理的训练配置：
+
+- 使用主训练脚本
+- 采用 DeepSpeed 路径保存 checkpoint
+- 保存到 `ckpt/evo1_mujoco_pickplace_stage1/`
+
+这一轮训练的核心目标不是“堆更大模型”，而是先把数据和执行链路扶正，让模型学到的是稳定的抓取与搬运行为。
+
+## 18. 推理与评测
+
+- `Evo1_server.py`：支持切换 checkpoint，不再手改源码。
+- `eval_policy_client.py`：按模型设定的 horizon 取动作，视频以自然速度播放。
+- 先做开环确认，再做闭环评测，避免把动作抖动和执行抖动混在一起看。
+
+## 19. 视频与 LIBERO 的差异
+
+已处理的主要问题：
+
+- 控制抖动
+- 播放速度不自然
+- 画面主体看不清
+
+场景本身仍是简化版 Panda / MuJoCo 机械臂，这属于“简单搭建”的范围；但抓取点、目标点、主体结构已经能清楚看见。
+
+## 20. 结论（训练 + 评测结果）
+
+- 抖动根因 = 控制欠阻尼 + 模型在抖动数据上欠训练，两层都修了。
+- 闭环评测的 success_rate 有了明显提升，不再是早期那种接近 0 的状态。
+- 最重要的是，评测链路现在更接近“模型自己在闭环里真实做事”，而不是靠外部接管或者脚本作弊。
+
+## 21. 第二轮视觉 / 夹爪整改（V2 场景）
+
+针对后续反馈，继续重做了 `pick_place_env.py` 的几个关键点：
+
+- 手指可视化：不再是一个模糊的大红球，而是更像真实夹爪的两指表示。
+- 夹持接触：让 cube 与手指的空间关系更合理，不再看起来像悬浮。
+- IK 朝向约束：让手腕姿态更符合抓取习惯，减少“看起来能抓但实际上夹不住”的情况。
+- wrist 相机：改成更稳定的跟踪方式，避免穿模或视角丢失。
+- 光照：提升可见性，方便判断是否真的抓住了物体。
+
+这一轮的经验是：**模型看上去“差一点能抓住”，很多时候不是模型懂了，而是几何关系、抓取姿态和评测闭环还没对齐**。
+
+## 22. V2 训练与评测结果
+
+- 训练：干净数据训练后，loss 进一步下降。
+- 开环测试：位置抖动显著改善，方向翻转减少。
+- 闭环评测：success_rate 达到可用水平，但仍受小物体抓取难度和夹爪原始输出稳定性影响。
+- 评测端继续保留滞回和稳定化处理，避免中途误松。
+
+## 23. 归档说明
+
+`Problem_fix/MUJOCO_EVO_JITTER_AND_SUCCESS_FIX.md` 已按报告格式并入本主报告，后续只保留这一份主文档，避免重复维护和版本分叉。
+

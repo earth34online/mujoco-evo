@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+import shutil
 
 import numpy as np
 from tqdm import tqdm
@@ -9,9 +10,9 @@ from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "raw_mujoco_pickplace"
-NUM_EPISODES = 50
-MAX_STEPS = 140
+DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "cache" / "mujoco_pickplace"
+NUM_EPISODES = 200
+MAX_STEPS = 150
 MIN_LEN = 20
 MAX_ACTION_REVERSALS = 4
 MAX_EEF_REVERSALS = 6
@@ -149,7 +150,34 @@ def main():
     parser.add_argument("--max-attempts", type=int, default=None)
     parser.add_argument("--start-seed", type=int, default=0)
     parser.add_argument("--image-size", type=int, default=448)
+    parser.add_argument(
+        "--overwrite",
+        dest="overwrite",
+        action="store_true",
+        default=True,
+        help="Clear the existing data/videos/meta under dataset-dir before "
+             "collecting, then write a fresh dataset starting at episode 0 (default).",
+    )
+    parser.add_argument(
+        "--append",
+        dest="overwrite",
+        action="store_false",
+        help="Append episodes to the existing dataset instead of overwriting.",
+    )
     args = parser.parse_args()
+
+    if args.overwrite:
+        removed = []
+        for sub in ("data", "videos", "meta", "mujoco_pickplace"):
+            target = args.dataset_dir / sub
+            if target.exists():
+                shutil.rmtree(target)
+                removed.append(sub)
+        print(
+            f"Overwriting dataset: cleared {removed or 'nothing'} under "
+            f"{args.dataset_dir.resolve()}",
+            flush=True,
+        )
 
     max_attempts = args.max_attempts
     if max_attempts is None:

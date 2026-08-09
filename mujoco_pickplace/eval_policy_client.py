@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -13,11 +14,14 @@ from pick_place_env import PickPlaceEnv
 SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
 NUM_EPISODES = 10
-MAX_STEPS = 100
-ACTION_HORIZON = 10
+MAX_STEPS = 150
+ACTION_HORIZON = 1
 MAX_POSITION_DELTA = 0.012
 MAX_DELTA_CHANGE = 0.004
 REVERSAL_DEADBAND = 0.0005
+GRIPPER_OPEN_THRESHOLD = 0.8
+GRIPPER_CLOSE_THRESHOLD = 0.25
+GRIPPER_OPEN_CONFIRM = 3
 TASK_ID = 1
 TASK_NAME = "task1"
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -25,10 +29,17 @@ DEFAULT_VIDEO_DIR = Path("outputs/eval_videos") / RUN_ID
 VIDEO_FPS = 20
 FRAMES_PER_STEP = 4
 
+CKPT_NAME = "Evo1_mujoco_pickplace"
+LOG_FILE = f"./log_file/{CKPT_NAME}.txt"
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler()],
+    handlers=[
+        logging.FileHandler(LOG_FILE, mode='a'),
+        logging.StreamHandler(),
+    ],
 )
 log = logging.getLogger(__name__)
 
@@ -101,13 +112,25 @@ def save_video(frames, path, fps=VIDEO_FPS):
     print(f"Video saved: {path} ({len(frames)} frames)", flush=True)
 
 
-def apply_gripper_hysteresis(raw_gripper, prev_gripper):
-    if raw_gripper > 0.7:
-        return 1.0
-    if raw_gripper < 0.3:
-        return 0.0
-    return prev_gripper
+def update_gripper_state(raw_gripper, prev_gripper, open_count, close_count):
+    if raw_gripper > GRIPPER_OPEN_THRESHOLD:
+        open_count += 1
+        close_count = 0
+    elif raw_gripper < GRIPPER_CLOSE_THRESHOLD:
+        close_count += 1
+        open_count = 0
+    else:
+        open_count = 0
+        close_count = 0
 
+    if prev_gripper > 0.5:
+        if close_count >= 1:
+            prev_gripper = 0.0
+    else:
+        if open_count >= GRIPPER_OPEN_CONFIRM:
+            prev_gripper = 1.0
+
+    return prev_gripper, open_count, close_count
 
 
 
@@ -160,20 +183,23 @@ async def main():
             obs = env.reset(seed=1000 + ep)
             done = False
             executed_steps = 0
+            step = 0
             gripper_state = 1.0
+            gripper_open_count = 0
+            gripper_close_count = 0
             prev_smooth = np.zeros(3, dtype=np.float32)
             frames = [compose_video_frame([obs["image_front"], obs["image_overhead"], obs["image_wrist"]])]
             render_enabled = maybe_show(frames[0], render_enabled)
 
             while executed_steps < args.max_steps:
                 payload = obs_to_payload(obs)
-                print(f"[Step {executed_steps}] Send observation", flush=True)
+                print(f"[Step {step}] Send observation", flush=True)
                 await ws.send(json.dumps(payload))
 
                 result = await ws.recv()
                 try:
                     action_chunk = np.asarray(json.loads(result), dtype=np.float32)
-                    print(f"[Step {executed_steps}] recivied actions (shape={action_chunk.shape})", flush=True)
+                    print(f"[Step {step}] recivied actions (shape={action_chunk.shape})", flush=True)
                 except Exception as exc:
                     print(f"Action parsing failed: {exc}, content: {result}", flush=True)
                     break
@@ -181,10 +207,15 @@ async def main():
                 horizon = min(args.horizon, len(action_chunk))
                 for action_index in range(horizon):
                     action = action_chunk[action_index, :4].astype(np.float32)
-                    # gripper hysteresis: hold last state unless the model is decisive
-                    gripper_state = apply_gripper_hysteresis(float(action[3]), gripper_state)
+                    print(action[:4])
+                    gripper_state, gripper_open_count, gripper_close_count = update_gripper_state(
+                        float(action[3]),
+                        gripper_state,
+                        gripper_open_count,
+                        gripper_close_count,
+                    )
                     action[3] = gripper_state
-                    # light position smoothing to damp residual model jitter
+                    print(f"gripper action", action[3])
                     if args.smooth:
                         action[:3], prev_smooth = smooth_positions(
                             action[:3],
@@ -210,10 +241,12 @@ async def main():
                             ]))
                     else:
                         obs, done = env.step(action)
+
                     executed_steps += 1
+                    step += 1
                     render_enabled = maybe_show(frames[-1], render_enabled)
                     reward = 1.0 if done else 0.0
-                    print(f"[Step {executed_steps}] reward={reward:.2f}, done={done}", flush=True)
+                    print(f"[Step {step}] reward={reward:.2f}, done={done}", flush=True)
                     if done or executed_steps >= args.max_steps:
                         break
 

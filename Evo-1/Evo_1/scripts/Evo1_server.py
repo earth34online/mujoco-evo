@@ -135,7 +135,7 @@ async def handle_request(websocket, model, normalizer):
 
 
 if __name__ == "__main__":
-    ckpt_dir = "/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_final"
+    ckpt_dir = "/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best"
     #Example: ckpt_dir = "/home/user/checkpoints/Evo1/Evo1_MetaWorld/"
     
     port = 9000

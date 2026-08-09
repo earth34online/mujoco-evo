@@ -557,7 +557,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--max_steps", type=int, default=5000)
-    parser.add_argument("--warmup_steps", type=int, default=300)
+    parser.add_argument("--warmup_steps", type=int, default=1000)
     parser.add_argument("--grad_clip_norm", type=float, default=1.0)
     parser.add_argument("--weight_decay", type=float, default=1e-3)
 

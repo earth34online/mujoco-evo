@@ -78,4 +78,3 @@ Common flags:
 --save-video
 --video-dir
 ```
-
