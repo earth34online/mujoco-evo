@@ -81,16 +81,17 @@ XML = """
                       <camera name="wrist" mode="fixed" pos="0.05 0 0" quat="0 0.707108 0.707108 0" fovy="75"/>
 
                       <!-- Independent Panda fingers. Only the high-friction red
-                           pads collide with the cube. -->
+                           pads collide with the cube. The pads are slightly
+                           lengthened so near-grasps register more reliably. -->
                       <body name="left_finger_body" pos="0 0.018 0.055">
                         <joint name="left_finger_joint" axis="0 1 0" type="slide" range="0 0.022"/>
-                        <geom name="left_finger" type="box" pos="0 0 -0.006" size="0.010 0.006 0.012" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
-                        <geom name="left_finger_tip" type="box" pos="0 0 0" size="0.010 0.006 0.006" rgba="0.92 0.20 0.15 1" contype="2" conaffinity="2" friction="5 0.05 0.0001" condim="4" solref="0.01 0.5"/>
+                        <geom name="left_finger" type="box" pos="0 0 -0.007" size="0.011 0.007 0.014" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
+                        <geom name="left_finger_tip" type="box" pos="0 0 0" size="0.012 0.007 0.008" rgba="0.92 0.20 0.15 1" contype="2" conaffinity="2" friction="5 0.05 0.0001" condim="4" solref="0.01 0.5"/>
                       </body>
                       <body name="right_finger_body" pos="0 -0.018 0.055">
                         <joint name="right_finger_joint" axis="0 -1 0" type="slide" range="0 0.022"/>
-                        <geom name="right_finger" type="box" pos="0 0 -0.006" size="0.010 0.006 0.012" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
-                        <geom name="right_finger_tip" type="box" pos="0 0 0" size="0.010 0.006 0.006" rgba="0.92 0.20 0.15 1" contype="2" conaffinity="2" friction="5 0.05 0.0001" condim="4" solref="0.01 0.5"/>
+                        <geom name="right_finger" type="box" pos="0 0 -0.007" size="0.011 0.007 0.014" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
+                        <geom name="right_finger_tip" type="box" pos="0 0 0" size="0.012 0.007 0.008" rgba="0.92 0.20 0.15 1" contype="2" conaffinity="2" friction="5 0.05 0.0001" condim="4" solref="0.01 0.5"/>
                       </body>
                     </body>
                   </body>
@@ -104,9 +105,9 @@ XML = """
 
     <body name="cube" pos="0.12 -0.08 0.046">
       <joint name="cube_free" type="free"/>
-      <!-- 32mm cube: the 36mm closed pad gap gives the fingers room to
-           establish contact before they apply clamping force. -->
-      <geom name="cube_geom" type="box" size="0.016 0.016 0.016" mass="0.05" rgba="0.12 0.42 0.92 1" contype="2" conaffinity="3" friction="1.2 0.05 0.0001" condim="4"/>
+      <!-- 36mm cube: slightly larger contact volume helps the fingertips
+           establish a stable grasp without changing the task structure. -->
+      <geom name="cube_geom" type="box" size="0.018 0.018 0.018" mass="0.05" rgba="0.12 0.42 0.92 1" contype="2" conaffinity="3" friction="1.2 0.05 0.0001" condim="4"/>
     </body>
 
     <body name="goal" pos="-0.15 0.12 0.035">
@@ -145,7 +146,7 @@ class PickPlaceEnv:
     FINGER_TRAVEL = 0.022
     GRASP_OFFSET = 0.055
     TABLE_TOP = 0.03
-    CUBE_HALF = 0.016
+    CUBE_HALF = 0.018
     CUBE_SUPPORT_Z = TABLE_TOP + CUBE_HALF
     MIN_EEF_Z = TABLE_TOP + 0.062
 
@@ -432,10 +433,14 @@ class PickPlaceEnv:
                 contacted.update(names & pad_names)
         return contacted == pad_names
 
-    def _tips_enclose_cube(self, tol=0.025, z_tol=0.030):
+    def _tips_enclose_cube(self, tol=None, z_tol=None):
         """Fallback for near-grasp: both red pads are beside the cube at cube
         height while the gripper is closed, even if the contact solver reports
         a sub-millimeter gap."""
+        if tol is None:
+            tol = self.CUBE_HALF + 0.010
+        if z_tol is None:
+            z_tol = 0.034
         cube = self.data.body("cube").xpos
         tips = []
         for pad in ("left_finger_tip", "right_finger_tip"):
@@ -469,30 +474,30 @@ def scripted_expert(obs):
     grasp_z = cube[2] + PickPlaceEnv.GRASP_OFFSET
     place_z = 0.10  # lower release height so the cube can settle before timeout
     xy_tol = 0.025
-    z_tol = 0.018
+    grasp_pose = np.array([cube[0], cube[1], grasp_z], dtype=np.float32)
 
     cube_xy = cube[:2]
     goal_xy = goal[:2]
     eef_xy = eef[:2]
 
     if gripper > 0.5:
-        if np.linalg.norm(eef_xy - cube_xy) > xy_tol:
-            target = np.array([cube[0], cube[1], safe_z], dtype=np.float32)
-            grip_cmd = 1.0
-        elif eef[2] > grasp_z + z_tol:
-            target = np.array([cube[0], cube[1], grasp_z], dtype=np.float32)
+        if np.linalg.norm(eef - grasp_pose) > 0.010:
+            if np.linalg.norm(eef_xy - cube_xy) > xy_tol:
+                target = np.array([cube[0], cube[1], safe_z], dtype=np.float32)
+            else:
+                target = grasp_pose
             grip_cmd = 1.0
         else:
             target = eef.copy()
             grip_cmd = 0.0
     else:
-        if eef[2] < safe_z - z_tol:
+        if eef[2] < safe_z - 0.010:
             target = np.array([eef[0], eef[1], safe_z], dtype=np.float32)
             grip_cmd = 0.0
         elif np.linalg.norm(eef_xy - goal_xy) > xy_tol:
             target = np.array([goal[0], goal[1], safe_z], dtype=np.float32)
             grip_cmd = 0.0
-        elif eef[2] > place_z + z_tol:
+        elif eef[2] > place_z + 0.010:
             target = np.array([goal[0], goal[1], place_z], dtype=np.float32)
             grip_cmd = 0.0
         else:
@@ -549,8 +554,7 @@ class ScriptedExpertPolicy:
 
         if self.phase == "descend":
             target = np.array([cube[0], cube[1], grasp_z])
-            if (np.linalg.norm(eef[:2] - cube[:2]) < 0.012 and
-                    eef[2] - cube[2] < 0.073):
+            if np.linalg.norm(eef - target) < 0.010:
                 self._set_phase("close")
                 return self._move(eef, 0.0)
             return self._move(target, 1.0)

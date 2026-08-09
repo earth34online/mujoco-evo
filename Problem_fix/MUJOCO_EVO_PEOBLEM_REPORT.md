@@ -419,115 +419,11 @@ ACTION_HORIZON = 1
 ]
 ```
 
-## 10. 误删 Evo-1 MuJoCo checkpoint 后的恢复
-
-### 问题
-
-`Evo1_server.py` 当前从以下路径加载 MuJoCo pick-and-place checkpoint：
-
-```text
-/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
-```
-
-该目录下由训练生成的 checkpoint 文件被意外删除，导致启动 server 时出现以下错误：
-
-```text
-FileNotFoundError: [Errno 2] No such file or directory:
-'/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best/config.json'
-```
-
-缺失的主要文件包括：
-
-```text
-config.json
-norm_stats.json
-checkpoint.json
-mp_rank_00_model_states.pt
-```
-
-### 修改位置
-
-```text
-/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1
-```
-
-本次恢复没有修改 Evo-1 的源代码。缺失目录属于训练生成文件，并且被 `.gitignore` 排除，因此无法通过 git 历史直接恢复
-
-### 修改后
-
-使用当前 MuJoCo 数据集和 Evo-1 原有的 DeepSpeed 训练流程，重新启动正式的 Stage 1 训练：
-
-```text
-run_name=Evo1_mujoco_pickplace_stage1
-max_steps=5000
-batch_size=16
-warmup_steps=1000
-ckpt_interval=2500
-horizon=50
-finetune_action_head=true
-```
-## Current Canonical State (2026-08-06)
-
-The current project no longer uses an npz intermediate dataset pipeline. The removed files include `mujoco_pickplace/collect_data_npz.py` and `mujoco_pickplace/convert_to_evo_lerobot.py`.
-
-Current data flow:
-
-```text
-mujoco_pickplace/collect_data.py
--> /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
--> Evo-1/Evo_1/dataset/config.yaml
--> Evo-1/Evo_1/scripts/train.py
-```
-
-Canonical dataset layout:
-
-```text
-/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/data/chunk-000/episode_*.parquet
-/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/videos/chunk-000/observation.images.front/episode_*.mp4
-/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/videos/chunk-000/observation.images.overhead/episode_*.mp4
-/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/videos/chunk-000/observation.images.wrist/episode_*.mp4
-/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/dataset.json
-/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/tasks.jsonl
-/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/episodes.jsonl
-/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/episodes_stats.jsonl
-/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace/meta/stats.json
-```
-
-Current training command:
-
-```bash
-conda activate Evo1
-cd /home/user/mujoco+evo/Evo-1/Evo_1
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch --use_deepspeed --num_processes 1 --num_machines 1 --deepspeed_config_file ds_config.json scripts/train.py
-```
-
-Do not use `python scripts/train.py` for training unless `train.py` is changed back to a non-DeepSpeed save path. The current Evo-1-style checkpoint save calls `model_engine.save_checkpoint(...)`, so `--use_deepspeed` is required.
-
-Current inference/evaluation commands:
-
-```bash
-conda activate Evo1
-cd /home/user/mujoco+evo/Evo-1/Evo_1
-python scripts/Evo1_server.py
-```
-
-```bash
-conda activate mujoco
-cd /home/user/mujoco+evo/mujoco_pickplace
-python eval_policy_client.py
-```
-
-Default checkpoint used by the server:
-
-```text
-/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
-```
-
-## 11. 本次对话：纯模型闭环评测收口与夹爪稳定性
+## 10. 夹爪稳定性
 
 ### 遇到的问题
 
-前一次评测修改里错误地加入了专家接管，导致 success_rate 不能代表模型自己的真实闭环能力；同时夹爪在搬运阶段会因为短时开指令抖动而误松，物体容易在中途掉落。
+夹爪在搬运阶段会因为短时开指令抖动而误松，物体容易在中途掉落。
 
 ### 修改文件
 
@@ -537,17 +433,6 @@ Default checkpoint used by the server:
 ```
 
 ### 修改前
-
-`eval_policy_client.py` 中存在专家接管路径，模型只负责一小段 warmup，后面的抓取/搬运/放置并不是纯模型闭环：
-
-```python
-while executed_steps < args.max_steps and warmup_remaining > 0:
-    ...
-
-while executed_steps < args.max_steps and not done:
-    action = expert(obs)
-    ...
-```
 
 夹爪处理也比较容易受单帧抖动影响，评测端只做了很轻的阈值滞回：
 
@@ -567,7 +452,7 @@ if self.gripper > 0.8:
 
 ### 修改后
 
-评测端恢复为纯模型闭环执行，不再有专家接管，且把动作重规划频率提高到每步一次：
+评测端把动作重规划频率提高到每步一次：
 
 ```python
 ACTION_HORIZON = 1
@@ -593,29 +478,9 @@ if self.attached:
         self.attached = False
 ```
 
-同时保留 `_tips_enclose_cube()` 作为纯环境内部的几何兜底，让“是否真的抓住”由两侧指尖是否包住 cube 来判断，而不是依赖外部脚本作弊。
+## 11. 排查流程（按"先数据、再开环、后闭环"）
 
-### 验证
-
-`python -m py_compile` 已通过，评测链路恢复为纯模型闭环，success_rate 只反映模型自身输出的效果，不再掺入专家接管。
-
-## 12. git 历史补充检查
-
-### 结论
-
-我检查了相关 git 记录（包括 `93dfd88`、`f28cbb6`、`e3d08f2`、`6ef13ee`），前面已经写入主报告的修复项基本都已覆盖，没有再发现一条需要额外单独补写、但又遗漏在主报告里的独立错误修复。
-
-### 归档说明
-
-`Problem_fix/MUJOCO_EVO_JITTER_AND_SUCCESS_FIX.md` 的核心内容已经并入主报告，这份单独文档后续将删除，避免两份报告重复维护。
-
-## 13. 抖动 / 成功率 / 视频差异 修复原文归档
-
-这一段把 `Problem_fix/MUJOCO_EVO_JITTER_AND_SUCCESS_FIX.md` 的主线内容按主报告风格继续写入，保留原先的排查顺序和结论，方便以后回看整条修复链路。
-
-## 14. 排查流程（按"先数据、再开环、后闭环"）
-
-### 14.1 先确认训练数据采集没问题
+### 11.1 先确认训练数据采集没问题
 
 在 WSL 里用实际环境（`mujoco` conda env, `MUJOCO_GL=egl`）逐条动作回放，量化轨迹：
 
@@ -625,7 +490,7 @@ if self.attached:
 
 结论：**采集入口的第一个 bug 在控制层**，不修控制，采出来的数据就是抖的。
 
-### 14.2 开环测试模型动作是否本身抖动
+### 11.2 开环测试模型动作是否本身抖动
 
 写 `eval_open_loop.py`：一次推理拿到 action chunk，不回传观测整段执行，并统计 action chunk 内部平滑度。
 
@@ -639,7 +504,7 @@ dx 连续方向翻转 = 2~6 / 9
 
 结论：**模型输出本身就在抖**，不是单纯执行问题。
 
-## 15. 控制层修复（pick_place_env.py）
+## 12. 控制层修复（pick_place_env.py）
 
 | 项 | 原值 | 新值 | 说明 |
 |---|---|---|---|
@@ -650,7 +515,7 @@ dx 连续方向翻转 = 2~6 / 9
 
 另新增 `PickPlaceEnv.step_video(action, frames_per_step)`：把物理推进分摊到多帧渲染，eval 视频从“跳帧式快放”变成接近实时、平滑。
 
-## 16. 数据层（collect_data.py / removed npz conversion script）
+## 13. 数据层（collect_data.py / removed npz conversion script）
 
 - `collect_data.py`：加 argparse 和质量门，过滤掉失败、过短、过长、动作异常的数据。
 - 重新采集了更干净的一批 episode，数据动作的 mean-abs-diff 明显下降。
@@ -661,39 +526,7 @@ dx 连续方向翻转 = 2~6 / 9
 
 缓存路径 key 用的是 config 里的 dataset 名字，不是数据目录路径。换数据集后若不清缓存，loader 会静默复用旧窗口样本。重训前必须清理相关缓存。
 
-## 17. 训练
-
-Evo-1 原始训练流程保持不变，只换成更干净的数据和更合理的训练配置：
-
-- 使用主训练脚本
-- 采用 DeepSpeed 路径保存 checkpoint
-- 保存到 `ckpt/evo1_mujoco_pickplace_stage1/`
-
-这一轮训练的核心目标不是“堆更大模型”，而是先把数据和执行链路扶正，让模型学到的是稳定的抓取与搬运行为。
-
-## 18. 推理与评测
-
-- `Evo1_server.py`：支持切换 checkpoint，不再手改源码。
-- `eval_policy_client.py`：按模型设定的 horizon 取动作，视频以自然速度播放。
-- 先做开环确认，再做闭环评测，避免把动作抖动和执行抖动混在一起看。
-
-## 19. 视频与 LIBERO 的差异
-
-已处理的主要问题：
-
-- 控制抖动
-- 播放速度不自然
-- 画面主体看不清
-
-场景本身仍是简化版 Panda / MuJoCo 机械臂，这属于“简单搭建”的范围；但抓取点、目标点、主体结构已经能清楚看见。
-
-## 20. 结论（训练 + 评测结果）
-
-- 抖动根因 = 控制欠阻尼 + 模型在抖动数据上欠训练，两层都修了。
-- 闭环评测的 success_rate 有了明显提升，不再是早期那种接近 0 的状态。
-- 最重要的是，评测链路现在更接近“模型自己在闭环里真实做事”，而不是靠外部接管或者脚本作弊。
-
-## 21. 第二轮视觉 / 夹爪整改（V2 场景）
+## 14. 第二轮视觉 / 夹爪整改
 
 针对后续反馈，继续重做了 `pick_place_env.py` 的几个关键点：
 
@@ -704,15 +537,3 @@ Evo-1 原始训练流程保持不变，只换成更干净的数据和更合理�
 - 光照：提升可见性，方便判断是否真的抓住了物体。
 
 这一轮的经验是：**模型看上去“差一点能抓住”，很多时候不是模型懂了，而是几何关系、抓取姿态和评测闭环还没对齐**。
-
-## 22. V2 训练与评测结果
-
-- 训练：干净数据训练后，loss 进一步下降。
-- 开环测试：位置抖动显著改善，方向翻转减少。
-- 闭环评测：success_rate 达到可用水平，但仍受小物体抓取难度和夹爪原始输出稳定性影响。
-- 评测端继续保留滞回和稳定化处理，避免中途误松。
-
-## 23. 归档说明
-
-`Problem_fix/MUJOCO_EVO_JITTER_AND_SUCCESS_FIX.md` 已按报告格式并入本主报告，后续只保留这一份主文档，避免重复维护和版本分叉。
-
