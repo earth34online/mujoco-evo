@@ -13,11 +13,14 @@ FORMAT_NAME = "mujoco-evo-episodes"
 FORMAT_VERSION = "1.0"
 STATE_NAMES = [
     "eef_x", "eef_y", "eef_z",
-    "cube_x", "cube_y", "cube_z",
-    "goal_x", "goal_y", "goal_z",
+    "eef_axis_angle_x", "eef_axis_angle_y", "eef_axis_angle_z",
+    "left_finger_qpos", "right_finger_qpos",
+]
+ACTION_NAMES = [
+    "eef_dx", "eef_dy", "eef_dz",
+    "eef_droll", "eef_dpitch", "eef_dyaw",
     "gripper",
 ]
-ACTION_NAMES = ["eef_dx", "eef_dy", "eef_dz", "gripper"]
 CAMERAS = ("front", "overhead", "wrist")
 
 

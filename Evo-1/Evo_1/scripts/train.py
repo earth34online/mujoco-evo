@@ -229,7 +229,18 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
         "config": config,
     } if accelerator.is_main_process else {} 
 
-    model_engine.save_checkpoint(save_dir, tag=tag, client_state=client_state)
+    if hasattr(model_engine, "save_checkpoint"):
+        model_engine.save_checkpoint(save_dir, tag=tag, client_state=client_state)
+    elif accelerator.is_main_process:
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        module = accelerator.unwrap_model(model_engine)
+        torch.save(
+            {
+                "module": module.state_dict(),
+                "client_state": client_state,
+            },
+            os.path.join(checkpoint_dir, "mp_rank_00_model_states.pt"),
+        )
     
     if accelerator.is_main_process:
         if config is not None:
@@ -463,7 +474,8 @@ def train(config):
 
             action_mask = action_mask.view(action_mask.shape[0], -1).to(dtype=pred_velocity.dtype)
             pred_velocity_mask = pred_velocity * action_mask
-            loss = loss_fn(pred_velocity_mask, target_velocity)
+            target_velocity_mask = target_velocity * action_mask
+            loss = loss_fn(pred_velocity_mask, target_velocity_mask)
             scale_factor = action_mask.numel() / (action_mask.sum() + 1e-8)
             loss = loss * scale_factor
             
@@ -576,6 +588,8 @@ if __name__ == "__main__":
     # Finetuning
     parser.add_argument("--finetune_vlm", action="store_true")
     parser.add_argument("--finetune_action_head", action="store_true")
+    parser.add_argument("--use_state", action="store_true",
+                        help="Keep the state branch active. Leave unset for the pure-vision setup.")
 
     # Misc
     parser.add_argument("--per_action_dim", type=int, default=24)
@@ -600,4 +614,3 @@ if __name__ == "__main__":
         if accelerator.is_main_process:
             logging.info("KeyboardInterrupt received. Cleaning up...")
         sys.exit(0)
-

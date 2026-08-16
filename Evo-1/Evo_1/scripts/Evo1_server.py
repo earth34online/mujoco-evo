@@ -61,6 +61,10 @@ class Normalizer:
 def load_model_and_normalizer(ckpt_dir):
     config = json.load(open(os.path.join(ckpt_dir, "config.json")))
     stats = json.load(open(os.path.join(ckpt_dir, "norm_stats.json")))
+    # Legacy checkpoints were trained with a constant zero-state token even
+    # though the MuJoCo dataset stores no real state information. Preserve that
+    # input shape unless a newer checkpoint explicitly disables it.
+    use_state = bool(config.get("use_state", True))
 
     config["finetune_vlm"] = False
     config["finetune_action_head"] = False
@@ -74,38 +78,38 @@ def load_model_and_normalizer(ckpt_dir):
     model = model.to("cuda")
 
     normalizer = Normalizer(stats)
-    return model, normalizer
+    return model, normalizer, use_state
 
 
-def decode_image_from_list(img_list):
+def decode_image_from_list(img_list, image_size=448):
     img_array = np.array(img_list, dtype=np.uint8)
-    img = cv2.resize(img_array, (448, 448))
+    img = cv2.resize(img_array, (image_size, image_size))
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     pil = Image.fromarray(img)
     return transforms.ToTensor()(pil).to("cuda")
 
 
-def infer_from_json_dict(data: dict, model, normalizer):
+def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
     device = "cuda"
+    image_size = int(model.config.get("image_size", 448))
 
-    images = [decode_image_from_list(img) for img in data["image"]]
+    images = [decode_image_from_list(img, image_size=image_size) for img in data["image"]]
     assert len(images) == 3, "Must provide exactly 3 images."
     for img in images:
-        assert img.shape == (3, 448, 448), "image_size must be (3,448,448)"
+        assert img.shape == (3, image_size, image_size), f"image_size must be (3,{image_size},{image_size})"
 
-    state = torch.tensor(data["state"], dtype=torch.float32, device=device)
-    if state.ndim == 1:
-        state = state.unsqueeze(0)
-    if state.shape[1] < 24:
-        state = torch.cat([state, torch.zeros((1, 24 - state.shape[1]), device=device)], dim=1)
-    norm_state = normalizer.normalize_state(state).to(dtype=torch.float32)
+    norm_state = None
+    if use_state:
+        state = torch.tensor(data["state"], dtype=torch.float32, device=device)
+        if state.ndim == 1:
+            state = state.unsqueeze(0)
+        if state.shape[1] < 24:
+            state = torch.cat([state, torch.zeros((1, 24 - state.shape[1]), device=device)], dim=1)
+        norm_state = normalizer.normalize_state(state).to(dtype=torch.float32)
 
     prompt = data["prompt"]
     image_mask = torch.tensor(data["image_mask"], dtype=torch.int32, device=device)
     action_mask = torch.tensor([data["action_mask"]], dtype=torch.int32, device=device)
-
-    print(f"image_mask,{image_mask}")
-    print(f"action_mask,{action_mask}")
 
     with torch.no_grad(), torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
         action = model.run_inference(
@@ -120,13 +124,13 @@ def infer_from_json_dict(data: dict, model, normalizer):
         return action.cpu().numpy().tolist()
 
 
-async def handle_request(websocket, model, normalizer):
+async def handle_request(websocket, model, normalizer, use_state):
     print("Client connected", flush=True)
     try:
         async for message in websocket:
             json_data = json.loads(message)
             print(f"Received JSON observation")
-            actions = infer_from_json_dict(json_data, model, normalizer)
+            actions = infer_from_json_dict(json_data, model, normalizer, use_state)
             await websocket.send(json.dumps(actions))
             print("Sent action chunk")
             
@@ -135,18 +139,23 @@ async def handle_request(websocket, model, normalizer):
 
 
 if __name__ == "__main__":
-    ckpt_dir = "/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best"
-    #Example: ckpt_dir = "/home/user/checkpoints/Evo1/Evo1_MetaWorld/"
-    
-    port = 9000
+    parser = argparse.ArgumentParser(description="Serve an Evo-1 checkpoint over websocket.")
+    parser.add_argument(
+        "--ckpt-dir",
+        default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best",
+    )
+    parser.add_argument("--port", type=int, default=9000)
+    args = parser.parse_args()
+    ckpt_dir = args.ckpt_dir
+    port = args.port
     
     print("Loading EVO_1 model...")
-    model, normalizer = load_model_and_normalizer(ckpt_dir)
+    model, normalizer, use_state = load_model_and_normalizer(ckpt_dir)
     
     async def main():
         print(f"EVO_1 server running at ws://0.0.0.0:{port}")
         async with websockets.serve(
-            lambda ws: handle_request(ws, model, normalizer),
+            lambda ws: handle_request(ws, model, normalizer, use_state),
             "0.0.0.0", port, max_size=100_000_000
         ):
             await asyncio.Future()

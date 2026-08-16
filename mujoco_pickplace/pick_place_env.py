@@ -4,7 +4,7 @@ import mujoco
 XML = """
 <mujoco model="handwritten_panda_pick_place">
   <compiler angle="radian"/>
-  <option timestep="0.002" gravity="0 0 -9.81"/>
+  <option timestep="0.002" gravity="0 0 -9.81" cone="elliptic" impratio="5"/>
   <default>
     <!-- Match LIBERO's 2ms physics integration. With this handwritten
          position-actuated Panda, damping=40 removes substep direction reversals
@@ -68,30 +68,36 @@ XML = """
 
                   <body name="panda_link7" pos="0.088 0 0" quat="0.707107 0.707107 0 0">
                     <joint name="panda_joint7" type="hinge" axis="0 0 1" range="-2.8973 2.8973"/>
-                    <!-- LIBERO keeps one link7 between joint7 and right_hand. -->
-                    <geom name="link7_geom" type="capsule" fromto="0 0 0 0 0 0.1065" size="0.030" rgba="0.76 0.79 0.82 1" contype="0" conaffinity="0"/>
+                    <!-- LIBERO keeps one link7 between joint7 and right_hand.
+                         Radius reduced (0.030->0.022) so the wrist capsule no
+                         longer dips into the cube's top corner during a grasp. -->
+                    <geom name="link7_geom" type="capsule" fromto="0 0 0 0 0 0.1065" size="0.022" rgba="0.76 0.79 0.82 1" contype="0" conaffinity="0"/>
 
-                    <!-- LIBERO / robosuite Panda hand mounting. The flange keeps
-                         its -45 degree mounting angle and has no cylinder between
-                         the fingers. -->
+                    <!-- LIBERO / robosuite style Panda hand mounting.  The hand
+                         is modeled as visible structure plus simplified collision
+                         pads, instead of two floating red boxes. -->
                     <body name="eef" pos="0 0 0.1065" quat="0.92388 0 0 -0.382683">
-                      <geom name="gripper_palm" type="box" pos="0 0 0.017" size="0.040 0.043 0.017" rgba="0.30 0.32 0.36 1" contype="0" conaffinity="0"/>
-                      <!-- Same hand-relative placement used by robosuite's
-                           eye_in_hand camera. -->
-                      <camera name="wrist" mode="fixed" pos="0.05 0 0" quat="0 0.707108 0.707108 0" fovy="75"/>
+                      <geom name="hand_flange" type="cylinder" pos="0 0 -0.004" size="0.031 0.010" rgba="0.12 0.14 0.17 1" contype="0" conaffinity="0"/>
+                      <geom name="gripper_palm" type="box" pos="0 0 0.018" size="0.034 0.034 0.021" rgba="0.32 0.34 0.37 1" contype="0" conaffinity="0"/>
+                      <geom name="gripper_front_plate" type="box" pos="0.018 0 0.041" size="0.010 0.039 0.012" rgba="0.18 0.20 0.23 1" contype="0" conaffinity="0"/>
+                      <geom name="left_knuckle" type="box" pos="0 0.030 0.044" size="0.018 0.010 0.015" rgba="0.24 0.26 0.29 1" contype="0" conaffinity="0"/>
+                      <geom name="right_knuckle" type="box" pos="0 -0.030 0.044" size="0.018 0.010 0.015" rgba="0.24 0.26 0.29 1" contype="0" conaffinity="0"/>
+                      <camera name="wrist" mode="fixed" pos="0.062 0 0.122" quat="0.9135 0 0.4067 0" fovy="68"/>
 
-                      <!-- Independent Panda fingers. Only the high-friction red
-                           pads collide with the cube. The pads are slightly
-                           lengthened so near-grasps register more reliably. -->
-                      <body name="left_finger_body" pos="0 0.018 0.055">
+                      <!-- Independent Panda fingers. Grey links are visual only;
+                           the red inner pads are the high-friction collision
+                           surfaces that actually grasp the cube. The grey
+                           finger links collide only with the target plate, so
+                           eval videos no longer show them slicing through it. -->
+                      <body name="left_finger_body" pos="0 0.0315 0.055">
                         <joint name="left_finger_joint" axis="0 1 0" type="slide" range="0 0.022"/>
-                        <geom name="left_finger" type="box" pos="0 0 -0.007" size="0.011 0.007 0.014" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
-                        <geom name="left_finger_tip" type="box" pos="0 0 0" size="0.012 0.007 0.008" rgba="0.92 0.20 0.15 1" contype="2" conaffinity="2" friction="5 0.05 0.0001" condim="4" solref="0.01 0.5"/>
+                        <geom name="left_finger" type="box" pos="0 0.001 -0.004" size="0.012 0.006 0.021" rgba="0.56 0.58 0.60 1" contype="16" conaffinity="0" friction="1.5 0.1 0.001" condim="4" solref="0.008 0.7" solimp="0.94 0.99 0.001"/>
+                        <geom name="left_finger_tip" type="box" pos="0 -0.0085 0.000" size="0.015 0.0065 0.014" rgba="0.92 0.20 0.15 1" contype="8" conaffinity="3" friction="8 0.2 0.001" condim="6" solref="0.006 0.6" solimp="0.95 0.99 0.001"/>
                       </body>
-                      <body name="right_finger_body" pos="0 -0.018 0.055">
+                      <body name="right_finger_body" pos="0 -0.0315 0.055">
                         <joint name="right_finger_joint" axis="0 -1 0" type="slide" range="0 0.022"/>
-                        <geom name="right_finger" type="box" pos="0 0 -0.007" size="0.011 0.007 0.014" rgba="0.50 0.52 0.55 1" contype="0" conaffinity="0"/>
-                        <geom name="right_finger_tip" type="box" pos="0 0 0" size="0.012 0.007 0.008" rgba="0.92 0.20 0.15 1" contype="2" conaffinity="2" friction="5 0.05 0.0001" condim="4" solref="0.01 0.5"/>
+                        <geom name="right_finger" type="box" pos="0 -0.001 -0.004" size="0.012 0.006 0.021" rgba="0.56 0.58 0.60 1" contype="16" conaffinity="0" friction="1.5 0.1 0.001" condim="4" solref="0.008 0.7" solimp="0.94 0.99 0.001"/>
+                        <geom name="right_finger_tip" type="box" pos="0 0.0085 0.000" size="0.015 0.0065 0.014" rgba="0.92 0.20 0.15 1" contype="8" conaffinity="3" friction="8 0.2 0.001" condim="6" solref="0.006 0.6" solimp="0.95 0.99 0.001"/>
                       </body>
                     </body>
                   </body>
@@ -103,15 +109,15 @@ XML = """
       </body>
     </body>
 
-    <body name="cube" pos="0.12 -0.08 0.046">
+    <body name="cube" pos="0.12 -0.08 0.050">
       <joint name="cube_free" type="free"/>
-      <!-- 36mm cube: slightly larger contact volume helps the fingertips
-           establish a stable grasp without changing the task structure. -->
-      <geom name="cube_geom" type="box" size="0.018 0.018 0.018" mass="0.05" rgba="0.12 0.42 0.92 1" contype="2" conaffinity="3" friction="1.2 0.05 0.0001" condim="4"/>
+      <!-- Slightly larger cube: the bigger contact patch makes the grasp
+           easier to establish without changing the task semantics. -->
+      <geom name="cube_geom" type="box" size="0.020 0.020 0.020" mass="0.035" rgba="0.12 0.42 0.92 1" contype="2" conaffinity="9" friction="2.5 0.2 0.001" condim="6" solref="0.006 0.6" solimp="0.95 0.99 0.001"/>
     </body>
 
     <body name="goal" pos="-0.15 0.12 0.035">
-      <geom name="goal_geom" type="cylinder" size="0.04 0.005" rgba="0.10 0.80 0.25 0.55" contype="0" conaffinity="0"/>
+      <geom name="goal_geom" type="cylinder" size="0.04 0.005" rgba="0.10 0.80 0.25 0.55" contype="4" conaffinity="24" friction="1.0 0.05 0.001" condim="4" solref="0.008 0.7" solimp="0.94 0.99 0.001"/>
     </body>
   </worldbody>
 
@@ -123,8 +129,8 @@ XML = """
     <position name="panda_motor5" joint="panda_joint5" kp="650" ctrlrange="-2.8973 2.8973" forcerange="-120 120"/>
     <position name="panda_motor6" joint="panda_joint6" kp="700" ctrlrange="-0.0175 3.7525" forcerange="-120 120"/>
     <position name="panda_motor7" joint="panda_joint7" kp="600" ctrlrange="-2.8973 2.8973" forcerange="-100 100"/>
-    <position name="left_finger_motor" joint="left_finger_joint" kp="1000" ctrlrange="0 0.022" forcerange="-20 20"/>
-    <position name="right_finger_motor" joint="right_finger_joint" kp="1000" ctrlrange="0 0.022" forcerange="-20 20"/>
+    <position name="left_finger_motor" joint="left_finger_joint" kp="1500" ctrlrange="0 0.022" forcerange="-45 45"/>
+    <position name="right_finger_motor" joint="right_finger_joint" kp="1500" ctrlrange="0 0.022" forcerange="-45 45"/>
   </actuator>
 </mujoco>
 """
@@ -146,7 +152,7 @@ class PickPlaceEnv:
     FINGER_TRAVEL = 0.022
     GRASP_OFFSET = 0.055
     TABLE_TOP = 0.03
-    CUBE_HALF = 0.018
+    CUBE_HALF = 0.020
     CUBE_SUPPORT_Z = TABLE_TOP + CUBE_HALF
     MIN_EEF_Z = TABLE_TOP + 0.062
 
@@ -180,9 +186,6 @@ class PickPlaceEnv:
         rng = np.random.default_rng(seed)
         mujoco.mj_resetData(self.model, self.data)
 
-        # LIBERO-style placement sampling stays inside the robot's validated
-        # task workspace. Sampling the whole table creates unreachable scenes,
-        # which are reset failures rather than useful expert demonstrations.
         cube_xy = rng.uniform([0.025, -0.10], [0.085, -0.045])
         goal_xy = rng.uniform([-0.15, 0.08], [-0.06, 0.13])
         self.model.body("goal").pos[:] = [goal_xy[0], goal_xy[1], 0.035]
@@ -225,20 +228,47 @@ class PickPlaceEnv:
         wrist = self.render("wrist")
         return {
             "state": state,
+            "robot_state": self.robot_state(),
             "image": front,
             "image_front": front,
             "image_overhead": overhead,
             "image_wrist": wrist,
         }
 
+    def robot_state(self):
+        left_qpos = self.data.qpos[self.model.joint("left_finger_joint").qposadr[0]]
+        right_qpos = self.data.qpos[self.model.joint("right_finger_joint").qposadr[0]]
+        return np.concatenate([
+            self.data.body("eef").xpos.copy(),
+            self._eef_axis_angle(),
+            np.array([left_qpos, right_qpos], dtype=np.float64),
+        ]).astype(np.float32)
+
     def render(self, camera="front"):
         self.renderer.update_scene(self.data, camera=camera)
         return self.renderer.render().copy()
 
+    def _eef_axis_angle(self):
+        quat = self.data.xquat[self.eef_body_id].copy()
+        quat = quat / (np.linalg.norm(quat) + 1e-12)
+        w = float(np.clip(quat[0], -1.0, 1.0))
+        den = np.sqrt(max(1.0 - w * w, 0.0))
+        if den < 1e-8:
+            return np.zeros(3, dtype=np.float64)
+        return quat[1:4] * (2.0 * np.arccos(w) / den)
+
+    @staticmethod
+    def _action_gripper(action):
+        if len(action) >= 7:
+            return action[6]
+        if len(action) >= 4:
+            return action[3]
+        raise ValueError("PickPlaceEnv action must have 4 or 7 dimensions")
+
     def step(self, action):
         action = np.asarray(action, dtype=np.float32)
         dpos = np.clip(action[:3], -self.MAX_DPOS, self.MAX_DPOS)
-        self.gripper = float(np.clip(action[3], 0.0, 1.0))
+        self.gripper = float(np.clip(self._action_gripper(action), 0.0, 1.0))
 
         current_eef = self.data.body("eef").xpos.copy()
         self.target_eef[:] = np.clip(
@@ -253,6 +283,9 @@ class PickPlaceEnv:
         self._set_actuator_targets(arm_targets)
         self._apply_grasp_force()
         mujoco.mj_step(self.model, self.data, nstep=self.CONTROL_NSTEP)
+        # Refresh the grasp state after the physics sweep. The cube position is
+        # governed by MuJoCo contacts; this call no longer kinematically moves it.
+        self._apply_grasp_force()
         self._update_grasp_logic()
         mujoco.mj_forward(self.model, self.data)
 
@@ -263,7 +296,7 @@ class PickPlaceEnv:
     def step_video(self, action, frames_per_step=4, cameras=("front", "overhead", "wrist")):
         action = np.asarray(action, dtype=np.float32)
         dpos = np.clip(action[:3], -self.MAX_DPOS, self.MAX_DPOS)
-        self.gripper = float(np.clip(action[3], 0.0, 1.0))
+        self.gripper = float(np.clip(self._action_gripper(action), 0.0, 1.0))
         current_eef = self.data.body("eef").xpos.copy()
         self.target_eef[:] = np.clip(
             current_eef + dpos,
@@ -383,40 +416,22 @@ class PickPlaceEnv:
         return best_q
 
     def _update_grasp_logic(self):
-        if self.gripper < 0.5 and not self.attached:
-            self.attached = (
-                self._has_two_sided_grasp_contact()
-                or self._tips_enclose_cube()
-            )
+        if self.gripper < 0.5:
+            self.attached = self._has_two_sided_grasp_contact()
             if self.attached:
                 self.release_counter = 0
-        if self.attached:
-            if self.gripper > 0.8:
-                self.release_counter += 1
-            else:
-                self.release_counter = 0
-
-            if self.release_counter >= 3:
+        else:
+            self.release_counter += 1
+            if self.release_counter >= 2:
                 self.attached = False
                 self.release_counter = 0
-                self.data.xfrc_applied[self.cube_body_id] = 0.0
-        else:
-            self.release_counter = 0
-            if self.gripper > 0.8:
-                self.data.xfrc_applied[self.cube_body_id] = 0.0
+        self.data.xfrc_applied[self.cube_body_id] = 0.0
 
     def _apply_grasp_force(self):
         self.data.xfrc_applied[self.cube_body_id] = 0.0
-        if not self.attached or self.gripper >= 0.5:
-            return
-        eef = self.data.body("eef").xpos
-        eef_R = self.data.xmat[self.eef_body_id].reshape(3, 3)
-        target = eef + eef_R @ np.array([0.0, 0.0, self.GRASP_OFFSET])
-        cube = self.data.body("cube").xpos
-        cube_vadr = self.model.joint("cube_free").dofadr[0]
-        cube_vel = self.data.qvel[cube_vadr:cube_vadr + 3]
-        force = 40.0 * (target - cube) - 2.8 * cube_vel
-        self.data.xfrc_applied[self.cube_body_id, :3] = np.clip(force, -4.0, 4.0)
+        # The project used to snap the cube pose to the fingertip midpoint here.
+        # That raised apparent success but created non-physical floating and
+        # tunneling in videos. Grasping is now handled only by MuJoCo contacts.
     def _has_two_sided_grasp_contact(self):
         cube_id = self.model.geom("cube_geom").id
         contacted = set()
@@ -436,9 +451,10 @@ class PickPlaceEnv:
     def _tips_enclose_cube(self, tol=None, z_tol=None):
         """Fallback for near-grasp: both red pads are beside the cube at cube
         height while the gripper is closed, even if the contact solver reports
-        a sub-millimeter gap."""
+        a sub-millimeter gap. Tolerance accounts for the fingertips sitting at
+        y=+/-0.025 of the eef frame."""
         if tol is None:
-            tol = self.CUBE_HALF + 0.010
+            tol = self.CUBE_HALF + 0.017
         if z_tol is None:
             z_tol = 0.034
         cube = self.data.body("cube").xpos
@@ -480,8 +496,10 @@ def scripted_expert(obs):
     goal_xy = goal[:2]
     eef_xy = eef[:2]
 
+    close_tol = 0.012
+
     if gripper > 0.5:
-        if np.linalg.norm(eef - grasp_pose) > 0.010:
+        if np.linalg.norm(eef - grasp_pose) > close_tol:
             if np.linalg.norm(eef_xy - cube_xy) > xy_tol:
                 target = np.array([cube[0], cube[1], safe_z], dtype=np.float32)
             else:
@@ -505,7 +523,7 @@ def scripted_expert(obs):
             grip_cmd = 1.0
 
     dpos = np.clip(target - eef, -0.012, 0.012)
-    return np.r_[dpos, grip_cmd].astype(np.float32)
+    return np.r_[dpos, 0.0, 0.0, 0.0, grip_cmd].astype(np.float32)
 
 class ScriptedExpertPolicy:
 
@@ -535,7 +553,7 @@ class ScriptedExpertPolicy:
             low_pass - self.previous_dpos, -0.004, 0.004
         )
         self.previous_dpos = dpos.astype(np.float32)
-        return np.r_[self.previous_dpos, gripper].astype(np.float32)
+        return np.r_[self.previous_dpos, 0.0, 0.0, 0.0, gripper].astype(np.float32)
 
     def __call__(self, obs):
         self.phase_steps += 1
@@ -554,7 +572,7 @@ class ScriptedExpertPolicy:
 
         if self.phase == "descend":
             target = np.array([cube[0], cube[1], grasp_z])
-            if np.linalg.norm(eef - target) < 0.010:
+            if np.linalg.norm(eef - target) < 0.012:
                 self._set_phase("close")
                 return self._move(eef, 0.0)
             return self._move(target, 1.0)

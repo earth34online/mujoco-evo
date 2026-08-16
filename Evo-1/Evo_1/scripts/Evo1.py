@@ -44,6 +44,7 @@ class EVO1(nn.Module):
                 per_action_dim=per_action_dim,
                 state_dim=config.get("state_dim", 7),
                 state_hidden_dim=config.get("state_hidden_dim", 1024),
+                use_state=config.get("use_state", True),
                 num_heads=config.get("num_heads", 8),
                 num_layers=config.get("num_layers", 8),
                 dropout=config.get("dropout", 0.0),
@@ -74,6 +75,8 @@ class EVO1(nn.Module):
         )
 
     def prepare_state(self, state_input: Union[list, torch.Tensor]) -> torch.Tensor:
+        if state_input is None:
+            return None
 
         if isinstance(state_input, list):
             state_tensor = torch.tensor(state_input)

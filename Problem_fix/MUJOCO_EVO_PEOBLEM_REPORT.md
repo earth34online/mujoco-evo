@@ -537,3 +537,74 @@ dx 连续方向翻转 = 2~6 / 9
 - 光照：提升可见性，方便判断是否真的抓住了物体。
 
 这一轮的经验是：**模型看上去“差一点能抓住”，很多时候不是模型懂了，而是几何关系、抓取姿态和评测闭环还没对齐**。
+
+## 15. 训练 loss mask 和有效动作维度
+
+### 遇到的问题
+
+后续真实闭环评测发现，模型并不是完全不会移动到物体附近，而是经常出现：
+
+```text
+1. 夹爪到了物体附近但没有稳定闭合
+2. 训练数据里明明有 close 标签，模型输出仍然偏向开爪
+3. open-loop chunk 里动作有效性弱，闭环第一集甚至会失败
+```
+
+旧 checkpoint 的快速诊断结果：
+
+```text
+open-loop learned chunk diagnostic: 0/8
+closed-loop learned eval: 第一集 0/1 后停止
+主要失败现象: gripper 大部分时间保持 open，没有稳定 latch close
+```
+
+数据标签排查结果表明问题不在于“数据里没有闭爪动作”：
+
+```text
+dataset: /home/user/mujoco+evo/.fix_tmp/dataset_7d_60
+episodes: 60
+frames: 4377
+gripper close label ratio: 69.68%
+horizon-14 chunks with at least one close action: 87.5%
+```
+
+### 成因
+
+主要成因不是 wrist 黑线、物体过小，也不是专家标签完全缺失，而是训练 loss 和动作语义没有对齐：
+
+```text
+1. flow-matching loss 只 mask 了 pred_velocity，没有 mask target_velocity
+2. 无效 / padding 动作维度虽然不应该训练，但 target 端仍然进入 MSE
+3. MuJoCo 当前任务实际只执行 dx, dy, dz, gripper
+4. 7D 接口中的 droll, dpitch, dyaw 保留是为了接近 LIBERO / Evo-1 风格，但本环境没有真正执行这些旋转控制
+5. 如果旋转维度和 padding 维度继续参与 loss，会把训练容量浪费到无意义目标上，并干扰 gripper 学习
+```
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo-1/Evo_1/scripts/train.py
+/home/user/mujoco+evo/Evo-1/Evo_1/dataset/lerobot_dataset_pretrain_mp.py
+/home/user/mujoco+evo/Evo-1/Evo_1/model/action_head/flow_matching.py
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+/home/user/mujoco+evo/mujoco_pickplace/open_loop.py
+```
+
+### 修改内容
+
+训练时同时 mask `pred_velocity` 和 `target_velocity`：
+
+```python
+action_mask = action_mask.view(action_mask.shape[0], -1).to(dtype=pred_velocity.dtype)
+pred_velocity_mask = pred_velocity * action_mask
+target_velocity_mask = target_velocity * action_mask
+loss = loss_fn(pred_velocity_mask, target_velocity_mask)
+```
+
+dataset loader 增加 `active_action_mask`，让 24D padded action 中只有当前任务真正有效的维度参与训练：
+
+```text
+active_action_mask: [1, 1, 1, 0, 0, 0, 1]
+```
+
+ps. 训练和评测只激活 dx, dy, dz, gripper 四个真正有效动作维度

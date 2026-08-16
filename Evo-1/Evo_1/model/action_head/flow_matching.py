@@ -196,6 +196,7 @@ class FlowmatchingActionHead(nn.Module):
         self.mlp_head = CategorySpecificMLP(input_dim=embed_dim, hidden_dim=hidden_dim,
                                             output_dim=action_dim, num_categories=num_categories)
 
+        self.use_state = bool(getattr(self.config, "use_state", False))
         self.state_encoder = None
         if hasattr(self.config, "state_dim") and self.config.state_dim is not None:
        
@@ -205,6 +206,9 @@ class FlowmatchingActionHead(nn.Module):
                                                     hidden_dim=state_hidden,
                                                     output_dim=embed_dim,
                                                     num_categories=num_categories)
+            if not self.use_state:
+                for param in self.state_encoder.parameters():
+                    param.requires_grad = False
 
         self.action_encoder = None
         if horizon > 1:
@@ -232,7 +236,7 @@ class FlowmatchingActionHead(nn.Module):
             embodiment_id = torch.zeros(B, dtype=torch.long, device=device)
 
         context_tokens = fused_tokens 
-        if state is not None and self.state_encoder is not None:
+        if self.use_state and state is not None and self.state_encoder is not None:
 
 
             state_emb = self.state_encoder(state, embodiment_id)  
@@ -250,16 +254,15 @@ class FlowmatchingActionHead(nn.Module):
         action_shape = actions_gt.shape[1]  
     
 
-        actions_gt_seq = actions_gt  
-
-
         noise = torch.rand_like(actions_gt) * 2 - 1  
 
         if action_mask is not None:
             action_mask = action_mask.to(dtype=noise.dtype, device=noise.device)
             assert action_mask.shape == noise.shape, f"action_mask shape {action_mask.shape} != noise shape {noise.shape}"
+            actions_gt = actions_gt * action_mask
             noise = noise * action_mask
 
+        actions_gt_seq = actions_gt
 
         if self.horizon > 1:
             noise_seq = noise.view(B, self.horizon, self.per_action_dim)
@@ -313,7 +316,7 @@ class FlowmatchingActionHead(nn.Module):
             embodiment_id = torch.zeros(B, dtype=torch.long, device=device)
 
         context_tokens = fused_tokens
-        if state is not None and self.state_encoder is not None:
+        if self.use_state and state is not None and self.state_encoder is not None:
 
             state_emb = self.state_encoder(state, embodiment_id).unsqueeze(1) 
             context_tokens = torch.cat([context_tokens, state_emb], dim=1)

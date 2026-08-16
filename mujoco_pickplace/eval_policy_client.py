@@ -13,15 +13,17 @@ from pick_place_env import PickPlaceEnv
 
 SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
-NUM_EPISODES = 10
+NUM_EPISODES = 20
 MAX_STEPS = 150
-ACTION_HORIZON = 1
+ACTION_HORIZON = 14
+ACTIVE_ACTION_MASK = [1, 1, 1, 0, 0, 0, 1] + [0] * 17
 MAX_POSITION_DELTA = 0.012
 MAX_DELTA_CHANGE = 0.004
 REVERSAL_DEADBAND = 0.0005
 GRIPPER_OPEN_THRESHOLD = 0.8
 GRIPPER_CLOSE_THRESHOLD = 0.25
-GRIPPER_OPEN_CONFIRM = 3
+GRIPPER_CLOSE_CONFIRM = 2
+GRIPPER_OPEN_CONFIRM = 4
 TASK_ID = 1
 TASK_NAME = "task1"
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -45,7 +47,7 @@ log = logging.getLogger(__name__)
 
 
 def obs_to_payload(obs):
-    state = obs["state"].astype(np.float32)
+    state = obs["robot_state"].astype(np.float32)
     images = [
         obs["image_front"],
         obs["image_overhead"],
@@ -55,7 +57,7 @@ def obs_to_payload(obs):
         "image": [image[..., ::-1].astype(np.uint8).tolist() for image in images],
         "image_mask": [1, 1, 1],
         "state": state.astype(float).tolist(),
-        "action_mask": [1, 1, 1, 1] + [0] * 20,
+        "action_mask": ACTIVE_ACTION_MASK,
         "prompt": PROMPT,
     }
 
@@ -71,7 +73,7 @@ def parse_args():
     parser.add_argument("--max-steps", type=int, default=MAX_STEPS)
     parser.add_argument("--horizon", type=int, default=ACTION_HORIZON,
                         help="Actions of each received chunk to execute before re-inferring.")
-    parser.add_argument("--smooth", action="store_true", default=True,
+    parser.add_argument("--smooth", action="store_true", default=False,
                         help="Exponentially smooth the executed position deltas.")
     parser.add_argument("--no-smooth", dest="smooth", action="store_false")
     parser.add_argument("--smooth-alpha", type=float, default=0.25,
@@ -124,7 +126,7 @@ def update_gripper_state(raw_gripper, prev_gripper, open_count, close_count):
         close_count = 0
 
     if prev_gripper > 0.5:
-        if close_count >= 1:
+        if close_count >= GRIPPER_CLOSE_CONFIRM:
             prev_gripper = 0.0
     else:
         if open_count >= GRIPPER_OPEN_CONFIRM:
@@ -206,16 +208,18 @@ async def main():
 
                 horizon = min(args.horizon, len(action_chunk))
                 for action_index in range(horizon):
-                    action = action_chunk[action_index, :4].astype(np.float32)
-                    print(action[:4])
+                    action = np.zeros(7, dtype=np.float32)
+                    available = min(7, action_chunk.shape[1])
+                    action[:available] = action_chunk[action_index, :available]
+                    print(action[:7])
                     gripper_state, gripper_open_count, gripper_close_count = update_gripper_state(
-                        float(action[3]),
+                        float(action[6]),
                         gripper_state,
                         gripper_open_count,
                         gripper_close_count,
                     )
-                    action[3] = gripper_state
-                    print(f"gripper action", action[3])
+                    action[6] = gripper_state
+                    print(f"gripper action", action[6])
                     if args.smooth:
                         action[:3], prev_smooth = smooth_positions(
                             action[:3],

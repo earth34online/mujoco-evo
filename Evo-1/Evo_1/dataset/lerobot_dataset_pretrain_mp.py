@@ -163,6 +163,11 @@ class LeRobotDataset(Dataset):
         self.max_action_dim = config['max_action_dim']
         self.max_state_dim = config['max_state_dim']
         self.max_views = config['max_views']
+        self.active_action_mask = config.get("active_action_mask", None)
+        if self.active_action_mask is not None:
+            if len(self.active_action_mask) > self.max_action_dim:
+                raise ValueError("active_action_mask cannot be longer than max_action_dim")
+            self.active_action_mask = torch.tensor(self.active_action_mask, dtype=torch.bool)
 
         self.image_size = image_size
         self.max_samples_per_file = max_samples_per_file
@@ -191,12 +196,12 @@ class LeRobotDataset(Dataset):
         self._load_trajectories()
 
         self.basic_transform = T.Compose([
-            T.Resize((448, 448), interpolation=InterpolationMode.BICUBIC),
+            T.Resize((self.image_size, self.image_size), interpolation=InterpolationMode.BICUBIC),
             T.ToTensor()
         ])
 
         self.aug_transform = T.Compose([
-            T.RandomResizedCrop(448, scale=(0.95, 1.0), interpolation=InterpolationMode.BICUBIC),
+            T.RandomResizedCrop(self.image_size, scale=(0.95, 1.0), interpolation=InterpolationMode.BICUBIC),
             T.RandomRotation(degrees=(-5, 5), interpolation=InterpolationMode.BICUBIC), 
             T.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5, hue=0.08),
             T.ToTensor()
@@ -497,6 +502,10 @@ class LeRobotDataset(Dataset):
         action_padded, action_mask = self._pad_tensor(
             action, self.max_action_dim
         )
+        if self.active_action_mask is not None:
+            active = torch.zeros(self.max_action_dim, dtype=torch.bool, device=action_mask.device)
+            active[:len(self.active_action_mask)] = self.active_action_mask.to(action_mask.device)
+            action_mask = action_mask & active
 
         prompt = item["prompt"] if item["prompt"] is not None else ""
         
@@ -510,4 +519,3 @@ class LeRobotDataset(Dataset):
             "action_mask": action_mask,
             "embodiment_id": torch.tensor(embodiment_id, dtype=torch.long)
         }
-

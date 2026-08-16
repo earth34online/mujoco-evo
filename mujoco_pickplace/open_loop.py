@@ -22,16 +22,20 @@ def infer_chunk(model, normalizer, obs):
     images_rgb = [obs["image_front"], obs["image_overhead"], obs["image_wrist"]]
     # Mirror the server pipeline exactly: the client flips RGB->BGR, the server
     # decodes BGR->RGB. Net effect is the model sees the same RGB as training.
-    images = [decode_image_from_list(img[..., ::-1]) for img in images_rgb]
+    image_size = int(model.config.get("image_size", 448))
+    images = [decode_image_from_list(img[..., ::-1], image_size=image_size) for img in images_rgb]
 
-    state = torch.tensor(obs["state"], dtype=torch.float32, device="cuda")
-    state = state.unsqueeze(0)
-    if state.shape[1] < 24:
-        state = torch.cat([state, torch.zeros((1, 24 - state.shape[1]), device="cuda")], dim=1)
-    norm_state = normalizer.normalize_state(state).to(dtype=torch.float32)
+    use_state = bool(model.config.get("use_state", True))
+    norm_state = None
+    if use_state:
+        state = torch.tensor(obs["robot_state"], dtype=torch.float32, device="cuda")
+        state = state.unsqueeze(0)
+        if state.shape[1] < 24:
+            state = torch.cat([state, torch.zeros((1, 24 - state.shape[1]), device="cuda")], dim=1)
+        norm_state = normalizer.normalize_state(state).to(dtype=torch.float32)
 
     image_mask = torch.tensor([1, 1, 1], dtype=torch.int32, device="cuda")
-    action_mask = torch.tensor([[1, 1, 1, 1] + [0] * 20], dtype=torch.int32, device="cuda")
+    action_mask = torch.tensor([[1, 1, 1, 0, 0, 0, 1] + [0] * 17], dtype=torch.int32, device="cuda")
 
     with torch.no_grad(), torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
         action = model.run_inference(
@@ -47,9 +51,9 @@ def infer_chunk(model, normalizer, obs):
 
 
 def action_jitter_metrics(chunk):
-    rows = chunk[:, :4]
+    rows = chunk[:, :7]
     pos = rows[:, :3]
-    grp = rows[:, 3]
+    grp = rows[:, 6]
     pos_diffs = np.abs(np.diff(pos, axis=0))
     grp_diffs = np.abs(np.diff(grp))
     return {
@@ -72,7 +76,7 @@ def main():
     args = parser.parse_args()
 
     print(f"Loading model from {args.ckpt} ...", flush=True)
-    model, normalizer = load_model_and_normalizer(args.ckpt)
+    model, normalizer, _ = load_model_and_normalizer(args.ckpt)
     print("Model loaded.", flush=True)
 
     env = PickPlaceEnv()
@@ -83,13 +87,13 @@ def main():
         horizon = chunk.shape[0]
         jit = action_jitter_metrics(chunk)
 
-        ee = [obs["state"][:3].copy()]
+        ee = [obs["robot_state"][:3].copy()]
         done = False
         for i in range(horizon):
-            a = chunk[i, :4].astype(np.float32)
-            a[3] = 1.0 if a[3] > 0.5 else 0.0
+            a = chunk[i, :7].astype(np.float32)
+            a[6] = 1.0 if a[6] > 0.5 else 0.0
             obs, done = env.step(a)
-            ee.append(obs["state"][:3].copy())
+            ee.append(obs["robot_state"][:3].copy())
             if done:
                 break
         ee = np.array(ee)

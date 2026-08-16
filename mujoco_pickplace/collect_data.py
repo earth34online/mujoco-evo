@@ -73,9 +73,9 @@ def remove_redundant_static_frames(trajectory):
             index != len(states) - 1
             and phases[index] not in protected_phases
             and phases[index] == phases[previous]
-            and np.linalg.norm(states[index, :9] - states[previous, :9]) < 2e-5
+            and np.linalg.norm(states[index] - states[previous]) < 2e-5
             and np.linalg.norm(actions[index, :3]) < 5e-5
-            and abs(float(actions[index, 3] - actions[previous, 3])) < 1e-6
+            and abs(float(actions[index, -1] - actions[previous, -1])) < 1e-6
             and not dones[index]
         )
         if not static:
@@ -98,6 +98,7 @@ def collect_attempt(env, seed, max_steps):
     expert = ScriptedExpertPolicy(env)
     trajectory = {
         "states": [],
+        "robot_states": [],
         "actions": [],
         "phases": [],
         "dones": [],
@@ -111,6 +112,7 @@ def collect_attempt(env, seed, max_steps):
         phase = expert.phase
         action = expert(obs)
         trajectory["states"].append(obs["state"].copy())
+        trajectory["robot_states"].append(obs["robot_state"].copy())
         trajectory["actions"].append(action.copy())
         trajectory["phases"].append(phase)
         for camera in CAMERAS:
@@ -211,7 +213,7 @@ def main():
                 compact, removed = remove_redundant_static_frames(trajectory)
                 quality["removed_static_frames"] = removed
                 row = writer.write_episode(
-                    states=compact["states"],
+                    states=compact["robot_states"],
                     actions=compact["actions"],
                     images=compact["images"],
                     phases=compact["phases"],
