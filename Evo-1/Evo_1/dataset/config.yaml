@@ -1,6 +1,7 @@
 max_action_dim: 24
 max_state_dim: 24
 max_views: 3
+active_action_mask: [1, 1, 1, 0, 0, 0, 1]
 
 data_groups:
   mujoco_pickplace:

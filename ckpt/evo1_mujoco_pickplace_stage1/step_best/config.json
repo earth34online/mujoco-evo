@@ -1,6 +1,6 @@
 {
   "device": "cuda",
-  "run_name": "Evo1_mujoco_pickplace_stage1",
+  "run_name": "Your_own_name",
   "vlm_name": "OpenGVLab/InternVL3-1B",
   "action_head": "flowmatching",
   "return_cls_only": false,
@@ -8,7 +8,7 @@
   "dataset_type": "lerobot",
   "data_paths": null,
   "dataset_config_path": "dataset/config.yaml",
-  "image_size": 448,
+  "image_size": 224,
   "binarize_gripper": false,
   "use_augmentation": true,
   "lr": 1e-05,
@@ -17,7 +17,7 @@
   "warmup_steps": 1000,
   "grad_clip_norm": 1.0,
   "weight_decay": 0.001,
-  "log_interval": 10,
+  "log_interval": 20,
   "ckpt_interval": 2500,
   "save_dir": "/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1",
   "resume": false,
@@ -25,11 +25,12 @@
   "resume_pretrain": false,
   "finetune_vlm": false,
   "finetune_action_head": true,
+  "use_state": false,
   "per_action_dim": 24,
   "state_dim": 24,
-  "horizon": 50,
+  "horizon": 14,
   "num_layers": 8,
   "num_workers": 4,
-  "dropout": 0.2,
-  "action_dim": 1200
+  "dropout": 0.1,
+  "action_dim": 336
 }
