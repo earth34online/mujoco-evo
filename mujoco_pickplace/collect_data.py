@@ -12,12 +12,13 @@ from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "cache" / "mujoco_pickplace"
 NUM_EPISODES = 200
-MAX_STEPS = 150
+MAX_STEPS = 200
 MIN_LEN = 20
 MAX_ACTION_REVERSALS = 4
-MAX_EEF_REVERSALS = 6
+MAX_EEF_REVERSALS = 8
 MAX_ACTION_JUMP = 0.018
 MAX_EEF_STEP = 0.025
+POST_SUCCESS_STEPS = 24
 
 
 def _reversal_count(vectors, motion_epsilon=1e-5):
@@ -46,6 +47,7 @@ def trajectory_quality(states, actions, joint_targets, had_two_pad_contact):
         "max_joint_target_delta": float(
             np.max(np.abs(np.diff(joint_targets, axis=0)))
         ) if len(joint_targets) > 1 else 0.0,
+        "robot_table_contact": False,
     }
     accepted = (
         len(states) >= MIN_LEN
@@ -106,11 +108,13 @@ def collect_attempt(env, seed, max_steps):
         "images": {camera: [] for camera in CAMERAS},
     }
     done = False
+    task_succeeded = False
+    post_success_remaining = 0
     had_two_pad_contact = False
 
     for _ in range(max_steps):
-        phase = expert.phase
         action = expert(obs)
+        phase = expert.phase
         trajectory["states"].append(obs["state"].copy())
         trajectory["robot_states"].append(obs["robot_state"].copy())
         trajectory["actions"].append(action.copy())
@@ -120,10 +124,18 @@ def collect_attempt(env, seed, max_steps):
 
         obs, done = env.step(action)
         had_two_pad_contact |= env.attached
-        trajectory["dones"].append(done)
         trajectory["joint_targets"].append(env.arm_target.copy())
-        if done:
-            break
+        trajectory["dones"].append(False)
+        if done and not task_succeeded:
+            task_succeeded = True
+            post_success_remaining = POST_SUCCESS_STEPS
+        elif task_succeeded:
+            post_success_remaining -= 1
+            if post_success_remaining <= 0:
+                break
+
+    if trajectory["dones"]:
+        trajectory["dones"][-1] = task_succeeded
 
     arrays = {
         "states": np.asarray(trajectory["states"], dtype=np.float32),
@@ -136,8 +148,10 @@ def collect_attempt(env, seed, max_steps):
         arrays["joint_targets"],
         had_two_pad_contact,
     )
-    accepted = bool(done and accepted)
-    quality["success"] = bool(done)
+    quality["robot_table_contact"] = bool(env.unsafe_robot_table_contact)
+    accepted = bool(accepted and not env.unsafe_robot_table_contact)
+    accepted = bool(task_succeeded and accepted)
+    quality["success"] = bool(task_succeeded)
     quality["raw_length"] = len(trajectory["states"])
     return trajectory, accepted, quality
 

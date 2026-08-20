@@ -146,6 +146,7 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
     horizon = get_with_warning(config, "horizon", 50)
     binarize_gripper = get_with_warning(config, "binarize_gripper", False)
     use_augmentation = get_with_warning(config, "use_augmentation", False)
+    overwrite_horizon_cache = get_with_warning(config, "overwrite_horizon_cache", True)
     if dataset_type == "lerobot":
         from dataset.lerobot_dataset_pretrain_mp import LeRobotDataset 
         import yaml
@@ -158,7 +159,8 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
             max_samples_per_file=max_samples,
             action_horizon=horizon,
             binarize_gripper=binarize_gripper,
-            use_augmentation=use_augmentation
+            use_augmentation=use_augmentation,
+            overwrite_horizon_cache=overwrite_horizon_cache,
         )
     else:
         raise ValueError(f"Unknown dataset_type: {dataset_type}")
@@ -264,6 +266,46 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
         logging.info(f"[Rank {accelerator.process_index}] Saved checkpoint to {checkpoint_dir}")
 
 def load_checkpoint_with_deepspeed(model_engine, load_dir, accelerator, tag="step_best", load_optimizer_states=True, resume_pretrain=False):
+    if not hasattr(model_engine, "load_checkpoint"):
+        checkpoint_path = os.path.join(load_dir, tag, "mp_rank_00_model_states.pt")
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        module_state = checkpoint.get("module", checkpoint)
+        incompatible = accelerator.unwrap_model(model_engine).load_state_dict(
+            module_state, strict=not resume_pretrain
+        )
+        if resume_pretrain and accelerator.is_main_process:
+            if incompatible.missing_keys:
+                logging.info(
+                    "New parameters initialized for finetuning: %s",
+                    incompatible.missing_keys,
+                )
+            if incompatible.unexpected_keys:
+                logging.info(
+                    "Unused pretrained parameters: %s",
+                    incompatible.unexpected_keys,
+                )
+        stored_client_state = checkpoint.get("client_state", {})
+        client_state = {
+            "step": stored_client_state.get(
+                "step", checkpoint.get("step", checkpoint.get("global_steps", 0))
+            ),
+            "best_loss": stored_client_state.get(
+                "best_loss", checkpoint.get("best_loss", float("inf"))
+            ),
+            "config": stored_client_state.get(
+                "config", checkpoint.get("config", {})
+            ),
+        }
+        if accelerator.is_main_process:
+            logging.info(
+                f"Loaded regular checkpoint weights from {checkpoint_path} "
+                "(optimizer state skipped)"
+            )
+        try:
+            start_step = int(client_state.get("step", 0) or 0)
+        except (TypeError, ValueError):
+            start_step = int(checkpoint.get("global_steps", 0) or 0)
+        return start_step, client_state
 
     try:
         load_path, client_state = model_engine.load_checkpoint(
@@ -478,7 +520,7 @@ def train(config):
             loss = loss_fn(pred_velocity_mask, target_velocity_mask)
             scale_factor = action_mask.numel() / (action_mask.sum() + 1e-8)
             loss = loss * scale_factor
-            
+
             # === NaN/Inf check ===
             if not check_numerical_stability(
                 step,
@@ -564,6 +606,14 @@ if __name__ == "__main__":
     parser.add_argument("--image_size", type=int, default=448)
     parser.add_argument("--binarize_gripper", action="store_true", default=False, help="Whether to binarize gripper state/action (default: False).")
     parser.add_argument("--use_augmentation", action="store_true", help="Enable data augmentation on images")
+    parser.add_argument("--overwrite_horizon_cache", action="store_true", default=True,
+                        help="Clear and rebuild training_data_cache/horizon_<horizon> "
+                             "before loading the dataset. Enabled by default "
+                             "to avoid stale MuJoCo horizon_14 samples after "
+                             "overwriting parquet/video data in place.")
+    parser.add_argument("--no-overwrite_horizon_cache", dest="overwrite_horizon_cache",
+                        action="store_false",
+                        help="Reuse the existing generated horizon cache.")
 
     # Training
     parser.add_argument("--lr", type=float, default=1e-5)
@@ -594,7 +644,7 @@ if __name__ == "__main__":
     # Misc
     parser.add_argument("--per_action_dim", type=int, default=24)
     parser.add_argument("--state_dim", type=int, default=24)
-    parser.add_argument("--horizon", type=int, default=16)
+    parser.add_argument("--horizon", type=int, default=14)
     parser.add_argument("--num_layers", type=int, default=8)
     parser.add_argument("--num_workers", type=int, default=4)
     # dropout
@@ -604,6 +654,7 @@ if __name__ == "__main__":
         disable_wandb=True,
         finetune_action_head=True,
         use_augmentation=True,
+        use_state=True,
     )
     args = parser.parse_args()
     config = vars(args)

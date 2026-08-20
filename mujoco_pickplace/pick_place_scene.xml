@@ -1,0 +1,38 @@
+<mujoco model="evo1_panda_pick_place">
+  <include file="../mujoco_menagerie/franka_emika_panda/panda.xml"/>
+  <option timestep="0.002" gravity="0 0 -9.81" cone="elliptic" impratio="5"/>
+
+  <visual>
+    <global offwidth="448" offheight="448"/>
+    <headlight diffuse="0.62 0.62 0.62" ambient="0.28 0.28 0.28" specular="0.10 0.10 0.10"/>
+    <rgba haze="0.70 0.74 0.80 1"/>
+  </visual>
+
+  <asset>
+    <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.38 0.44 0.52" rgb2="0.70 0.75 0.80" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.36 0.38 0.40" rgb2="0.52 0.54 0.56" width="256" height="256"/>
+    <material name="floor_mat" texture="grid" texrepeat="4 4" reflectance="0.01"/>
+  </asset>
+
+  <worldbody>
+    <light name="main_light" pos="0.1 -0.55 2.8" dir="0 0 -1" diffuse="0.75 0.75 0.75" ambient="0.15 0.15 0.15"/>
+    <light name="fill_light" pos="-0.9 0.8 1.5" dir="0.4 -0.2 -1" diffuse="0.25 0.25 0.25" ambient="0.03 0.03 0.03"/>
+    <body name="camera_target" pos="0.42 0.01 0.15"/>
+    <body name="front_camera_target" pos="0.38 0.00 0.24"/>
+    <camera name="front" pos="1.02 -1.24 0.92" mode="targetbody" target="front_camera_target" fovy="60"/>
+    <camera name="overhead" pos="0.40 0.00 1.42" mode="targetbody" target="camera_target" fovy="48"/>
+    <camera name="workspace" pos="0.78 0.58 0.55" mode="targetbody" target="camera_target" fovy="54"/>
+
+    <geom name="floor" type="plane" pos="0 0 -0.005" size="1.0 1.0 0.01" material="floor_mat" contype="0" conaffinity="0"/>
+    <geom name="table" type="box" pos="0.35 0 0" size="0.55 0.35 0.03" rgba="0.46 0.48 0.51 1"/>
+
+    <body name="cube" pos="0.34 -0.10 0.060">
+      <joint name="cube_free" type="free"/>
+      <geom name="cube_geom" type="box" size="0.030 0.030 0.030" mass="0.070" rgba="0.00 0.35 1.00 1" contype="10" conaffinity="9" friction="2.5 0.2 0.001" condim="6" solref="0.006 0.6" solimp="0.95 0.99 0.001"/>
+    </body>
+
+    <body name="goal" pos="0.46 0.12 0.035">
+      <geom name="goal_geom" type="cylinder" pos="0 0 -0.002" size="0.075 0.003" rgba="0.00 0.90 0.10 0.75" contype="12" conaffinity="24" friction="0.5 0.05 0.001" condim="4" solref="0.008 0.7" solimp="0.94 0.99 0.001"/>
+    </body>
+  </worldbody>
+</mujoco>

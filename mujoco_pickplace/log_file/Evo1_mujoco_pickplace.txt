@@ -98,3 +98,299 @@
 2026-08-16 17:30:09,039 [INFO] Task 0 | Episode 4: ✅ Success
 2026-08-16 17:31:50,008 [INFO] Task 0 | Episode 5: ✅ Success
 2026-08-16 17:33:43,948 [INFO] Task 0 | Episode 6: ✅ Success
+2026-08-16 17:36:10,993 [INFO] Task 0 | Episode 7: ✅ Success
+2026-08-16 17:37:48,657 [INFO] Task 0 | Episode 8: ✅ Success
+2026-08-16 17:39:54,947 [INFO] Task 0 | Episode 9: ✅ Success
+2026-08-16 17:43:27,425 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-08-16 17:45:12,827 [INFO] Task 0 | Episode 11: ✅ Success
+2026-08-16 17:48:45,431 [INFO] Task 0 | Episode 12: ❌ Fail
+2026-08-16 17:52:12,314 [INFO] Task 0 | Episode 13: ❌ Fail
+2026-08-16 17:55:35,732 [INFO] Task 0 | Episode 14: ❌ Fail
+2026-08-16 17:57:31,172 [INFO] Task 0 | Episode 15: ✅ Success
+2026-08-16 17:59:14,578 [INFO] Task 0 | Episode 16: ✅ Success
+2026-08-16 18:01:26,787 [INFO] Task 0 | Episode 17: ✅ Success
+2026-08-16 18:04:53,309 [INFO] Task 0 | Episode 18: ❌ Fail
+2026-08-16 18:06:48,613 [INFO] Task 0 | Episode 19: ✅ Success
+2026-08-16 18:08:35,198 [INFO] Task 0 | Episode 20: ✅ Success
+2026-08-16 18:08:35,199 [INFO] ========= Task 1 Summary: 13/20 Successful =========
+2026-08-16 18:08:35,199 [INFO] 
+========= Overall Task Summary =========
+2026-08-16 18:08:35,199 [INFO] ✅ Total Successful Episodes: 13/20
+2026-08-16 18:08:35,199 [INFO] 📊 Average Steps: 104.30
+2026-08-16 18:08:35,199 [INFO] success_rate=0.650
+2026-08-17 08:15:46,351 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-17 08:20:10,004 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-17 08:24:30,604 [INFO] Task 0 | Episode 2: ❌ Fail
+2026-08-17 08:28:52,222 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-08-17 08:33:12,285 [INFO] Task 0 | Episode 4: ❌ Fail
+2026-08-17 08:37:46,406 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-08-17 19:33:50,258 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-17 19:35:43,124 [INFO] Task 0 | Episode 1: ✅ Success
+2026-08-17 19:40:02,141 [INFO] Task 0 | Episode 2: ❌ Fail
+2026-08-17 19:44:16,913 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-08-17 19:46:03,773 [INFO] Task 0 | Episode 4: ✅ Success
+2026-08-17 19:50:09,021 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-08-17 19:51:44,203 [INFO] Task 0 | Episode 6: ✅ Success
+2026-08-17 19:53:43,803 [INFO] Task 0 | Episode 7: ✅ Success
+2026-08-17 19:57:44,841 [INFO] Task 0 | Episode 8: ❌ Fail
+2026-08-17 19:59:33,232 [INFO] Task 0 | Episode 9: ✅ Success
+2026-08-17 20:03:47,325 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-08-17 20:07:58,354 [INFO] Task 0 | Episode 11: ❌ Fail
+2026-08-17 20:10:09,461 [INFO] Task 0 | Episode 12: ✅ Success
+2026-08-17 20:11:44,401 [INFO] Task 0 | Episode 13: ✅ Success
+2026-08-17 20:13:40,382 [INFO] Task 0 | Episode 14: ✅ Success
+2026-08-17 20:17:52,931 [INFO] Task 0 | Episode 15: ❌ Fail
+2026-08-17 20:19:25,021 [INFO] Task 0 | Episode 16: ✅ Success
+2026-08-17 20:21:21,016 [INFO] Task 0 | Episode 17: ✅ Success
+2026-08-17 20:25:22,824 [INFO] Task 0 | Episode 18: ❌ Fail
+2026-08-17 20:27:02,764 [INFO] Task 0 | Episode 19: ✅ Success
+2026-08-17 20:29:00,641 [INFO] Task 0 | Episode 20: ✅ Success
+2026-08-17 20:29:00,641 [INFO] ========= Task 1 Summary: 12/20 Successful =========
+2026-08-17 20:29:00,641 [INFO] 
+========= Overall Task Summary =========
+2026-08-17 20:29:00,642 [INFO] ✅ Total Successful Episodes: 12/20
+2026-08-17 20:29:00,642 [INFO] 📊 Average Steps: 98.90
+2026-08-17 20:29:00,642 [INFO] success_rate=0.600
+2026-08-17 20:45:07,206 [INFO] vision_select_layer: -1
+2026-08-17 20:45:07,207 [INFO] ps_version: v2
+2026-08-17 20:45:07,207 [INFO] min_dynamic_patch: 1
+2026-08-17 20:45:07,207 [INFO] max_dynamic_patch: 12
+2026-08-17 20:45:09,210 [INFO] num_image_token: 256
+2026-08-17 20:45:09,211 [INFO] ps_version: v2
+2026-08-17 20:50:52,893 [INFO] vision_select_layer: -1
+2026-08-17 20:50:52,893 [INFO] ps_version: v2
+2026-08-17 20:50:52,893 [INFO] min_dynamic_patch: 1
+2026-08-17 20:50:52,893 [INFO] max_dynamic_patch: 12
+2026-08-17 20:50:54,270 [INFO] num_image_token: 256
+2026-08-17 20:50:54,270 [INFO] ps_version: v2
+2026-08-17 20:51:44,503 [INFO] vision_select_layer: -1
+2026-08-17 20:51:44,503 [INFO] ps_version: v2
+2026-08-17 20:51:44,503 [INFO] min_dynamic_patch: 1
+2026-08-17 20:51:44,503 [INFO] max_dynamic_patch: 12
+2026-08-17 20:51:46,058 [INFO] num_image_token: 256
+2026-08-17 20:51:46,058 [INFO] ps_version: v2
+2026-08-18 09:25:47,491 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-18 09:28:12,208 [INFO] Task 0 | Episode 1: ✅ Success
+2026-08-18 09:33:02,245 [INFO] Task 0 | Episode 2: ❌ Fail
+2026-08-18 09:37:51,170 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-08-18 09:42:39,717 [INFO] Task 0 | Episode 4: ❌ Fail
+2026-08-18 09:47:29,800 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-08-18 09:50:36,913 [INFO] Task 0 | Episode 6: ✅ Success
+2026-08-18 09:53:36,952 [INFO] Task 0 | Episode 7: ✅ Success
+2026-08-18 09:55:27,817 [INFO] Task 0 | Episode 8: ✅ Success
+2026-08-18 10:00:17,742 [INFO] Task 0 | Episode 9: ❌ Fail
+2026-08-18 10:05:08,392 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-08-18 10:09:59,498 [INFO] Task 0 | Episode 11: ❌ Fail
+2026-08-18 10:14:48,799 [INFO] Task 0 | Episode 12: ❌ Fail
+2026-08-18 10:19:35,967 [INFO] Task 0 | Episode 13: ❌ Fail
+2026-08-18 10:24:22,828 [INFO] Task 0 | Episode 14: ❌ Fail
+2026-08-18 10:27:03,267 [INFO] Task 0 | Episode 15: ✅ Success
+2026-08-18 10:28:55,973 [INFO] Task 0 | Episode 16: ✅ Success
+2026-08-18 10:31:17,054 [INFO] Task 0 | Episode 17: ✅ Success
+2026-08-18 10:36:02,308 [INFO] Task 0 | Episode 18: ❌ Fail
+2026-08-18 10:40:49,295 [INFO] Task 0 | Episode 19: ❌ Fail
+2026-08-18 10:45:34,713 [INFO] Task 0 | Episode 20: ❌ Fail
+2026-08-18 10:45:34,713 [INFO] ========= Task 1 Summary: 7/20 Successful =========
+2026-08-18 10:45:34,713 [INFO] 
+========= Overall Task Summary =========
+2026-08-18 10:45:34,713 [INFO] ✅ Total Successful Episodes: 7/20
+2026-08-18 10:45:34,713 [INFO] 📊 Average Steps: 124.35
+2026-08-18 10:45:34,713 [INFO] success_rate=0.350
+2026-08-20 08:41:44,009 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 08:46:11,858 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 08:50:35,295 [INFO] Task 0 | Episode 2: ❌ Fail
+2026-08-20 08:54:58,841 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-08-20 08:59:21,932 [INFO] Task 0 | Episode 4: ❌ Fail
+2026-08-20 09:03:44,198 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-08-20 09:08:07,132 [INFO] Task 0 | Episode 6: ❌ Fail
+2026-08-20 09:12:29,855 [INFO] Task 0 | Episode 7: ❌ Fail
+2026-08-20 09:16:53,811 [INFO] Task 0 | Episode 8: ❌ Fail
+2026-08-20 09:21:17,619 [INFO] Task 0 | Episode 9: ❌ Fail
+2026-08-20 09:25:43,473 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-08-20 09:30:09,679 [INFO] Task 0 | Episode 11: ❌ Fail
+2026-08-20 09:34:33,759 [INFO] Task 0 | Episode 12: ❌ Fail
+2026-08-20 09:38:58,163 [INFO] Task 0 | Episode 13: ❌ Fail
+2026-08-20 09:43:24,859 [INFO] Task 0 | Episode 14: ❌ Fail
+2026-08-20 09:47:50,533 [INFO] Task 0 | Episode 15: ❌ Fail
+2026-08-20 09:52:15,651 [INFO] Task 0 | Episode 16: ❌ Fail
+2026-08-20 09:56:41,345 [INFO] Task 0 | Episode 17: ❌ Fail
+2026-08-20 10:01:07,227 [INFO] Platform import failed (likely during shutdown)
+2026-08-20 10:01:07,227 [INFO] Platform import failed (likely during shutdown)
+2026-08-20 10:39:03,671 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 10:49:03,382 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 10:51:23,937 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 10:53:44,657 [INFO] Task 0 | Episode 2: ❌ Fail
+2026-08-20 10:56:03,998 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-08-20 10:56:03,998 [INFO] ========= Task 1 Summary: 0/3 Successful =========
+2026-08-20 10:56:03,998 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 10:56:03,998 [INFO] ✅ Total Successful Episodes: 0/3
+2026-08-20 10:56:03,998 [INFO] 📊 Average Steps: 180.00
+2026-08-20 10:56:03,998 [INFO] success_rate=0.000
+2026-08-20 10:56:37,141 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 10:57:39,566 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 10:57:39,566 [INFO] ========= Task 1 Summary: 0/1 Successful =========
+2026-08-20 10:57:39,566 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 10:57:39,566 [INFO] ✅ Total Successful Episodes: 0/1
+2026-08-20 10:57:39,566 [INFO] 📊 Average Steps: 80.00
+2026-08-20 10:57:39,566 [INFO] success_rate=0.000
+2026-08-20 10:57:53,414 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 11:00:15,959 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 11:00:15,960 [INFO] ========= Task 1 Summary: 0/1 Successful =========
+2026-08-20 11:00:15,960 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 11:00:15,960 [INFO] ✅ Total Successful Episodes: 0/1
+2026-08-20 11:00:15,960 [INFO] 📊 Average Steps: 180.00
+2026-08-20 11:00:15,960 [INFO] success_rate=0.000
+2026-08-20 12:55:45,889 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 12:58:22,290 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 13:01:21,297 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:08:19,132 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:10:56,118 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 13:11:20,560 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:15:59,819 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 13:15:59,819 [INFO] ========= Task 1 Summary: 0/1 Successful =========
+2026-08-20 13:15:59,819 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 13:15:59,819 [INFO] ✅ Total Successful Episodes: 0/1
+2026-08-20 13:15:59,819 [INFO] 📊 Average Steps: 200.00
+2026-08-20 13:15:59,819 [INFO] success_rate=0.000
+2026-08-20 13:34:33,103 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:37:12,230 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 13:37:41,404 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:40:18,374 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 13:41:22,011 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:45:59,076 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:48:15,714 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:50:17,395 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:52:54,354 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 13:52:54,355 [INFO] ========= Task 1 Summary: 0/1 Successful =========
+2026-08-20 13:52:54,355 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 13:52:54,355 [INFO] ✅ Total Successful Episodes: 0/1
+2026-08-20 13:52:54,355 [INFO] 📊 Average Steps: 200.00
+2026-08-20 13:52:54,355 [INFO] success_rate=0.000
+2026-08-20 13:53:33,504 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:55:45,741 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:58:04,675 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 13:59:34,353 [INFO] Task 0 | Episode 1: ✅ Success
+2026-08-20 14:01:02,571 [INFO] Task 0 | Episode 2: ✅ Success
+2026-08-20 14:02:29,479 [INFO] Task 0 | Episode 3: ✅ Success
+2026-08-20 14:02:29,479 [INFO] ========= Task 1 Summary: 3/3 Successful =========
+2026-08-20 14:02:29,479 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 14:02:29,479 [INFO] ✅ Total Successful Episodes: 3/3
+2026-08-20 14:02:29,479 [INFO] 📊 Average Steps: 112.00
+2026-08-20 14:02:29,479 [INFO] success_rate=1.000
+2026-08-20 14:02:42,205 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 14:04:09,804 [INFO] Task 0 | Episode 1: ✅ Success
+2026-08-20 14:05:38,758 [INFO] Task 0 | Episode 2: ✅ Success
+2026-08-20 14:07:06,007 [INFO] Task 0 | Episode 3: ✅ Success
+2026-08-20 14:08:33,220 [INFO] Task 0 | Episode 4: ✅ Success
+2026-08-20 14:10:00,609 [INFO] Task 0 | Episode 5: ✅ Success
+2026-08-20 14:11:29,811 [INFO] Task 0 | Episode 6: ✅ Success
+2026-08-20 14:12:57,471 [INFO] Task 0 | Episode 7: ✅ Success
+2026-08-20 14:14:24,654 [INFO] Task 0 | Episode 8: ✅ Success
+2026-08-20 14:15:52,241 [INFO] Task 0 | Episode 9: ✅ Success
+2026-08-20 14:17:21,683 [INFO] Task 0 | Episode 10: ✅ Success
+2026-08-20 14:17:21,683 [INFO] ========= Task 1 Summary: 10/10 Successful =========
+2026-08-20 14:17:21,683 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 14:17:21,683 [INFO] ✅ Total Successful Episodes: 10/10
+2026-08-20 14:17:21,683 [INFO] 📊 Average Steps: 112.00
+2026-08-20 14:17:21,683 [INFO] success_rate=1.000
+2026-08-20 15:46:16,071 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 16:08:19,116 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 16:36:36,449 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 17:00:11,586 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 17:02:48,134 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 17:04:56,290 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 17:35:59,091 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 17:38:19,194 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 17:39:56,586 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 17:41:46,670 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 18:43:55,234 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 18:44:32,003 [INFO] Task 0 | Episode 1: ✅ Success
+2026-08-20 18:44:32,005 [INFO] ========= Task 1 Summary: 1/1 Successful =========
+2026-08-20 18:44:32,005 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 18:44:32,005 [INFO] ✅ Total Successful Episodes: 1/1
+2026-08-20 18:44:32,005 [INFO] 📊 Average Steps: 97.00
+2026-08-20 18:44:32,005 [INFO] success_rate=1.000
+2026-08-20 18:44:40,673 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 18:45:30,758 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 18:46:19,613 [INFO] Task 0 | Episode 2: ❌ Fail
+2026-08-20 18:47:09,361 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-08-20 18:47:58,292 [INFO] Task 0 | Episode 4: ❌ Fail
+2026-08-20 18:48:47,625 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-08-20 18:49:36,552 [INFO] Task 0 | Episode 6: ❌ Fail
+2026-08-20 18:50:24,788 [INFO] Task 0 | Episode 7: ❌ Fail
+2026-08-20 18:50:55,082 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 18:51:15,067 [INFO] Task 0 | Episode 8: ❌ Fail
+2026-08-20 18:52:05,793 [INFO] Task 0 | Episode 9: ❌ Fail
+2026-08-20 18:52:53,617 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-08-20 18:52:53,617 [INFO] ========= Task 1 Summary: 0/10 Successful =========
+2026-08-20 18:52:53,617 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 18:52:53,617 [INFO] ✅ Total Successful Episodes: 0/10
+2026-08-20 18:52:53,617 [INFO] 📊 Average Steps: 200.00
+2026-08-20 18:52:53,617 [INFO] success_rate=0.000
+2026-08-20 18:53:31,072 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 18:53:32,491 [INFO] Platform import failed (likely during shutdown)
+2026-08-20 18:53:32,491 [INFO] Platform import failed (likely during shutdown)
+2026-08-20 18:59:32,158 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 19:02:22,433 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 19:02:22,433 [INFO] ========= Task 1 Summary: 0/1 Successful =========
+2026-08-20 19:02:22,433 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 19:02:22,433 [INFO] ✅ Total Successful Episodes: 0/1
+2026-08-20 19:02:22,433 [INFO] 📊 Average Steps: 200.00
+2026-08-20 19:02:22,433 [INFO] success_rate=0.000
+2026-08-20 20:04:51,798 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 20:06:05,350 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 21:18:29,099 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-08-20 21:19:39,117 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-08-20 21:19:39,117 [INFO] ========= Task 1 Summary: 0/1 Successful =========
+2026-08-20 21:19:39,117 [INFO] 
+========= Overall Task Summary =========
+2026-08-20 21:19:39,117 [INFO] ✅ Total Successful Episodes: 0/1
+2026-08-20 21:19:39,117 [INFO] 📊 Average Steps: 200.00
+2026-08-20 21:19:39,117 [INFO] success_rate=0.000

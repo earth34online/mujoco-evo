@@ -4,6 +4,7 @@ import io
 import torch
 import random
 import json
+import shutil
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -149,11 +150,12 @@ class LeRobotDataset(Dataset):
         image_size: int = 448,
         max_samples_per_file: Union[int, None] = None,
         video_backend: str = "av", # TODO: 
-        action_horizon: int = 50,
+        action_horizon: int = 14,
         video_backend_kwargs: Dict[str, Any] = None,
         binarize_gripper: bool = False,
         cache_dir: Union[str, Path] = None,  
-        use_augmentation: bool = False
+        use_augmentation: bool = False,
+        overwrite_horizon_cache: bool = True,
     ):
         self.config = config
 
@@ -174,13 +176,14 @@ class LeRobotDataset(Dataset):
         self.binarize_gripper = binarize_gripper
         self.use_augmentation = use_augmentation
 
-
         if cache_dir is None:
             self.cache_dir = (
                 Path(__file__).resolve().parents[1] / "training_data_cache" / f"horizon_{action_horizon}"
             )
         else:
             self.cache_dir = Path(cache_dir)
+        if overwrite_horizon_cache and self.cache_dir.exists():
+            self._overwrite_horizon_cache(action_horizon)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         self.data = []  
@@ -206,6 +209,28 @@ class LeRobotDataset(Dataset):
             T.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5, hue=0.08),
             T.ToTensor()
         ])
+
+    def _overwrite_horizon_cache(self, action_horizon: int):
+        """Clear the generated cache for the current action horizon.
+
+        This cache contains derived .pkl windows built from parquet/video data.
+        It is safe to rebuild and should be overwritten when the MuJoCo dataset
+        is recollected in place; otherwise training can silently reuse stale
+        horizon_14 samples from an older expert policy.
+        """
+        expected_name = f"horizon_{action_horizon}"
+        cache_path = self.cache_dir.resolve()
+        if cache_path.name != expected_name:
+            raise ValueError(
+                f"Refusing to overwrite cache '{cache_path}': expected directory "
+                f"name '{expected_name}'"
+            )
+        if cache_path.parent.name != "training_data_cache":
+            raise ValueError(
+                f"Refusing to overwrite cache outside training_data_cache: {cache_path}"
+            )
+        logging.info("Overwriting generated horizon cache: %s", cache_path)
+        shutil.rmtree(cache_path)
 
     def _load_metadata(self):
      
@@ -390,7 +415,7 @@ class LeRobotDataset(Dataset):
                 try:
                     with av.open(path) as container:
                         for frame in container.decode(video=0):
-                            if frame.time >= timestamp:
+                            if frame.time + 1e-6 >= timestamp:
                                 frames.append(Image.fromarray(frame.to_ndarray(format='rgb24')))
                                 break
 

@@ -9,5 +9,3 @@ data_groups:
       path: /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
       view_map:
         image_1: observation.images.front
-        image_2: observation.images.overhead
-        image_3: observation.images.wrist

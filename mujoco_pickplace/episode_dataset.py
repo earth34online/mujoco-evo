@@ -21,7 +21,7 @@ ACTION_NAMES = [
     "eef_droll", "eef_dpitch", "eef_dyaw",
     "gripper",
 ]
-CAMERAS = ("front", "overhead", "wrist")
+CAMERAS = ("front",)
 
 
 def _utc_now():

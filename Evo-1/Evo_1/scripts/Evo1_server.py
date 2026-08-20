@@ -25,13 +25,17 @@ class Normalizer:
         else:
             stats = stats_or_path
 
+        self.target_dim = 24
+
         def pad_to_24(x):
             x = torch.tensor(x, dtype=torch.float32)
-            if x.shape[0] < 24:
-                pad = torch.zeros(24 - x.shape[0], dtype=torch.float32)
+            if x.shape[0] < self.target_dim:
+                pad = torch.zeros(self.target_dim - x.shape[0], dtype=torch.float32)
                 x = torch.cat([x, pad], dim=0)
-            elif x.shape[0] > 24:
-                raise ValueError(f"Input length {x.shape[0]} exceeds expected 24")
+            elif x.shape[0] > self.target_dim:
+                raise ValueError(
+                    f"Input length {x.shape[0]} exceeds expected {self.target_dim}"
+                )
             return x
 
         if len(stats) != 1:
@@ -46,9 +50,35 @@ class Normalizer:
         self.action_max = pad_to_24(robot_stats["action"]["max"])
 
     def normalize_state(self, state: torch.Tensor) -> torch.Tensor:
-        state_min = self.state_min.to(state.device, dtype=state.dtype)
-        state_max = self.state_max.to(state.device, dtype=state.dtype)
-        return torch.clamp(2 * (state - state_min) / (state_max - state_min + 1e-8) - 1, -1.0, 1.0)
+        current_dim = state.shape[-1]
+        if current_dim > self.target_dim:
+            raise ValueError(
+                f"State length {current_dim} exceeds expected {self.target_dim}"
+            )
+        state_min = self.state_min[:current_dim].to(
+            state.device, dtype=state.dtype
+        )
+        state_max = self.state_max[:current_dim].to(
+            state.device, dtype=state.dtype
+        )
+        normalized = torch.clamp(
+            2 * (state - state_min) / (state_max - state_min + 1e-8) - 1,
+            -1.0,
+            1.0,
+        )
+        if current_dim < self.target_dim:
+            normalized = torch.cat(
+                [
+                    normalized,
+                    torch.zeros(
+                        (*normalized.shape[:-1], self.target_dim - current_dim),
+                        device=normalized.device,
+                        dtype=normalized.dtype,
+                    ),
+                ],
+                dim=-1,
+            )
+        return normalized
 
     def denormalize_action(self, action: torch.Tensor) -> torch.Tensor:
         action_min = self.action_min.to(action.device, dtype=action.dtype)
@@ -61,22 +91,29 @@ class Normalizer:
 def load_model_and_normalizer(ckpt_dir):
     config = json.load(open(os.path.join(ckpt_dir, "config.json")))
     stats = json.load(open(os.path.join(ckpt_dir, "norm_stats.json")))
-    # Legacy checkpoints were trained with a constant zero-state token even
-    # though the MuJoCo dataset stores no real state information. Preserve that
-    # input shape unless a newer checkpoint explicitly disables it.
     use_state = bool(config.get("use_state", True))
+    if not use_state:
+        raise ValueError(
+            "This MuJoCo evaluation requires image + robot proprioception; "
+            "use a checkpoint trained with --use_state."
+        )
 
     config["finetune_vlm"] = False
     config["finetune_action_head"] = False
-    config["num_inference_timesteps"] = 64
+    config["num_inference_timesteps"] = 50
 
+    print("Building EVO_1 module...", flush=True)
     model = EVO1(config).eval()
     ckpt_path = os.path.join(ckpt_dir, "mp_rank_00_model_states.pt")
 
+    print(f"Loading checkpoint: {ckpt_path}", flush=True)
     checkpoint = torch.load(ckpt_path, map_location="cpu")
+    print("Applying checkpoint weights...", flush=True)
     model.load_state_dict(checkpoint["module"], strict=True)
+    print("Moving model to CUDA...", flush=True)
     model = model.to("cuda")
 
+    print("Loading normalizer...", flush=True)
     normalizer = Normalizer(stats)
     return model, normalizer, use_state
 
@@ -103,8 +140,12 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
         state = torch.tensor(data["state"], dtype=torch.float32, device=device)
         if state.ndim == 1:
             state = state.unsqueeze(0)
-        if state.shape[1] < 24:
-            state = torch.cat([state, torch.zeros((1, 24 - state.shape[1]), device=device)], dim=1)
+        if state.shape != (1, 8):
+            raise ValueError(
+                "MuJoCo Panda state must be exactly 8-D robot proprioception "
+                "(eef xyz + axis-angle + two finger qpos); got "
+                f"{tuple(state.shape)}"
+            )
         norm_state = normalizer.normalize_state(state).to(dtype=torch.float32)
 
     prompt = data["prompt"]
