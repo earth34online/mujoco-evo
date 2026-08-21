@@ -285,8 +285,21 @@ class LeRobotDataset(Dataset):
                 else:
                     raise FileNotFoundError(f"normalization stats file not found: {stats_path}")
             
-
-            self.arm2stats_dict[arm_name] = merge_lerobot_stats(norm_arm_list)
+            merged_states = merge_lerobot_stats(norm_arm_list)
+            
+            if self.active_action_mask is not None:
+                action_min = merged_states["action"]["min"]
+                action_max = merged_states["action"]['max']
+                native_action_dim = len(action_min)
+                
+                for dim in range(native_action_dim):
+                    if not bool(self.active_action_mask[dim]):
+                         # Raw inactive action is zero.
+                        # [-1, +1] makes normalized zero exactly zero.
+                        action_min[dim] = -1.0
+                        action_max[dim] = 1.0
+                        
+            self.arm2stats_dict[arm_name] = merged_states
 
 
     def _load_trajectories(self):

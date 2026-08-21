@@ -19,6 +19,7 @@ import argparse
 from accelerate import Accelerator, DistributedType
 import json
 import shutil
+import copy
 from torch.optim import AdamW
 
 import warnings
@@ -143,7 +144,7 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
     dataset_type = get_with_warning(config, "dataset_type", "lerobot")
     image_size = get_with_warning(config, "image_size", 448)
     max_samples = get_with_warning(config, "max_samples_per_file", None)
-    horizon = get_with_warning(config, "horizon", 50)
+    horizon = get_with_warning(config, "horizon", 14)
     binarize_gripper = get_with_warning(config, "binarize_gripper", False)
     use_augmentation = get_with_warning(config, "use_augmentation", False)
     overwrite_horizon_cache = get_with_warning(config, "overwrite_horizon_cache", True)
@@ -215,6 +216,35 @@ def log_training_step(step, loss, total_norm, clipped_norm, scheduler, dataloade
     
         })
 
+def _pad_normalization_stats_for_evo1(norm_stats, target_dim=24):
+    result = copy.deepcopy(norm_stats)
+
+    for robot_key, robot_stats in result.items():
+        for key in ("observation.state", "action"):
+            item = robot_stats[key]
+
+            min_values = list(item["min"])
+            max_values = list(item["max"])
+
+            if len(min_values) != len(max_values):
+                raise ValueError(
+                    f"{robot_key}/{key}: min/max dimension mismatch"
+                )
+
+            current_dim = len(min_values)
+            if current_dim > target_dim:
+                raise ValueError(
+                    f"{robot_key}/{key}: dimension {current_dim} "
+                    f"exceeds Evo-1 dimension {target_dim}"
+                )
+
+            padding = target_dim - current_dim
+
+            item["min"] = min_values + [-1.0] * padding
+            item["max"] = max_values + [1.0] * padding
+
+    return result
+
 def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None, norm_stats=None):
     tag = f"step_{step}"
     checkpoint_dir = os.path.join(save_dir, tag)
@@ -253,7 +283,8 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
         if norm_stats is not None:
             norm_stats_path = os.path.join(checkpoint_dir, "norm_stats.json")
             with open(norm_stats_path, "w") as f:
-                json.dump(norm_stats, f, indent=2)
+                checkpoint_norm_stats = _pad_normalization_stats_for_evo1(norm_stats, target_dim=24,)
+                json.dump(checkpoint_norm_stats, f, indent=2)
                 
         checkpoint_meta_path = os.path.join(checkpoint_dir, "checkpoint.json")
         checkpoint_meta = {
@@ -516,8 +547,7 @@ def train(config):
 
             action_mask = action_mask.view(action_mask.shape[0], -1).to(dtype=pred_velocity.dtype)
             pred_velocity_mask = pred_velocity * action_mask
-            target_velocity_mask = target_velocity * action_mask
-            loss = loss_fn(pred_velocity_mask, target_velocity_mask)
+            loss = loss_fn(pred_velocity_mask, target_velocity)
             scale_factor = action_mask.numel() / (action_mask.sum() + 1e-8)
             loss = loss * scale_factor
 
@@ -626,7 +656,7 @@ if __name__ == "__main__":
 
     # Logging & checkpointing
     parser.add_argument("--log_interval", type=int, default=10)
-    parser.add_argument("--ckpt_interval", type=int, default=10)
+    parser.add_argument("--ckpt_interval", type=int, default=1000)
     parser.add_argument("--save_dir", type=str, default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1")
 
     # Resume

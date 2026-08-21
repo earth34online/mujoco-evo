@@ -24,6 +24,11 @@ class Normalizer:
                 stats = json.load(f)
         else:
             stats = stats_or_path
+            
+        for key in ("observation.state", "action"):
+            if len(robot_key[key]["min"]) != 24:
+                raise ValueError(f"{key} checkpoint statistics must be 24-D. "
+                                 "This checkpoint predates neutral-bound padding.")
 
         self.target_dim = 24
 
@@ -100,7 +105,7 @@ def load_model_and_normalizer(ckpt_dir):
 
     config["finetune_vlm"] = False
     config["finetune_action_head"] = False
-    config["num_inference_timesteps"] = 50
+    config["num_inference_timesteps"] = 32
 
     print("Building EVO_1 module...", flush=True)
     model = EVO1(config).eval()
@@ -119,11 +124,16 @@ def load_model_and_normalizer(ckpt_dir):
 
 
 def decode_image_from_list(img_list, image_size=448):
-    img_array = np.array(img_list, dtype=np.uint8)
-    img = cv2.resize(img_array, (image_size, image_size))
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    pil = Image.fromarray(img)
-    return transforms.ToTensor()(pil).to("cuda")
+    img_array = np.asarray(img_list, dtype=np.uint8, )
+    rgb = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB, )
+    pil = Image.fromarray(rgb)
+
+    transform = transforms.Compose([
+        transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC, ),
+        transforms.ToTensor(),
+    ])
+
+    return transform(pil).to("cuda")
 
 
 def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
@@ -152,6 +162,15 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
     image_mask = torch.tensor(data["image_mask"], dtype=torch.int32, device=device)
     action_mask = torch.tensor([data["action_mask"]], dtype=torch.int32, device=device)
 
+    flow_seed = data.get("flow_seed", None, )
+    if flow_seed is not None:
+        flow_seed = int(flow_seed)
+        
+        if flow_seed < 0:
+            raise ValueError(f"flow_seed must be >= 0, got {flow_seed}")
+        torch.manual_seed(flow_seed)
+        torch.cuda.manual_seed_all(flow_seed)
+    
     with torch.no_grad(), torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
         action = model.run_inference(
             images=images,

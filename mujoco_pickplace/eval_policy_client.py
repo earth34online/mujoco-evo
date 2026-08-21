@@ -17,7 +17,6 @@ NUM_EPISODES = 20
 MAX_STEPS = 200
 ACTION_HORIZON = 14
 ACTIVE_ACTION_MASK = [1, 1, 1, 0, 0, 0, 1] + [0] * 17
-MAX_POSITION_DELTA = 0.012
 TASK_ID = 1
 TASK_NAME = "task1"
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -66,8 +65,6 @@ def parse_args():
     parser.add_argument("--max-steps", type=int, default=MAX_STEPS)
     parser.add_argument("--horizon", type=int, default=ACTION_HORIZON,
                         help="Actions of each received chunk to execute before re-inferring.")
-    parser.add_argument("--max-position-delta", type=float, default=MAX_POSITION_DELTA,
-                        help="Per-axis action bound, matched to the collected expert data.")
     parser.add_argument("--render", action="store_true", help="Show the front view.")
     parser.add_argument("--video-dir", default=str(DEFAULT_VIDEO_DIR))
     return parser.parse_args()
@@ -123,6 +120,8 @@ async def main():
             try:
                 while executed_steps < args.max_steps:
                     payload = obs_to_payload(obs)
+                    flow_seed = ((1000 + ep) * 10000 + executed_steps)
+                    payload["flow_seed"] = int(flow_seed)
                     print(f"[Step {step}] Send observation", flush=True)
                     await ws.send(json.dumps(payload))
 
@@ -145,19 +144,21 @@ async def main():
                         print(f"Action parsing failed: {exc}, content: {result}", flush=True)
                         break
 
-                    horizon = min(args.horizon, len(action_chunk))
-                    for action_index in range(horizon):
+                    expected_shape = (ACTION_HORIZON, 24, )
+
+                    if action_chunk.shape != expected_shape:
+                        raise ValueError(
+                                f"Expected action chunk "
+                                f"{expected_shape}, "
+                                f"got {action_chunk.shape}"
+                        )
+                    for action_index in range(ACTION_HORIZON):
                         action = np.zeros(7, dtype=np.float32)
                         available = min(7, action_chunk.shape[1])
                         action[:available] = action_chunk[action_index, :available]
                         print(action[:7])
                         action[6] = 1.0 if action[6] >= 0.5 else 0.0
                         print(f"gripper action", action[6])
-                        action[:3] = np.clip(
-                            action[:3],
-                            -args.max_position_delta,
-                            args.max_position_delta,
-                        )
 
                         frames_in, obs, done = env.step_video(
                             action,

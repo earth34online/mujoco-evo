@@ -472,7 +472,7 @@ class PickPlaceEnv:
     def _success_candidate(self):
         cube = self.data.body("cube").xpos.copy()
         goal = self.model.body("goal").pos.copy()
-        xy_ok = np.linalg.norm(cube[:2] - goal[:2]) < self.GOAL_RADIUS
+        xy_ok = np.linalg.norm(cube[:2] - goal[:2]) <= self.GOAL_RADIUS
         z_ok = abs(cube[2] - self.CUBE_SUPPORT_Z) < 0.012
         cube_speed = np.linalg.norm(self.data.qvel[self.cube_dof_id:self.cube_dof_id + 3])
         released = self.gripper > 0.5 and not self.attached

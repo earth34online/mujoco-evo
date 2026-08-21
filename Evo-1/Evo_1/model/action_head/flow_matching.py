@@ -331,7 +331,7 @@ class FlowmatchingActionHead(nn.Module):
 
         
                     
-        time_index = (t * 999).long().clamp_(0, 999)
+        time_index = (t * 1000).long()
         time_emb = self.time_pos_enc(1000)[:, time_index, :].squeeze(0)
         time_emb = time_emb.to(dtype=context_tokens.dtype)
     
@@ -343,7 +343,6 @@ class FlowmatchingActionHead(nn.Module):
         if action_mask is not None:
             action_mask = action_mask.to(dtype=noise.dtype, device=noise.device)
             assert action_mask.shape == noise.shape, f"action_mask shape {action_mask.shape} != noise shape {noise.shape}"
-            actions_gt = actions_gt * action_mask
             noise = noise * action_mask
 
         actions_gt_seq = actions_gt
@@ -417,9 +416,7 @@ class FlowmatchingActionHead(nn.Module):
                 action_dim_total,
                 device=device,
                 dtype=context_tokens.dtype,
-            )
-            * 2
-            - 1
+            ) * 2 - 1
         )
 
         if self.horizon > 1:
@@ -446,7 +443,7 @@ class FlowmatchingActionHead(nn.Module):
         for i in range(N):
             t = i / N 
 
-            time_index = min(int(t * 999), 999)
+            time_index = int(t * 1000)
             time_emb = self.time_pos_enc(1000)[:, time_index, :].to(device).squeeze(0)
             time_emb = time_emb.unsqueeze(0).repeat(B, 1)
             action_seq = action_seq * action_mask

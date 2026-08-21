@@ -7,6 +7,9 @@ import sys
 os.environ.setdefault("MUJOCO_GL", "egl")
 import numpy as np
 import torch
+from PIL import Image
+from torchvision import transforms as T
+from torchvision.transforms import InterpolationMode
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EVO_ROOT = os.path.join(PROJECT_ROOT, "Evo-1", "Evo_1")
@@ -18,6 +21,16 @@ from scripts.Evo1_server import load_model_and_normalizer, decode_image_from_lis
 PROMPT = "pick up the blue cube and place it on the green target"
 CAMERA_KEYS = ("front",)
 
+EXPECTED_GRIPPER = {
+    "approach": 1.0,
+    "descend": 1.0,
+    "close": 0.0,
+    "lift": 0.0,
+    "transfer": 0.0,
+    "lower": 0.0,
+    "release": 1.0,
+    "settle": 1.0,
+}
 
 def infer_chunk(model, normalizer, obs, num_samples=1):
     """One model forward on the current observation -> denormalized [horizon, 24] chunk."""
@@ -90,6 +103,103 @@ def _sample_replay_indices(total_frames, stride=1, max_frames=None):
         indices = indices[pick]
     return indices
 
+def assert_gripper_labels(phases, actions_gt, episode_index):
+    """Fail fast if expert.phase and action[6] disagree."""
+    if actions_gt.ndim != 2 or actions_gt.shape[1] < 7:
+        raise AssertionError(
+            f"episode {episode_index}: expected actions shaped [N, >=7], "
+            f"got {actions_gt.shape}"
+        )
+
+    if len(phases) != len(actions_gt):
+        raise AssertionError(
+            f"episode {episode_index}: phase/action length mismatch: "
+            f"{len(phases)} vs {len(actions_gt)}"
+        )
+
+    unknown_phases = sorted(
+        set(str(phase) for phase in phases) - set(EXPECTED_GRIPPER)
+    )
+    if unknown_phases:
+        raise AssertionError(
+            f"episode {episode_index}: unknown expert phases: "
+            f"{unknown_phases}"
+        )
+
+    for frame_index, (phase, action) in enumerate(
+        zip(phases, actions_gt)
+    ):
+        phase = str(phase)
+        expected = EXPECTED_GRIPPER[phase]
+        actual = float(action[6])
+
+        if abs(actual - expected) > 1e-6:
+            raise AssertionError(
+                f"gripper label mismatch: "
+                f"episode={episode_index}, "
+                f"frame={frame_index}, "
+                f"phase={phase}, "
+                f"value={actual}, "
+                f"expected={expected}"
+            )
+
+    print(
+        f"[PASS] episode {episode_index}: "
+        f"gripper labels match expert phases",
+        flush=True,
+    )
+
+def assert_image_pipeline_equivalence(
+    decoded_rgb,
+    image_size,
+):
+    """
+    Compare the same already-decoded RGB training frame through:
+      training:
+          RGB -> PIL -> Resize(BICUBIC) -> ToTensor
+      inference:
+          RGB -> BGR payload -> server decoder -> RGB
+              -> Resize(BICUBIC) -> ToTensor
+    """
+
+    decoded_rgb = np.asarray(decoded_rgb, dtype=np.uint8, )
+
+    if (decoded_rgb.ndim != 3 or decoded_rgb.shape[2] != 3):
+        raise AssertionError(
+            "Expected decoded RGB frame shaped [H, W, 3], "
+            f"got {decoded_rgb.shape}"
+        )
+    basic_transform = T.Compose([
+        T.Resize(
+            (image_size, image_size),
+            interpolation=InterpolationMode.BICUBIC,
+        ), T.ToTensor(),
+    ])
+    train_tensor = basic_transform(Image.fromarray(decoded_rgb))
+    payload_bgr = (decoded_rgb[..., ::-1].copy())
+    server_tensor = decode_image_from_list(payload_bgr, image_size=image_size, ).cpu()
+    if train_tensor.shape != server_tensor.shape:
+        raise AssertionError(
+            "train/server image tensor shape mismatch: "
+            f"{tuple(train_tensor.shape)} vs "
+            f"{tuple(server_tensor.shape)}"
+        )
+    max_diff = torch.max(
+        torch.abs(train_tensor - server_tensor)
+    ).item()
+    print(
+        "[image pipeline] "
+        f"max_abs_diff={max_diff:.10g}",
+        flush=True,
+    )
+    assert max_diff < 1e-6, (
+        "train/inference image mismatch: "
+        f"max_diff={max_diff}"
+    )
+    print(
+        "[PASS] training/server image tensors are identical",
+        flush=True,
+    )
 
 def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
                     max_frames_per_episode=None, num_samples=1):
@@ -97,23 +207,22 @@ def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
     episodes to the policy and compare the first predicted action of each chunk
     against the recorded expert action (ground truth)."""
     import pandas as pd
-    import cv2
+    import av
 
     model, normalizer, _ = load_model_and_normalizer(ckpt)
-
+    image_size = int(model.config.get("image_size", 448, ))
+    image_pipeline_checked = False
     with open(os.path.join(replay_dir, "meta", "episodes.jsonl"), "r") as f:
         rows = [json.loads(line) for line in f if line.strip()]
     rows = sorted(rows, key=lambda r: r["episode_index"])[:num_episodes]
 
     def read_frames(path):
-        capture = cv2.VideoCapture(path)
         frames = []
-        while True:
-            ok, frame = capture.read()
-            if not ok:
-                break
-            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        capture.release()
+
+        with av.open(path) as container:
+            for frame in container.decode(video=0):
+                frames.append(frame.to_ndarray(format="rgb24"))
+
         return frames
 
     pos_errs, grip_acc, grip_errs = [], [], []
@@ -125,12 +234,28 @@ def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
         table = pd.read_parquet(os.path.join(replay_dir, row["data_path"]))
         frames = {camera: read_frames(os.path.join(replay_dir, row["video_paths"][camera]))
                   for camera in CAMERA_KEYS}
+        
+        if not image_pipeline_checked:
+            if not frames["front"]:
+                raise AssertionError("Decoded front video contains no frames")
+            assert_image_pipeline_equivalence(
+                frames["front"][0],
+                image_size=image_size,
+            )
+            image_pipeline_checked = True
+            
         states = np.stack(table["observation.state"].to_numpy()).astype(np.float32)
         actions_gt = np.stack(table["action"].to_numpy()).astype(np.float32)
-        phases = table["expert.phase"].to_numpy() if "expert.phase" in table else ["?"] * len(table)
-
+        if "expert.phase" not in table.columns:
+            raise AssertionError(
+                f"episode {row['episode_index']} "
+                "is missing expert.phase"
+            )
+        phases = (table["expert.phase"].astype(str).to_numpy())
+        assert_gripper_labels(phases,actions_gt,episode_index=row["episode_index"],)
         replay_indices = _sample_replay_indices(
-            len(table), stride=replay_stride,
+            len(table),
+            stride=replay_stride,
             max_frames=max_frames_per_episode,
         )
         print(
