@@ -78,9 +78,14 @@ def _process_parquet_file_worker(args):
 
         df = pd.read_parquet(parquet_path)
 
-        last_row = df.iloc[-1:]  
-        padding_rows = pd.concat([last_row] * action_horizon, ignore_index=True)
-        df = pd.concat([df, padding_rows], ignore_index=True)
+        if action_horizon < 1:
+            raise ValueError("action_horizon must be at least 1")
+
+        last_row = df.iloc[-1:]
+        padding_count = action_horizon - 1
+        if padding_count:
+            padding_rows = pd.concat([last_row] * padding_count, ignore_index=True)
+            df = pd.concat([df, padding_rows], ignore_index=True)
 
         if max_samples_per_file is not None:
             df = df.head(max_samples_per_file)

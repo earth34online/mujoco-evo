@@ -41,12 +41,20 @@ action_mask sum: 56
 
 ## 3. Train with Evo-1
 
+Configure Accelerate/DeepSpeed once, following the upstream Evo-1 setup:
+
+```bash
+conda activate Evo1
+cd /home/user/mujoco+evo/Evo-1/Evo_1
+accelerate config
+```
+
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/Evo-1/Evo_1
 accelerate launch --num_processes 1 --num_machines 1 --deepspeed_config_file ds_config.json scripts/train.py \
   --run_name Your_own_name --action_head flowmatching --use_augmentation --lr 1e-5 --dropout 0.1 \
-  --weight_decay 1e-3 --batch_size 16 --image_size 448 --max_steps 7500 \
+  --weight_decay 1e-3 --batch_size 16 --image_size 448 --max_steps 8000 \
   --log_interval 20 --ckpt_interval 2500 --warmup_steps 1000 --grad_clip_norm 1.0 \
   --num_layers 8 --horizon 14 --finetune_action_head --disable_wandb \
   --vlm_name OpenGVLab/InternVL3-1B --dataset_config_path dataset/config.yaml \

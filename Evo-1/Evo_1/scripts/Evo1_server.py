@@ -25,11 +25,6 @@ class Normalizer:
         else:
             stats = stats_or_path
             
-        for key in ("observation.state", "action"):
-            if len(robot_key[key]["min"]) != 24:
-                raise ValueError(f"{key} checkpoint statistics must be 24-D. "
-                                 "This checkpoint predates neutral-bound padding.")
-
         self.target_dim = 24
 
         def pad_to_24(x):
@@ -48,6 +43,16 @@ class Normalizer:
 
         robot_key = list(stats.keys())[0]
         robot_stats = stats[robot_key]
+
+        for key in ("observation.state", "action"):
+            if (
+                len(robot_stats[key]["min"]) != self.target_dim
+                or len(robot_stats[key]["max"]) != self.target_dim
+            ):
+                raise ValueError(
+                    f"{key} checkpoint statistics must be 24-D. "
+                    "This checkpoint predates neutral-bound padding."
+                )
 
         self.state_min = pad_to_24(robot_stats["observation.state"]["min"])
         self.state_max = pad_to_24(robot_stats["observation.state"]["max"])

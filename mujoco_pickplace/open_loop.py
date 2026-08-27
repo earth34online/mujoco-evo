@@ -149,55 +149,76 @@ def assert_gripper_labels(phases, actions_gt, episode_index):
         flush=True,
     )
 
-def assert_image_pipeline_equivalence(
-    decoded_rgb,
-    image_size,
+def assert_normalization_equivalence(
+    normalizer,
+    states,
+    actions_gt,
 ):
-    """
-    Compare the same already-decoded RGB training frame through:
-      training:
-          RGB -> PIL -> Resize(BICUBIC) -> ToTensor
-      inference:
-          RGB -> BGR payload -> server decoder -> RGB
-              -> Resize(BICUBIC) -> ToTensor
-    """
+    states = torch.as_tensor(states, dtype=torch.float32, )
+    if states.ndim != 2 or states.shape[1] != 8:
+        raise AssertionError(f"Expected states [N, 8], got {tuple(states.shape)}")
 
-    decoded_rgb = np.asarray(decoded_rgb, dtype=np.uint8, )
+    # ===== Training state path =====
+    state_min_8 = normalizer.state_min[:8].cpu()
+    state_max_8 = normalizer.state_max[:8].cpu()
 
-    if (decoded_rgb.ndim != 3 or decoded_rgb.shape[2] != 3):
-        raise AssertionError(
-            "Expected decoded RGB frame shaped [H, W, 3], "
-            f"got {decoded_rgb.shape}"
-        )
-    basic_transform = T.Compose([
-        T.Resize(
-            (image_size, image_size),
-            interpolation=InterpolationMode.BICUBIC,
-        ), T.ToTensor(),
-    ])
-    train_tensor = basic_transform(Image.fromarray(decoded_rgb))
-    payload_bgr = (decoded_rgb[..., ::-1].copy())
-    server_tensor = decode_image_from_list(payload_bgr, image_size=image_size, ).cpu()
-    if train_tensor.shape != server_tensor.shape:
-        raise AssertionError(
-            "train/server image tensor shape mismatch: "
-            f"{tuple(train_tensor.shape)} vs "
-            f"{tuple(server_tensor.shape)}"
-        )
-    max_diff = torch.max(
-        torch.abs(train_tensor - server_tensor)
-    ).item()
+    train_state_8 = torch.clamp(
+        2.0 * (states - state_min_8) / (state_max_8 - state_min_8 + 1e-8) - 1.0,
+        -1.0,
+        1.0,
+    )
+    train_state_24 = torch.zeros((states.shape[0], 24), dtype=torch.float32, )
+    train_state_24[:, :8] = train_state_8
+    raw_state_24 = torch.zeros((states.shape[0], 24), dtype=torch.float32, )
+    raw_state_24[:, :8] = states
+    server_state_24 = normalizer.normalize_state(raw_state_24).cpu()
+    state_diff = torch.max(torch.abs(train_state_24 - server_state_24)).item()
+
     print(
-        "[image pipeline] "
-        f"max_abs_diff={max_diff:.10g}",
+        f"[state pipeline] "
+        f"max_abs_diff={state_diff:.10g}",
         flush=True,
     )
-    assert max_diff < 1e-6, (
-        "train/inference image mismatch: "
-        f"max_diff={max_diff}"
+    assert state_diff < 1e-6, (
+        "train/server state mismatch: "
+        f"max_diff={state_diff}"
+    )
+
+    # ===== Action roundtrip =====
+    actions_gt = torch.as_tensor(actions_gt, dtype=torch.float32, )
+    if (actions_gt.ndim != 2 or actions_gt.shape[1] != 7):
+        raise AssertionError(
+            f"Expected actions [N, 7], "
+            f"got {tuple(actions_gt.shape)}"
+        )
+    action_min_7 = normalizer.action_min[:7].cpu()
+    action_max_7 = normalizer.action_max[:7].cpu()
+    normalized_7 = torch.clamp(
+        2.0 * (actions_gt - action_min_7) / (action_max_7 - action_min_7 + 1e-8) - 1.0,
+        -1.0,
+        1.0,
+    )
+    inactive_diff = torch.max(torch.abs(normalized_7[:, 3:6])).item()
+    assert inactive_diff < 1e-6, (
+        "inactive rotation dimensions are not neutral: "
+        f"max_abs={inactive_diff}"
+    )
+    normalized_24 = torch.zeros((actions_gt.shape[0], 24), dtype=torch.float32, )
+    normalized_24[:, :7] = normalized_7
+    recovered = normalizer.denormalize_action(normalized_24)[:, :7].cpu()
+    action_diff = torch.max(torch.abs(recovered - actions_gt)).item()
+
+    print(
+        f"[action roundtrip] "
+        f"max_abs_diff={action_diff:.10g}",
+        flush=True,
+    )
+    assert action_diff < 1e-6, (
+        "action normalization roundtrip mismatch: "
+        f"max_diff={action_diff}"
     )
     print(
-        "[PASS] training/server image tensors are identical",
+        "[PASS] state/action normalization invariants",
         flush=True,
     )
 
@@ -212,6 +233,7 @@ def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
     model, normalizer, _ = load_model_and_normalizer(ckpt)
     image_size = int(model.config.get("image_size", 448, ))
     image_pipeline_checked = False
+    normalization_checked = False
     with open(os.path.join(replay_dir, "meta", "episodes.jsonl"), "r") as f:
         rows = [json.loads(line) for line in f if line.strip()]
     rows = sorted(rows, key=lambda r: r["episode_index"])[:num_episodes]
@@ -246,6 +268,10 @@ def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
             
         states = np.stack(table["observation.state"].to_numpy()).astype(np.float32)
         actions_gt = np.stack(table["action"].to_numpy()).astype(np.float32)
+        if not normalization_checked:
+            assert_normalization_equivalence(normalizer, states, actions_gt, )
+            normalization_checked = True
+            
         if "expert.phase" not in table.columns:
             raise AssertionError(
                 f"episode {row['episode_index']} "

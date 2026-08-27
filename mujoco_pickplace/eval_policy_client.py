@@ -67,7 +67,10 @@ def parse_args():
                         help="Actions of each received chunk to execute before re-inferring.")
     parser.add_argument("--render", action="store_true", help="Show the front view.")
     parser.add_argument("--video-dir", default=str(DEFAULT_VIDEO_DIR))
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.horizon < 1:
+        parser.error("--horizon must be at least 1")
+    return args
 
 
 def maybe_show(frame, enabled):
@@ -144,15 +147,17 @@ async def main():
                         print(f"Action parsing failed: {exc}, content: {result}", flush=True)
                         break
 
-                    expected_shape = (ACTION_HORIZON, 24, )
-
-                    if action_chunk.shape != expected_shape:
+                    if action_chunk.shape[1] != len(ACTIVE_ACTION_MASK):
                         raise ValueError(
-                                f"Expected action chunk "
-                                f"{expected_shape}, "
-                                f"got {action_chunk.shape}"
+                            "Expected action dimension "
+                            f"{len(ACTIVE_ACTION_MASK)}, got {action_chunk.shape[1]}"
                         )
-                    for action_index in range(ACTION_HORIZON):
+                    if action_chunk.shape[0] < args.horizon:
+                        raise ValueError(
+                            f"Requested --horizon {args.horizon}, but server returned "
+                            f"only {action_chunk.shape[0]} actions"
+                        )
+                    for action_index in range(args.horizon):
                         action = np.zeros(7, dtype=np.float32)
                         available = min(7, action_chunk.shape[1])
                         action[:available] = action_chunk[action_index, :available]

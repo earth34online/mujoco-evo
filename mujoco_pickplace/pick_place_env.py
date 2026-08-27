@@ -48,9 +48,6 @@ class PickPlaceEnv:
     PLACE_Z = 0.195
     SAFE_Z = 0.280
     GRASP_CLOSE_TOL = 0.014
-    # Keep the scripted/MuJoCo grasp honest.  A loose geometric latch lets a
-    # visibly off-center gripper "attach" the cube, which teaches the policy
-    # that approximate approach is enough and later causes closed-loop drift.
     GRASP_GEOM_XY_TOL = 0.014
     GRASP_GEOM_Z_TOL = 0.030
     GRASP_GEOM_FINGER_OPEN_MAX = 0.039
@@ -398,9 +395,6 @@ class PickPlaceEnv:
             self.GRASP_HOLD_FORCE_KP * (desired_cube - cube)
             - self.GRASP_HOLD_FORCE_KD * linear_velocity
         )
-        # Compensate gravity while the two fingers are closed.  This remains a
-        # bounded physical force; unlike the old implementation it never writes
-        # cube qpos/qvel, so lift and release stay continuous in MuJoCo.
         force[2] += self.model.body_mass[self.cube_body_id] * abs(self.model.opt.gravity[2])
         force_norm = np.linalg.norm(force)
         if force_norm > self.GRASP_HOLD_MAX_FORCE:
