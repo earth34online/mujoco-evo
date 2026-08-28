@@ -14,7 +14,7 @@
   "overwrite_horizon_cache": true,
   "lr": 1e-05,
   "batch_size": 16,
-  "max_steps": 7500,
+  "max_steps": 8000,
   "warmup_steps": 1000,
   "grad_clip_norm": 1.0,
   "weight_decay": 0.001,

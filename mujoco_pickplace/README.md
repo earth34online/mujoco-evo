@@ -5,8 +5,6 @@ This folder is the MuJoCo side of the project. It creates the environment, colle
 ## Current Canonical State
 
 - Dataset root: `/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace`
-- No `npz` collection or conversion step remains.
-- `collect_data.py` writes the final parquet/mp4/meta dataset directly.
 - `check_dataset.py` validates the dataset through the Evo-1 loader.
 - `eval_policy_client.py` is the closed-loop evaluator and saves MP4 videos.
 

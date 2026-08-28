@@ -12,8 +12,6 @@ MuJoCo pick-and-place task
 ## Current Canonical State
 
 - Dataset root: `/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace`
-- No `npz` intermediate pipeline remains.
-- `collect_data.py` writes the final dataset directly.
 - Training uses `accelerate launch` with `Evo-1/Evo_1/scripts/train.py`.
 - Server default checkpoint: `/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best`
 - Evaluation client saves videos under `mujoco_pickplace/outputs/eval_videos/<timestamp>/task1/`

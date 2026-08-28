@@ -48,8 +48,10 @@ class PickPlaceEnv:
     PLACE_Z = 0.195
     SAFE_Z = 0.280
     GRASP_CLOSE_TOL = 0.014
-    GRASP_GEOM_XY_TOL = 0.014
-    GRASP_GEOM_Z_TOL = 0.030
+    GRASP_GEOM_XY_TOL = 0.006
+    GRASP_GEOM_Z_TOL = 0.004
+    GRASP_CLOSE_XY_TOL = GRASP_CLOSE_TOL
+    GRASP_CLOSE_Z_TOL = GRASP_GEOM_Z_TOL
     GRASP_GEOM_FINGER_OPEN_MAX = 0.039
     GRASP_HOLD_FORCE_KP = 55.0
     GRASP_HOLD_FORCE_KD = 1.8
@@ -58,9 +60,6 @@ class PickPlaceEnv:
     CUBE_HALF = 0.030
     CUBE_SUPPORT_Z = TABLE_TOP + CUBE_HALF
     GOAL_RADIUS = 0.075
-    # The controlled body is the Panda hand origin, not the fingertips.  Keep
-    # that origin at least one full fingertip offset above the tabletop so a
-    # noisy policy action cannot drive the fingers through the table.
     MIN_hand_Z = TABLE_TOP + RED_NAIL_Z + 0.010
     HAND_LOW = np.array([0.20, -0.30, MIN_hand_Z], dtype=np.float64)
     HAND_HIGH = np.array([0.66, 0.30, 0.42], dtype=np.float64)
@@ -75,6 +74,8 @@ class PickPlaceEnv:
     SUCCESS_DWELL_STEPS = 8
     SUCCESS_MAX_CUBE_SPEED = 0.020
     EXPERT_TRANSFER_X_ALIGN_TOL = 0.020
+    EXPERT_LOWER_XY_TOL = 0.006
+    EXPERT_LOWER_Z_TOL = 0.010
 
     def __init__(self, image_size=448, randomize_task=False):
         self.model = _load_model()
@@ -557,29 +558,28 @@ class ScriptedExpertPolicy:
         self.env = env
         self.phase = "approach"
         self.phase_steps = 0
-        self.previous_dpos = np.zeros(3, dtype=np.float32)
 
     def _set_phase(self, phase):
         if phase != self.phase:
             self.phase = phase
             self.phase_steps = 0
-            self.previous_dpos[:] = 0.0
 
     def _move(self, target, gripper):
         hand = self.env.data.body("hand").xpos.copy()
         error = np.asarray(target, dtype=np.float64) - hand
         distance = np.linalg.norm(error)
         if distance < 1e-8:
-            raw = np.zeros(3, dtype=np.float64)
+            dpos = np.zeros(3, dtype=np.float64, )
         else:
-            raw = error * (min(self.env.MAX_DPOS, 0.65 * distance) / distance)
+            step_size = min(self.env.MAX_DPOS, 0.65 * distance, )
+            dpos = error / distance * step_size
 
-        low_pass = 0.45 * raw + 0.55 * self.previous_dpos
-        dpos = self.previous_dpos + np.clip(
-            low_pass - self.previous_dpos, -0.004, 0.004
-        )
-        self.previous_dpos = dpos.astype(np.float32)
-        return np.r_[self.previous_dpos, 0.0, 0.0, 0.0, gripper].astype(np.float32)
+        return np.r_[dpos.astype(np.float32), 0.0, 0.0, 0.0, float(gripper), ].astype(np.float32)
+
+    def _move_before_attachment(self, target, gripper):
+        action = self._move(target, gripper)
+        action[2] = min(float(action[2]), 0.0)
+        return action
 
     def __call__(self, obs):
         self.phase_steps += 1
@@ -599,20 +599,41 @@ class ScriptedExpertPolicy:
             return self._move(target, 1.0)
 
         if self.phase == "descend":
-            target = np.array([hand_cube_xy[0], hand_cube_xy[1], grasp_z])
-            if np.linalg.norm(hand - target) < self.env.GRASP_CLOSE_TOL:
+            target = np.array([hand_cube_xy[0], hand_cube_xy[1], grasp_z], dtype=np.float64)
+            xy_error = np.linalg.norm(hand[:2] - target[:2])
+            z_error = abs(float(hand[2] - target[2]))
+            grasp_pose_ready = (
+                xy_error <= self.env.GRASP_CLOSE_XY_TOL
+                and
+                z_error <= self.env.GRASP_CLOSE_Z_TOL)
+
+            action = self._move_before_attachment(
+                target, 0.0 if grasp_pose_ready else 1.0)
+            if 0.0 < hand[2] - target[2] < 0.020:
+                action[2] = max(float(action[2]), -0.003)
+
+            if grasp_pose_ready:
                 self._set_phase("close")
-                return self._move(hand, 0.0)
-            return self._move(target, 1.0)
+                return action
+
+            return action
 
         if self.phase == "close":
+            grasp_target = np.array([hand_cube_xy[0], hand_cube_xy[1], grasp_z], dtype=np.float64)
+
             if self.env.attached:
                 self._set_phase("lift")
-                return self._move(np.array([hand[0], hand[1], safe_z]), 0.0)
+                return self._move(np.array([hand[0], hand[1], safe_z], dtype=np.float64), 0.0)
+
             if self.phase_steps > 14:
                 self._set_phase("approach")
-                return self._move(np.array([hand_cube_xy[0], hand_cube_xy[1], safe_z]), 1.0)
-            return self._move(hand, 0.0)
+
+                return self._move(np.array([hand[0], hand[1], safe_z], dtype=np.float64), 1.0)
+
+            action = self._move_before_attachment(grasp_target, 0.0)
+            if 0.0 < hand[2] - grasp_target[2] < 0.020:
+                action[2] = max(float(action[2]), -0.003)
+            return action
 
         if self.phase == "lift":
             target = np.array([hand[0], hand[1], safe_z])
@@ -622,17 +643,39 @@ class ScriptedExpertPolicy:
             return self._move(target, 0.0)
 
         if self.phase == "transfer":
-            if abs(hand[0] - hand_goal_xy[0]) > self.env.EXPERT_TRANSFER_X_ALIGN_TOL:
-                target = np.array([hand_goal_xy[0], hand[1], safe_z])
-            else:
-                target = np.array([hand_goal_xy[0], hand_goal_xy[1], safe_z])
-            if np.linalg.norm(hand - target) < 0.014:
-                if abs(hand[1] - hand_goal_xy[1]) > 0.020:
-                    target = np.array([hand_goal_xy[0], hand_goal_xy[1], safe_z])
-                else:
-                    self._set_phase("lower")
-                    target = np.array([hand_goal_xy[0], hand_goal_xy[1], place_z])
-            return self._move(target, 0.0)
+            safe_target = np.array(
+                [hand_goal_xy[0], hand_goal_xy[1], safe_z],
+                dtype=np.float64,
+            )
+
+            # First finish the X alignment while staying at safe height.
+            if (
+                abs(hand[0] - hand_goal_xy[0])
+                > self.env.EXPERT_TRANSFER_X_ALIGN_TOL
+            ):
+                target = np.array(
+                    [hand_goal_xy[0], hand[1], safe_z],
+                    dtype=np.float64,
+                )
+                return self._move(target, 0.0)
+
+            # Then converge to the full safe pose above the goal.
+            xy_error = np.linalg.norm(hand[:2] - safe_target[:2])
+            z_error = abs(float(hand[2] - safe_z))
+            ready_to_lower = (
+                xy_error <= self.env.EXPERT_LOWER_XY_TOL
+                and z_error <= self.env.EXPERT_LOWER_Z_TOL
+            )
+
+            if ready_to_lower:
+                self._set_phase("lower")
+                lower_target = np.array(
+                    [hand_goal_xy[0], hand_goal_xy[1], place_z],
+                    dtype=np.float64,
+                )
+                return self._move(lower_target, 0.0)
+
+            return self._move(safe_target, 0.0)
 
         if self.phase == "lower":
             target = np.array([hand_goal_xy[0], hand_goal_xy[1], place_z])
