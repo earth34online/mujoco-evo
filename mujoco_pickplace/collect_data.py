@@ -11,7 +11,8 @@ from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "cache" / "mujoco_pickplace"
-NUM_EPISODES = 200
+NUM_EPISODES = 500
+MAX_ATTEMPTS = 20000
 MAX_STEPS = 200
 MIN_LEN = 20
 MAX_ACTION_REVERSALS = 4
@@ -148,6 +149,10 @@ def collect_attempt(env, seed, max_steps):
         arrays["joint_targets"],
         had_two_pad_contact,
     )
+    quality["initial_cube_xy"] = env.initial_cube_xy.astype(float).tolist()
+    quality["initial_goal_xy"] = env.initial_goal_xy.astype(float).tolist()
+    quality["randomize_task"] = bool(env.randomize_task)
+    quality["randomization_scale"] = float(env.randomization_scale)
     quality["robot_table_contact"] = bool(env.unsafe_robot_table_contact)
     accepted = bool(accepted and not env.unsafe_robot_table_contact)
     accepted = bool(task_succeeded and accepted)
@@ -163,9 +168,24 @@ def main():
     parser.add_argument("--dataset-dir", type=Path, default=DATASET_DIR)
     parser.add_argument("--num-episodes", type=int, default=NUM_EPISODES)
     parser.add_argument("--max-steps", type=int, default=MAX_STEPS)
-    parser.add_argument("--max-attempts", type=int, default=None)
+    parser.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS)
     parser.add_argument("--start-seed", type=int, default=0)
     parser.add_argument("--image-size", type=int, default=448)
+    parser.add_argument(
+        "--randomize-task",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Randomize cube and goal initial XY positions for each episode "
+            "(default: enabled; use --no-randomize-task for fixed-task regression)."
+        ),
+    )
+    parser.add_argument(
+        "--randomization-scale",
+        type=float,
+        default=1.0,
+        help="Fraction of the full task randomization range (default: 1.0).",
+    )
     parser.add_argument(
         "--overwrite",
         dest="overwrite",
@@ -199,7 +219,18 @@ def main():
     if max_attempts is None:
         max_attempts = max(args.num_episodes * 20, args.num_episodes)
 
-    env = PickPlaceEnv(image_size=args.image_size)
+    env = PickPlaceEnv(
+        image_size=args.image_size,
+        randomize_task=args.randomize_task,
+        randomization_scale=args.randomization_scale,
+    )
+    print(
+        "Task initialization: "
+        f"randomize_task={env.randomize_task}, "
+        f"randomization_scale={env.randomization_scale}, "
+        f"start_seed={args.start_seed}",
+        flush=True,
+    )
     action_period = env.model.opt.timestep * env.CONTROL_NSTEP
     writer = EpisodeDatasetWriter(
         args.dataset_dir,

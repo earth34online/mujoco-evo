@@ -77,11 +77,24 @@ class PickPlaceEnv:
     EXPERT_LOWER_XY_TOL = 0.006
     EXPERT_LOWER_Z_TOL = 0.010
 
-    def __init__(self, image_size=448, randomize_task=False):
+    def __init__(
+        self,
+        image_size=448,
+        randomize_task=False,
+        randomization_scale=1.0,
+    ):
         self.model = _load_model()
         self.data = mujoco.MjData(self.model)
         self.renderer = mujoco.Renderer(self.model, image_size, image_size)
         self.randomize_task = bool(randomize_task)
+        self.randomization_scale = float(randomization_scale)
+        if not 0.0 < self.randomization_scale <= 1.0:
+            raise ValueError(
+                "randomization_scale must be in (0, 1], "
+                f"got {self.randomization_scale}"
+            )
+        self.initial_cube_xy = self.FIXED_CUBE_XY.copy()
+        self.initial_goal_xy = self.FIXED_GOAL_XY.copy()
         self.arm_joints = self.ARM_JOINTS
         self.arm_actuators = self.ARM_ACTUATORS
         self.arm_qpos_ids = np.array([
@@ -131,16 +144,34 @@ class PickPlaceEnv:
         actuator_id = self.model.actuator(self.finger_actuator).id
         self.model.actuator_forcerange[actuator_id] = [-250.0, 250.0]
 
+    def _scaled_task_bounds(self, fixed, low, high):
+        scale = self.randomization_scale
+        scaled_low = fixed + scale * (low - fixed)
+        scaled_high = fixed + scale * (high - fixed)
+        return scaled_low, scaled_high
+
     def reset(self, seed=None):
         rng = np.random.default_rng(seed)
         mujoco.mj_resetData(self.model, self.data)
 
         if self.randomize_task:
-            cube_xy = rng.uniform(self.CUBE_XY_LOW, self.CUBE_XY_HIGH)
-            goal_xy = rng.uniform(self.GOAL_XY_LOW, self.GOAL_XY_HIGH)
+            cube_low, cube_high = self._scaled_task_bounds(
+                self.FIXED_CUBE_XY,
+                self.CUBE_XY_LOW,
+                self.CUBE_XY_HIGH,
+            )
+            goal_low, goal_high = self._scaled_task_bounds(
+                self.FIXED_GOAL_XY,
+                self.GOAL_XY_LOW,
+                self.GOAL_XY_HIGH,
+            )
+            cube_xy = rng.uniform(cube_low, cube_high)
+            goal_xy = rng.uniform(goal_low, goal_high)
         else:
             cube_xy = self.FIXED_CUBE_XY.copy()
             goal_xy = self.FIXED_GOAL_XY.copy()
+        self.initial_cube_xy = cube_xy.copy()
+        self.initial_goal_xy = goal_xy.copy()
         self.model.body("goal").pos[:] = [goal_xy[0], goal_xy[1], 0.035]
 
         self.data.qpos[self.cube_qpos_id:self.cube_qpos_id + 7] = [

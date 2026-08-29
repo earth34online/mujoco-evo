@@ -13,7 +13,7 @@ from pick_place_env import PickPlaceEnv
 
 SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
-NUM_EPISODES = 20
+NUM_EPISODES = 100
 MAX_STEPS = 200
 ACTION_HORIZON = 14
 ACTIVE_ACTION_MASK = [1, 1, 1, 0, 0, 0, 1] + [0] * 17
@@ -67,6 +67,27 @@ def parse_args():
                         help="Actions of each received chunk to execute before re-inferring.")
     parser.add_argument("--render", action="store_true", help="Show the front view.")
     parser.add_argument("--video-dir", default=str(DEFAULT_VIDEO_DIR))
+    parser.add_argument(
+        "--randomize-task",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Evaluate randomized cube/goal initial positions (default: enabled; "
+            "use --no-randomize-task for fixed-task regression)."
+        ),
+    )
+    parser.add_argument(
+        "--randomization-scale",
+        type=float,
+        default=1.0,
+        help="Fraction of the full task randomization range (default: 1.0).",
+    )
+    parser.add_argument(
+        "--start-seed",
+        type=int,
+        default=10000,
+        help="First evaluation seed; keep it disjoint from collection seeds.",
+    )
     args = parser.parse_args()
     if args.horizon < 1:
         parser.error("--horizon must be at least 1")
@@ -100,7 +121,11 @@ def save_video(frames, path, fps=VIDEO_FPS):
 
 async def main():
     args = parse_args()
-    env = PickPlaceEnv()
+    env = PickPlaceEnv(
+        image_size=448,
+        randomize_task=args.randomize_task,
+        randomization_scale=args.randomization_scale,
+    )
     success_count, total_steps = 0, 0
     render_enabled = args.render
     video_root = Path(args.video_dir)
@@ -112,7 +137,14 @@ async def main():
             print(f"\n===== Task {TASK_ID - 1} | Episode {ep + 1} =====", flush=True)
             print(PROMPT, flush=True)
 
-            obs = env.reset(seed=1000 + ep)
+            episode_seed = args.start_seed + ep
+            obs = env.reset(seed=episode_seed)
+            print(
+                f"seed={episode_seed}, "
+                f"cube_xy={env.initial_cube_xy.round(5).tolist()}, "
+                f"goal_xy={env.initial_goal_xy.round(5).tolist()}",
+                flush=True,
+            )
             done = False
             executed_steps = 0
             step = 0
@@ -123,7 +155,7 @@ async def main():
             try:
                 while executed_steps < args.max_steps:
                     payload = obs_to_payload(obs)
-                    flow_seed = ((1000 + ep) * 10000 + executed_steps)
+                    flow_seed = episode_seed * 10000 + executed_steps
                     payload["flow_seed"] = int(flow_seed)
                     print(f"[Step {step}] Send observation", flush=True)
                     await ws.send(json.dumps(payload))

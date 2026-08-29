@@ -1,0 +1,997 @@
+﻿# MuJoCo + Evo-1 全流程问题修复报告
+
+## 1. 没有 demonstration 数据采集入口
+
+### 遇到的问题
+
+Evo-1 训练需要 demonstration 数据。最初没有稳定的 MuJoCo 数据采集入口，无法生成后续转换和训练所需的 episode 数据
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/collect_data.py
+```
+
+### 修改前
+
+没有统一输出 raw episode 的脚本和目录约定
+
+### 修改后
+
+用 `scripted_expert(obs)` 采集轨迹：
+
+```python
+for ep in trange(NUM_EPISODES):
+    obs = env.reset(seed=ep)
+    images, states, actions = [], [], []
+
+    for _ in range(MAX_STEPS):
+        action = scripted_expert(obs)
+        images.append(obs["image"])
+        states.append(obs["state"])
+        actions.append(action)
+        obs, done = env.step(action)
+        if done and len(actions) > 30:
+            break
+```
+
+保存为 `.npz`：
+
+```python
+np.savez_compressed(
+    RAW_DIR / f"episode_{ep:06d}.npz",
+    images=np.asarray(images, dtype=np.uint8),
+    states=np.asarray(states, dtype=np.float32),
+    actions=np.asarray(actions, dtype=np.float32),
+)
+```
+
+## 2. MuJoCo raw `.npz` 不能直接被 Evo-1 训练读取
+
+### 遇到的问题
+
+MuJoCo 采出来的是：
+
+```text
+images
+states
+actions
+```
+
+Evo-1 原训练 loader 需要 LeRobot/Evo-1 风格目录，包括 parquet、video 和 meta 文件。只生成 `.npz` 时，`Evo-1/Evo_1/scripts/train.py` 不能直接用这些数据
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/removed npz conversion script
+```
+
+### 修改前
+
+只有：
+
+```text
+Mujoco_training_dataset/cache/mujoco_pickplace/data/chunk-000/episode_*.parquet
+```
+
+### 修改后
+
+新增转换为 Evo-1 数据结构：
+
+```python
+df = pd.DataFrame({
+    "index": np.arange(length, dtype=np.int64),
+    "episode_index": np.full(length, ep_idx, dtype=np.int64),
+    "frame_index": np.arange(length, dtype=np.int64),
+    "timestamp": np.arange(length, dtype=np.float32) / FPS,
+    "task_index": np.zeros(length, dtype=np.int64),
+    "observation.state": [x.astype(np.float32).tolist() for x in states],
+    "action": [x.astype(np.float32).tolist() for x in actions],
+})
+
+df.to_parquet(data_dir / f"{episode_name}.parquet")
+```
+
+写视频：
+
+```python
+imageio.mimsave(
+    video_dir / f"{episode_name}.mp4",
+    images,
+    fps=FPS,
+    macro_block_size=1,
+)
+```
+
+写 meta：
+
+```python
+write_jsonl(meta_dir / "tasks.jsonl", [{"task_index": 0, "task": TASK}])
+write_jsonl(meta_dir / "episodes.jsonl", episode_rows)
+write_jsonl(meta_dir / "episodes_stats.jsonl", episode_stats_rows)
+```
+
+## 3. MuJoCo state/action 维度和 Evo-1 固定维度不一致
+
+### 遇到的问题
+
+MuJoCo 原始维度：
+
+```text
+state: 10
+  eef_xyz + cube_xyz + goal_xyz + gripper
+
+action: 4
+  dx + dy + dz + gripper
+```
+
+Evo-1 接口维度：
+
+```text
+state: 24
+action: 24
+action chunk: [50, 24]
+```
+
+dataset loader、训练 batch、server 推理和 MuJoCo 执行动作会 shape 或语义不一致
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo-1/Evo_1/dataset/config.yaml
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+```
+
+### 修改前
+
+MuJoCo 只有 4 维动作，但 Evo-1 返回 24 维 padded 动作，没有明确只取哪些维度
+
+### 修改后
+
+配置保留 Evo-1 最大维度：
+
+```yaml
+max_action_dim: 24
+max_state_dim: 24
+```
+
+推理 payload 告诉 Evo-1 只有前 4 维 action 有效：
+
+```python
+"action_mask": [1, 1, 1, 1] + [0] * 20
+```
+
+执行时只取前 4 维送给 MuJoCo：
+
+```python
+action = action_chunk[action_idx, :4].astype(np.float32)
+obs, done = env.step(action)
+```
+
+## 4. Evo-1 DeepSpeed BF16 训练中 action head dtype 不一致
+
+### 遇到的问题
+
+使用 Evo-1 DeepSpeed/BF16 训练时，`flow_matching.py` 中部分张量只对齐了 device，没有对齐 dtype，触发 Float/BFloat16 混用错误，导致训练中断
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo-1/Evo_1/model/action_head/flow_matching.py
+```
+
+### 修改前
+
+位置编码类似：
+
+```python
+pos_enc = self.pos_encoding(H).to(out.device)
+```
+
+### 修改后
+
+改成同时对齐 device 和 dtype：
+
+```python
+pos_enc = self.pos_encoding(H).to(device=out.device, dtype=out.dtype)
+```
+
+同类 dtype 对齐也用于 action head 内参与 BF16 计算的 time embedding / FFN 输入
+
+## 5. Evo-1 server 期望 payload 和 MuJoCo observation 不一致
+
+### 遇到的问题
+
+Evo-1 server 期望的 JSON observation 包含多视角图像、mask、state、action mask、prompt；MuJoCo 环境天然只有一路 camera 图像和一个 10 维 state
+
+如果直接把 MuJoCo obs 发过去，server 输入格式不对
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+```
+
+### 修改后
+
+把一路真实 MuJoCo 图像放到 image_1，另外两路补零：
+
+```python
+image = obs["image"].astype(np.uint8)
+zero_image = np.zeros_like(image)
+state = obs["state"].astype(np.float32)
+
+return {
+    "image": [
+        image.tolist(),
+        zero_image.tolist(),
+        zero_image.tolist(),
+    ],
+    "image_mask": [1, 0, 0],
+    "state": state.astype(float).tolist(),
+    "action_mask": [1, 1, 1, 1] + [0] * 20,
+    "prompt": PROMPT,
+}
+```
+
+## 6. 视频保存强依赖 OpenCV
+
+### 遇到的问题
+
+本次发现 `eval_policy_client.py` 的视频保存强依赖库CV2而不是与原libero相同的imageio
+
+LIBERO client 保存视频使用的是：
+
+```python
+import imageio
+imageio.mimsave(filepath, frames, fps=fps)
+```
+
+而 MuJoCo client 之前使用的是 OpenCV：
+
+```python
+import cv2
+writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+```
+
+这导致两个问题：
+
+```text
+保存视频也依赖 opencv-python，但 Evo-1 + LIBERO 保存视频并不需要 OpenCV
+```
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+/home/user/mujoco+evo/README.md
+/home/user/mujoco+evo/mujoco_pickplace/README.md
+```
+
+### 修改前
+
+`eval_policy_client.py` 顶部直接 import OpenCV：
+
+```python
+import cv2
+```
+
+视频保存使用 OpenCV：
+
+```python
+writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+for frame in frames:
+    writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+writer.release()
+```
+
+### 修改后
+
+保存视频改成和 LIBERO 类似的 `imageio`：
+
+```python
+def save_video(frames, path, fps=20):
+    if not frames:
+        return
+    import imageio.v2 as imageio
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    imageio.mimsave(path, frames, fps=fps)
+    print(f"Video saved: {path} ({len(frames)} frames)", flush=True)
+```
+
+OpenCV 只在实时显示时才需要：
+
+```python
+def maybe_show(frame, enabled):
+    if not enabled:
+        return False
+    try:
+        import cv2
+        cv2.imshow("MuJoCo PickPlace", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        cv2.waitKey(1)
+        return True
+    except Exception as exc:
+        print(f"render disabled: {exc}", flush=True)
+        return False
+```
+
+## 7. 训练效果不够好
+
+### 遇到的问题
+
+进行测试的时候发现训练数据一直都不太正常，training_loss一直处于偏高状态
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo_1/Evo-1/train.py
+```
+
+### 修改后
+
+修改dataset_config_path位置，提高step和dropout
+
+```python
+    parser.add_argument("--dataset_config_path", type=str, default="/home/user/mujoco+evo/Evo-1/Evo_1/dataset/config.yaml")
+    parser.add_argument("--image_size", type=int, default=448)
+    parser.add_argument("--binarize_gripper", action="store_true", default=False, help="Whether to binarize gripper state/action (default: False).")
+    parser.add_argument("--use_augmentation", action="store_true", help="Enable data augmentation on images")
+
+    # Training
+    parser.add_argument("--lr", type=float, default=1e-5)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--max_steps", type=int, default=5000)
+    parser.add_argument("--warmup_steps", type=int, default=1000)
+    parser.add_argument("--grad_clip_norm", type=float, default=1.0)
+    parser.add_argument("--weight_decay", type=float, default=1e-3)
+
+
+    # Logging & checkpointing
+    parser.add_argument("--log_interval", type=int, default=10)
+    parser.add_argument("--ckpt_interval", type=int, default=2500)
+    parser.add_argument("--save_dir", type=str, default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1")
+```
+
+## 8. 视频画面问题
+
+### 问题
+
+```text
+视频画面不是单纯偏暗，而是经常只看到桌角，看不到 cube / goal / eef 等任务主体
+```
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+```
+
+### 修改内容
+
+`pick_place_env.py` 中调整了 MuJoCo XML 的光照、floor 和相机，让任务主体进入画面：
+
+```xml
+<headlight diffuse="0.65 0.65 0.65" ambient="0.22 0.22 0.22" specular="0.12 0.12 0.12"/>
+<light name="main_light" pos="0.1 -0.55 2.8" dir="0 0 -1" diffuse="0.7 0.7 0.7" ambient="0.18 0.18 0.18"/>
+<light name="fill_light" pos="-0.9 0.8 1.5" dir="0.4 -0.2 -1" diffuse="0.22 0.22 0.22" ambient="0.04 0.04 0.04"/>
+<camera name="front" pos="0.55 -0.95 0.95" xyaxes="0.94 0.32 0 -0.22 0.66 0.71" fovy="55"/>
+```
+
+## 9. 成功率过低的评测侧问题修正
+
+### 问题
+
+之前出现：
+
+```text
+Total Successful Episodes: 1/10
+Average Steps: 273.40
+success_rate=0.100
+```
+
+```text
+1. 默认 horizon=15，一次连续执行 15 个旧动作，反馈太慢
+2. MuJoCo render 返回 RGB，但 server 端用 OpenCV 按 BGR 转 RGB，直接发送会造成颜色通道错位
+```
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+```
+
+### 修改内容
+
+```python
+ACTION_HORIZON = 1
+```
+
+发送给 server 的图像：
+
+```python
+"image": [
+    image[..., ::-1].tolist(),
+    zero_image.tolist(),
+    zero_image.tolist(),
+]
+```
+
+## 10. 夹爪稳定性
+
+### 遇到的问题
+
+夹爪在搬运阶段会因为短时开指令抖动而误松，物体容易在中途掉落。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+```
+
+### 修改前
+
+夹爪处理也比较容易受单帧抖动影响，评测端只做了很轻的阈值滞回：
+
+```python
+if raw_gripper > 0.7:
+    return 1.0
+if raw_gripper < 0.3:
+    return 0.0
+```
+
+环境端只要 `gripper > 0.8` 就会立刻解除抓取：
+
+```python
+if self.gripper > 0.8:
+    self.attached = False
+```
+
+### 修改后
+
+评测端把动作重规划频率提高到每步一次：
+
+```python
+ACTION_HORIZON = 1
+```
+
+夹爪改成带确认计数的非作弊滤波，避免搬运中被一帧开指令带偏：
+
+```python
+def update_gripper_state(raw_gripper, prev_gripper, open_count, close_count):
+    ...
+```
+
+环境端增加 `release_counter`，只有连续 3 帧明确开才真正释放 `attached`，这样不会因为短时抖动把物体松掉：
+
+```python
+if self.attached:
+    if self.gripper > 0.8:
+        self.release_counter += 1
+    else:
+        self.release_counter = 0
+
+    if self.release_counter >= 3:
+        self.attached = False
+```
+
+## 11. 排查流程（按"先数据、再开环、后闭环"）
+
+### 11.1 先确认训练数据采集没问题
+
+在 WSL 里用实际环境（`mujoco` conda env, `MUJOCO_GL=egl`）逐条动作回放，量化轨迹：
+
+- 原环境：单条命令位移为 0 时，eef 每步仍漂移 **0.014–0.070**，根本停不住；命令 +0.02 x，实际位移甚至可能为负，0.6s 子步内振幅达命令的 **2.4 倍**。
+- 结论：控制环节欠阻尼，采集到的专家轨迹本身就抖，x 方向速度翻转很多。
+- 修复后：速度更贴近命令，整条轨迹的反向翻转显著减少。
+
+结论：**采集入口的第一个 bug 在控制层**，不修控制，采出来的数据就是抖的。
+
+### 11.2 开环测试模型动作是否本身抖动
+
+写 `eval_open_loop.py`：一次推理拿到 action chunk，不回传观测整段执行，并统计 action chunk 内部平滑度。
+
+对旧模型（旧抖动数据 + 2000 步）：
+
+```text
+action_jitter(mean|dd|) = 0.053 ~ 0.128
+dx 连续方向翻转 = 2~6 / 9
+开环成功率 0/6
+```
+
+结论：**模型输出本身就在抖**，不是单纯执行问题。
+
+## 12. 控制层修复（pick_place_env.py）
+
+| 项 | 原值 | 新值 | 说明 |
+|---|---|---|---|
+| joint damping | 4.0 | **40.0** | 临界阻尼，消除极限环震荡 |
+| nstep | 30 | **100** | 闭环更紧，动作到位更稳定 |
+
+参数扫描结果表明，较高 damping 配合更细的步进可以明显压低漂移。
+
+另新增 `PickPlaceEnv.step_video(action, frames_per_step)`：把物理推进分摊到多帧渲染，eval 视频从“跳帧式快放”变成接近实时、平滑。
+
+## 13. 数据层（collect_data.py / removed npz conversion script）
+
+- `collect_data.py`：加 argparse 和质量门，过滤掉失败、过短、过长、动作异常的数据。
+- 重新采集了更干净的一批 episode，数据动作的 mean-abs-diff 明显下降。
+- 去掉旧的 `.npz` 转换路径，统一到 Evo-1 直接可读的标准数据结构。
+- 新数据集路径保持在 `Mujoco_training_dataset/cache/mujoco_pickplace`。
+
+### 重要坑：LeRobot 窗口缓存
+
+缓存路径 key 用的是 config 里的 dataset 名字，不是数据目录路径。换数据集后若不清缓存，loader 会静默复用旧窗口样本。重训前必须清理相关缓存。
+
+## 14. 第二轮视觉 / 夹爪整改
+
+针对后续反馈，继续重做了 `pick_place_env.py` 的几个关键点：
+
+- 手指可视化：不再是一个模糊的大红球，而是更像真实夹爪的两指表示。
+- 夹持接触：让 cube 与手指的空间关系更合理，不再看起来像悬浮。
+- IK 朝向约束：让手腕姿态更符合抓取习惯，减少“看起来能抓但实际上夹不住”的情况。
+- wrist 相机：改成更稳定的跟踪方式，避免穿模或视角丢失。
+- 光照：提升可见性，方便判断是否真的抓住了物体。
+
+这一轮的经验是：**模型看上去“差一点能抓住”，很多时候不是模型懂了，而是几何关系、抓取姿态和评测闭环还没对齐**。
+
+## 15. 训练 loss mask 和有效动作维度
+
+### 遇到的问题
+
+后续真实闭环评测发现，模型并不是完全不会移动到物体附近，而是经常出现：
+
+```text
+1. 夹爪到了物体附近但没有稳定闭合
+2. 训练数据里明明有 close 标签，模型输出仍然偏向开爪
+3. open-loop chunk 里动作有效性弱，闭环第一集甚至会失败
+```
+
+旧 checkpoint 的快速诊断结果：
+
+```text
+open-loop learned chunk diagnostic: 0/8
+closed-loop learned eval: 第一集 0/1 后停止
+主要失败现象: gripper 大部分时间保持 open，没有稳定 latch close
+```
+
+数据标签排查结果表明问题不在于“数据里没有闭爪动作”：
+
+```text
+dataset: /home/user/mujoco+evo/.fix_tmp/dataset_7d_60
+episodes: 60
+frames: 4377
+gripper close label ratio: 69.68%
+horizon-14 chunks with at least one close action: 87.5%
+```
+
+### 成因
+
+主要成因不是 wrist 黑线、物体过小，也不是专家标签完全缺失，而是训练 loss 和动作语义没有对齐：
+
+```text
+1. flow-matching loss 只 mask 了 pred_velocity，没有 mask target_velocity
+2. 无效 / padding 动作维度虽然不应该训练，但 target 端仍然进入 MSE
+3. MuJoCo 当前任务实际只执行 dx, dy, dz, gripper
+4. 7D 接口中的 droll, dpitch, dyaw 保留是为了接近 LIBERO / Evo-1 风格，但本环境没有真正执行这些旋转控制
+5. 如果旋转维度和 padding 维度继续参与 loss，会把训练容量浪费到无意义目标上，并干扰 gripper 学习
+```
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo-1/Evo_1/scripts/train.py
+/home/user/mujoco+evo/Evo-1/Evo_1/dataset/lerobot_dataset_pretrain_mp.py
+/home/user/mujoco+evo/Evo-1/Evo_1/model/action_head/flow_matching.py
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+/home/user/mujoco+evo/mujoco_pickplace/open_loop.py
+```
+
+### 修改内容
+
+训练时同时 mask `pred_velocity` 和 `target_velocity`：
+
+```python
+action_mask = action_mask.view(action_mask.shape[0], -1).to(dtype=pred_velocity.dtype)
+pred_velocity_mask = pred_velocity * action_mask
+target_velocity_mask = target_velocity * action_mask
+loss = loss_fn(pred_velocity_mask, target_velocity_mask)
+```
+
+dataset loader 增加 `active_action_mask`，让 24D padded action 中只有当前任务真正有效的维度参与训练：
+
+```text
+active_action_mask: [1, 1, 1, 0, 0, 0, 1]
+```
+
+ps. 训练和评测只激活 dx, dy, dz, gripper 四个真正有效动作维度
+
+## 16. MuJoCo 场景改为独立 XML，并接入真实 Panda 模型
+
+### 遇到的问题
+
+在前面完成控制层、视觉和夹爪的多轮修正后，继续把所有场景内容留在 `pick_place_env.py` 内会导致环境逻辑、机器人资产、灯光、相机和任务物体互相耦合，不方便继续检查真实 Panda 几何和碰撞关系。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_scene.xml
+/home/user/mujoco+evo/mujoco_menagerie/franka_emika_panda/panda.xml
+```
+
+### 修改前
+
+- MuJoCo XML 主要由 Python 内部拼接。
+- 场景和机器人资产没有清晰边界。
+- 修改相机、桌面、cube 或 Panda 几何时容易同时影响环境代码。
+
+### 修改后
+
+- 新增独立的 `pick_place_scene.xml`。
+- 场景通过 `<include>` 使用 MuJoCo Menagerie 的 Panda 模型。
+- `_load_model()` 在 Panda 资产目录中生成临时 XML，让 mesh 相对路径可以正确解析。
+- 模型加载完成后在 `finally` 中删除临时 XML。
+- 灯光、floor、table、cube、goal 和 camera 统一放入场景文件，控制与 expert 状态机继续保留在 `pick_place_env.py`。
+
+当前 Panda 模型还在本地增加了：
+
+```xml
+<body name="link0" childclass="panda" pos="0 0 -0.10">
+...
+<camera name="wrist" mode="fixed"
+        pos="0.062 0 0.122"
+        quat="0.9135 0 0.4067 0"
+        fovy="68"/>
+```
+
+这一步让 Panda 基座高度和腕部相机更接近当前任务工作区。
+
+## 17. 抓取从运动学跟随改为接触与受限夹持力
+
+### 遇到的问题
+
+前面的夹爪稳定性修改解决了短时开指令，但如果 `attached=True` 后直接把 cube 位姿绑定到 hand，物体仍然属于运动学拖拽，不是真实的 MuJoCo 接触。画面可能看似抓住，实际手指几何和接触却没有闭合。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_scene.xml
+```
+
+### 修改后
+
+- `attached` 由双侧手指接触或严格几何夹持条件触发。
+- 几何夹持同时检查夹爪开度、XY 误差和 Z 误差。
+- `_apply_grasp_force()` 使用弹簧-阻尼外力维持物体，不直接覆盖 cube pose。
+- 夹持力增加重力补偿，并限制最大力：
+
+```text
+GRASP_HOLD_FORCE_KP = 55.0
+GRASP_HOLD_FORCE_KD = 1.8
+GRASP_HOLD_MAX_FORCE = 4.0
+```
+
+- 手指碰撞体提高 friction，并调整 `solref/solimp`。
+- cube 仍由 MuJoCo contact 和 free joint 决定真实位置。
+- 打开夹爪时通过 release counter 解除 attached，避免单帧抖动立即掉落。
+
+### 成功判定同步修改
+
+成功不再只看 cube 是否短暂进入 goal，而是同时要求：
+
+```text
+1. cube XY 位于 goal 半径内
+2. cube 回到桌面支撑高度
+3. gripper 已打开且 attached=False
+4. cube 速度低于 0.020
+5. robot 没有与 table 发生不安全接触
+6. 上述条件连续维持 8 step
+```
+
+## 18. 最终训练 state/action 和相机语义重新统一
+
+### 遇到的问题
+
+前面的历史阶段曾使用 10D 环境 state、4D action 或三路相机。后续为了避免 privileged state、统一 Evo-1 接口并减少不稳定视频，最终又调整为 8D robot state、7D 原始 action 和单路 front camera。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+/home/user/mujoco+evo/mujoco_pickplace/collect_data.py
+/home/user/mujoco+evo/mujoco_pickplace/episode_dataset.py
+/home/user/mujoco+evo/Evo-1/Evo_1/dataset/config.yaml
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+/home/user/mujoco+evo/mujoco_pickplace/open_loop.py
+```
+
+### 修改后
+
+环境内部仍保留 expert 所需的 task state：
+
+```text
+obs["state"]
+= hand xyz + cube xyz + goal xyz + gripper
+```
+
+但写入数据集和发送给 policy 的是：
+
+```text
+obs["robot_state"]
+= eef xyz(3) + eef axis-angle(3) + finger qpos(2)
+= 8D
+```
+
+这样 cube/goal 世界坐标只供 scripted expert 和环境成功判定使用，不作为 policy 的 privileged input。
+
+原始 action 最终统一为：
+
+```text
+[dx, dy, dz, droll, dpitch, dyaw, gripper]
+= 7D
+```
+
+其中实际执行维度仍是：
+
+```text
+dx, dy, dz, gripper
+```
+
+夹爪语义保持：
+
+```text
+1 = open
+0 = close
+```
+
+相机最终统一为：
+
+```python
+CAMERAS = ("front",)
+```
+
+Evo-1 仍接收 3-view tensor，但只有第一路是真实 front image：
+
+```text
+image_mask = [1, 0, 0]
+```
+
+## 19. action horizon 尾部多生成一个训练样本
+
+### 遇到的问题
+
+旧 loader 在 episode 尾部复制 `action_horizon` 个最后动作，再滑动窗口。对于“当前 observation 对应未来 horizon action”这个定义，只需要补 `horizon - 1` 行；多补一行会让每个 episode 多出一个窗口。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo-1/Evo_1/dataset/lerobot_dataset_pretrain_mp.py
+```
+
+### 修改前
+
+```python
+padding_rows = pd.concat([last_row] * action_horizon)
+```
+
+### 修改后
+
+```python
+if action_horizon < 1:
+    raise ValueError("action_horizon must be at least 1")
+
+padding_count = action_horizon - 1
+```
+
+修正后，当前数据集 24,800 个原始 frame 正好生成 24,800 个 horizon-14 训练样本。
+
+## 20. 训练和推理的 state 归一化顺序不一致
+
+### 遇到的问题
+
+训练 loader 的正确流程是先归一化原生 8D state，再补到 24D；旧 server 则可能先把原始 state 补到 24D，再用不完整统计量归一化。这样前 8 维之外的 padding 值与训练时不一致。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo-1/Evo_1/dataset/lerobot_dataset_pretrain_mp.py
+/home/user/mujoco+evo/Evo-1/Evo_1/scripts/Evo1_server.py
+/home/user/mujoco+evo/mujoco_pickplace/open_loop.py
+```
+
+### 修改后
+
+训练路径：
+
+```text
+8D raw robot state
+-> 使用原生 8D min/max 归一化
+-> clamp 到 [-1, 1]
+-> padding 16 个 normalized zero
+-> 24D state
+```
+
+服务端路径：
+
+```text
+严格接收 8D raw robot state
+-> 使用前 8 维 min/max 归一化
+-> padding 16 个 normalized zero
+-> 24D state
+```
+
+`open_loop.py` 增加 train/server state normalization equivalence 检查，要求最大差异小于 `1e-6`。
+
+## 21. Flow action head 的 BF16 和动态建层问题继续修正
+
+### 遇到的问题
+
+第 4 节先修了位置编码 dtype，但后续仍发现 category-specific linear、time embedding、context/action tokens 可能处于不同 dtype；旧代码还可能在第一次 forward 时动态创建 projection layer，使参数不进入 optimizer 或 checkpoint。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo-1/Evo_1/model/action_head/flow_matching.py
+```
+
+### 修改后
+
+- category-specific linear 输入对齐权重 dtype。
+- positional/time embedding 对齐 action head dtype。
+- context token 和 action token 在 transformer 前统一 dtype。
+- `single_action_proj` 和 `seq_pool_proj` 在 `__init__` 中创建，不在 forward 中动态创建。
+- 多 embodiment 权重改用 Xavier 初始化，bias 置零。
+- category id 数量与展平 batch 不一致时直接报错。
+- 用 `expand` 代替部分 `repeat`，减少无意义内存复制。
+
+## 22. Flow inference 的随机起点、mask shape 和积分步数不统一
+
+### 遇到的问题
+
+后续曾尝试用全零 action 作为 flow 起点来减小随机性，但这与训练时 `Uniform[-1, 1]` noise 不一致；同时旧 action mask reshape 对 batch/horizon shape 有隐含假设。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo-1/Evo_1/model/action_head/flow_matching.py
+/home/user/mujoco+evo/Evo-1/Evo_1/scripts/Evo1_server.py
+```
+
+### 修改后
+
+- 最终恢复与训练一致的随机均匀 flow 初始化，不使用全零初始化。
+- `_expand_action_mask()` 支持：
+
+```text
+[B, D]
+[B, H*D]
+[B, H, D]
+```
+
+- shape 不匹配时直接报错。
+- 每个 Euler integration step 前重新应用 mask，最终返回前再应用一次 mask。
+- inference timesteps 统一为 32，并检查必须大于 0。
+- server 支持可选 `flow_seed`，用于复现实验，但不改变随机起点的分布。
+
+## 23. 图像通道和 resize 路径仍有 train/server 差异
+
+### 遇到的问题
+
+MuJoCo renderer 输出 RGB；client 为匹配 server 的 OpenCV 路径发送 BGR。如果颜色转换次数不一致，蓝色 cube 会被错误换色。旧 server 使用 OpenCV resize，也与训练 loader 的 PIL bicubic resize 不一致。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/Evo-1/Evo_1/scripts/Evo1_server.py
+/home/user/mujoco+evo/mujoco_pickplace/eval_policy_client.py
+/home/user/mujoco+evo/mujoco_pickplace/open_loop.py
+```
+
+### 修改后
+
+- client 使用 `[..., ::-1]` 把 RGB 转为 BGR 后发送。
+- server 使用 `cv2.COLOR_BGR2RGB` 恢复 RGB。
+- server 改用：
+
+```python
+transforms.Resize(
+    (image_size, image_size),
+    interpolation=transforms.InterpolationMode.BICUBIC,
+)
+```
+
+- open-loop 复用与 server 相同的 image decode 路径。
+- 单路 front image 与两个 blank image 统一使用 `image_mask=[1,0,0]`。
+
+## 24. Expert 在抓住 cube 前仍可能提前向上移动
+
+### 遇到的问题
+
+后续专门检查抓取附近 action 时发现，不能只看最终 `20/20`，还必须证明：
+
+```text
+descend: dz 始终 <= 0
+close 且 attached=False: dz 始终 <= 0
+lift: 只有 attached=True 后才出现正 dz
+```
+
+旧 expert 在 phase 切换或位置误差下可能在尚未 attached 时出现正 `dz`，形成“靠近 cube 后又抬起”的错误 demonstration。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+```
+
+### 修改内容
+
+- 增加 `_move_before_attachment()`：
+
+```python
+action = self._move(target, gripper)
+action[2] = min(float(action[2]), 0.0)
+```
+
+- `descend` 只有 XY/Z 都进入抓取容差后才切到 close。
+- close 阶段在 `attached=False` 时继续向 grasp target 收敛。
+- 距离 grasp depth 小于 20 mm 时，最大下降速度限制为约 `-0.003`。
+- 只有 `env.attached=True` 后才进入 lift 并出现正 `dz`。
+- close 超过 14 step 仍未抓住时回到 approach。
+
+保存的对话记录给出的回归结果是：
+
+```text
+Expert success: 20/20
+unsafe_contact=False
+```
+
+## 25. `transfer -> lower` 提前切换造成动作瞬间反向
+
+### 遇到的问题
+
+旧逻辑在末端距离 safe pose 仍有明显误差时就进入 lower，可能出现：
+
+```text
+上一帧 transfer: dz > 0
+下一帧 lower:    dz 接近 -0.012
+```
+
+曾考虑插入一个零动作桥接帧，但这会让两个几乎相同 observation 分别对应“停住”和“快速下降”，增加 Evo-1 observation -> action chunk 的条件歧义。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+/home/user/mujoco+evo/mujoco_pickplace/collect_data.py
+```
+
+### 修改后
+
+- 不插入零动作桥接帧。
+- 先完成 X 对齐：
+
+```text
+EXPERT_TRANSFER_X_ALIGN_TOL = 0.020
+```
+
+- 再收敛到完整 safe pose。
+- 只有同时满足以下条件才进入 lower：
+
+```text
+EXPERT_LOWER_XY_TOL = 0.006
+EXPERT_LOWER_Z_TOL = 0.010
+```
+
+- 数据质量门最终接受：
+
+```text
+MAX_ACTION_JUMP = 0.020
+```
+
+这一版通过当前 observation 的实际位置误差决定 phase，不依赖隐藏的“刚切 phase”状态。
+
