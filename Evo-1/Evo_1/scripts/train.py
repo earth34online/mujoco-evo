@@ -296,6 +296,51 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
             json.dump(checkpoint_meta, f, indent=2)
         logging.info(f"[Rank {accelerator.process_index}] Saved checkpoint to {checkpoint_dir}")
 
+
+def prune_numeric_checkpoints_above_max_steps(save_dir, max_steps, accelerator):
+    """Remove numeric checkpoints that cannot belong to this fresh run.
+
+    A fresh run may intentionally reuse a save directory with a smaller
+    ``max_steps`` value.  DeepSpeed overwrites matching checkpoint tags, but it
+    does not remove larger numeric tags left by the previous run.  Keep all
+    checkpoints at or below the new limit and never touch special tags such as
+    ``step_best`` or ``step_final``.
+    """
+    removed_tags = []
+    if accelerator.is_main_process:
+        save_root = os.path.realpath(save_dir)
+        for entry in os.scandir(save_root):
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+
+            prefix = "step_"
+            if not entry.name.startswith(prefix):
+                continue
+            step_text = entry.name[len(prefix):]
+            if not step_text.isdigit():
+                continue
+            if int(step_text) <= max_steps:
+                continue
+
+            checkpoint_path = os.path.realpath(entry.path)
+            if os.path.dirname(checkpoint_path) != save_root:
+                raise RuntimeError(
+                    "Refusing to remove checkpoint outside save_dir: "
+                    f"{checkpoint_path}"
+                )
+
+            logging.info(
+                "Removing stale checkpoint %s because its step exceeds "
+                "this fresh run's max_steps=%d",
+                checkpoint_path,
+                max_steps,
+            )
+            shutil.rmtree(checkpoint_path)
+            removed_tags.append(entry.name)
+
+    accelerator.wait_for_everyone()
+    return removed_tags
+
 def load_checkpoint_with_deepspeed(model_engine, load_dir, accelerator, tag="step_best", load_optimizer_states=True, resume_pretrain=False):
     if not hasattr(model_engine, "load_checkpoint"):
         checkpoint_path = os.path.join(load_dir, tag, "mp_rank_00_model_states.pt")
@@ -473,6 +518,13 @@ def train(config):
 
     if resume != bool(resume_path):
         raise ValueError("Inconsistent resume configuration: --resume and --resume_path must be set together.")
+
+    if not resume:
+        prune_numeric_checkpoints_above_max_steps(
+            save_dir,
+            max_steps,
+            accelerator,
+        )
     
     if resume:
         resume_path = resume_path.rstrip("/")
@@ -511,7 +563,14 @@ def train(config):
 
     # === Training Loop ===
     while step < max_steps:
-        for batch in tqdm(dataloader, desc="Training", disable=not accelerator.is_main_process):
+        for batch in tqdm(
+            dataloader,
+            desc="Training",
+            disable=not accelerator.is_main_process,
+            miniters=max(1, log_interval),
+            mininterval=0.0,
+            maxinterval=float("inf"),
+        ):
             if step >= max_steps:
                 break
             prompts = batch["prompts"]

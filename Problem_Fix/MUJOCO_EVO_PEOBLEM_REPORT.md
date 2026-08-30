@@ -995,3 +995,174 @@ MAX_ACTION_JUMP = 0.020
 
 这一版通过当前 observation 的实际位置误差决定 phase，不依赖隐藏的“刚切 phase”状态。
 
+## 26. 实时 `cube[2]` 使 expert 抓取目标随 cube 倾斜而上移
+
+### 遇到的问题
+
+随机 XY 环境下，失败视频主要表现为机械臂下探不足。进一步对 expert 轨迹做对照后发现，问题并不是 nominal grasp point 固定得太高，而是旧代码每一步都用实时 cube 质心高度计算抓取目标：
+
+```python
+grasp_z = cube[2] + self.env.GRASP_OFFSET
+```
+
+机械手在下降过程中如果擦碰 cube，使 cube 发生倾斜，cube 质心的实时 Z 会升高。随后 `grasp_z` 也会被一起抬高，导致 expert 的监督目标本身变浅。旧逻辑中首次 close 的最坏高度曾达到 nominal grasp height 上方约 `10.60 mm`。
+
+任务当前只随机 cube/goal 的 XY，不随机 cube 的支撑高度，因此不应使用受接触和倾斜影响的实时 `cube[2]` 作为 expert 抓取高度参考。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+```
+
+### 修改前
+
+```python
+grasp_z = cube[2] + self.env.GRASP_OFFSET
+```
+
+### 修改后
+
+```python
+grasp_z = (
+    self.env.CUBE_SUPPORT_Z
+    + self.env.GRASP_OFFSET
+)
+```
+
+这样 expert 的抓取目标由任务的固定支撑几何决定，不再跟随已经被擦歪的 cube 质心上移。
+
+这次没有增加额外的负 Z bias，也没有修改 XY tolerance、approach、transfer、lift、release 或成功判定，避免在修复下探监督时破坏当前已经正常的其他阶段。
+
+### 回归结果
+
+对修改前后的版本使用相同 100 个随机 seed 做 expert 对照：
+
+```text
+修改前：完整成功 98/100，进入 lift 100/100，unsafe 0
+修改后：完整成功 98/100，进入 lift 100/100，unsafe 0
+```
+
+首次 close 相对 nominal grasp height 的最坏高度变化为：
+
+```text
+修改前：+10.60 mm
+修改后：+3.99 mm
+```
+
+两个失败 seed 仍然是原有的 transfer 失败，没有新增抓取、放置或不安全接触回归。
+
+## 27. `descend -> close` 使用对称 Z 误差会过早允许闭合
+
+### 遇到的问题
+
+旧 descend 判定使用：
+
+```python
+z_error = abs(float(hand[2] - target[2]))
+```
+
+但当前剩余问题具有明显方向性：危险情况是机械手仍在抓取目标上方时就开始 close，而不是已经略微低于目标。使用绝对值会把“目标上方”和“目标下方”作为同一种误差处理，不能直接表达“不允许在过高位置闭合”。
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/pick_place_env.py
+```
+
+### 修改前
+
+```python
+z_error = abs(float(hand[2] - target[2]))
+
+grasp_pose_ready = (
+    xy_error <= self.env.GRASP_CLOSE_XY_TOL
+    and
+    z_error <= self.env.GRASP_CLOSE_Z_TOL
+)
+```
+
+### 修改后
+
+```python
+z_above_target = float(hand[2] - target[2])
+
+grasp_pose_ready = (
+    xy_error <= self.env.GRASP_CLOSE_XY_TOL
+    and
+    z_above_target <= self.env.GRASP_CLOSE_Z_TOL
+)
+```
+
+最后 20 mm 的已验证减速逻辑保持不变，只复用同一个有符号高度差：
+
+```python
+if 0.0 < z_above_target < 0.020:
+    action[2] = max(float(action[2]), -0.003)
+```
+
+close 阶段同样预先计算：
+
+```python
+z_above_grasp = float(hand[2] - grasp_target[2])
+```
+
+用于原有的近表面减速判断。没有加入 attached 后的额外深度 gate，也没有改变 attached 后立即进入 lift 的既有行为。
+
+## 28. Flow replay 随机性会干扰 checkpoint 的下探误差比较
+
+### 遇到的问题
+
+Evo-1 flow matching inference 从随机 action noise 开始。同一 observation 如果使用不同随机起点，预测 action chunk 会变化，因此直接比较两个 checkpoint 的 `dz` 可能混入 flow noise，无法判断模型是否真的系统性少下探。
+
+原来的 open-loop 汇总只有整体 position ADE 和 gripper accuracy，也不能单独回答：
+
+```text
+预测 dz 是否比 expert dz 更不负
+descend/close 中少下探的比例是多少
+少下探是否只集中在分布尾部
+```
+
+### 修改文件
+
+```text
+/home/user/mujoco+evo/mujoco_pickplace/open_loop.py
+```
+
+### 修改后
+
+- `infer_chunk()` 增加可选 `flow_seed`。
+- 多 sample 推理使用 `flow_seed + sample_index`，保证每个 sample 可复现且互不重复。
+- replay 增加：
+
+```text
+--flow-seed-base
+```
+
+- 每个 replay frame 的 seed 由以下信息稳定生成：
+
+```text
+flow_seed_base
++ episode_index * 10,000,000
++ frame_index * 10,000
+```
+
+- 负 seed 会在参数解析或推理入口直接报错。
+- 相同 observation、replay index 和 flow seed 可以用于公平比较不同 checkpoint。
+
+同时对 `descend` 和 `close` phase 增加：
+
+```text
+dz_error = pred_dz - gt_dz
+```
+
+其中正值表示预测动作比 expert 更少向下。最终输出：
+
+```text
+mean(pred_dz - gt_dz)
+median(pred_dz - gt_dz)
+P10 / P50 / P90
+under_descent ratio
+```
+
+`under_descent` 的计数条件为：expert 明确向下时，预测 `dz` 比 expert 高出超过 `0.001`。

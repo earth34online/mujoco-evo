@@ -32,7 +32,7 @@ EXPECTED_GRIPPER = {
     "settle": 1.0,
 }
 
-def infer_chunk(model, normalizer, obs, num_samples=1):
+def infer_chunk(model, normalizer, obs, num_samples=1, flow_seed=None):
     """One model forward on the current observation -> denormalized [horizon, 24] chunk."""
     front = obs["image_front"]
     images_rgb = [front, np.zeros_like(front), np.zeros_like(front)]
@@ -59,7 +59,15 @@ def infer_chunk(model, normalizer, obs, num_samples=1):
     num_samples = max(1, int(num_samples))
     samples = []
     with torch.no_grad(), torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-        for _ in range(num_samples):
+        for sample_index in range(num_samples):
+            if flow_seed is not None:
+                sample_seed = int(flow_seed) + sample_index
+                if sample_seed < 0:
+                    raise ValueError(
+                        f"flow_seed must be >= 0, got {sample_seed}"
+                    )
+                torch.manual_seed(sample_seed)
+                torch.cuda.manual_seed_all(sample_seed)
             action = model.run_inference(
                 images=images,
                 image_mask=image_mask,
@@ -102,6 +110,33 @@ def _sample_replay_indices(total_frames, stride=1, max_frames=None):
         pick = np.linspace(0, len(indices) - 1, int(max_frames), dtype=np.int64)
         indices = indices[pick]
     return indices
+
+
+def assert_image_pipeline_equivalence(frame_rgb, image_size):
+    """Verify that recorded RGB frames match the websocket server pipeline."""
+    training_tensor = T.Compose([
+        T.Resize(
+            (image_size, image_size),
+            interpolation=InterpolationMode.BICUBIC,
+        ),
+        T.ToTensor(),
+    ])(Image.fromarray(np.asarray(frame_rgb, dtype=np.uint8)))
+    server_tensor = decode_image_from_list(
+        np.asarray(frame_rgb, dtype=np.uint8)[..., ::-1],
+        image_size=image_size,
+    ).cpu()
+    image_diff = torch.max(
+        torch.abs(training_tensor - server_tensor)
+    ).item()
+    print(
+        f"[image pipeline] max_abs_diff={image_diff:.10g}",
+        flush=True,
+    )
+    assert image_diff < 1e-6, (
+        "recorded/server image mismatch: "
+        f"max_diff={image_diff}"
+    )
+
 
 def assert_gripper_labels(phases, actions_gt, episode_index):
     """Fail fast if expert.phase and action[6] disagree."""
@@ -223,7 +258,8 @@ def assert_normalization_equivalence(
     )
 
 def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
-                    max_frames_per_episode=None, num_samples=1):
+                    max_frames_per_episode=None, num_samples=1,
+                    flow_seed_base=0):
     """Offline open-loop check: feed the recorded observations of held-out test
     episodes to the policy and compare the first predicted action of each chunk
     against the recorded expert action (ground truth)."""
@@ -252,6 +288,9 @@ def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
     phase_grip_acc = {}
     phase_grip_err = {}
     phase_grip_counts = {}
+    descend_dz_errors = []
+    descend_under_count = 0
+    descend_total = 0
     for row in rows:
         table = pd.read_parquet(os.path.join(replay_dir, row["data_path"]))
         frames = {camera: read_frames(os.path.join(replay_dir, row["video_paths"][camera]))
@@ -295,7 +334,18 @@ def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
                 "robot_state": states[t],
                 "image_front": frames["front"][t],
             }
-            chunk = infer_chunk(model, normalizer, obs, num_samples=num_samples)
+            flow_seed = (
+                int(flow_seed_base)
+                + int(row["episode_index"]) * 10_000_000
+                + int(t) * 10_000
+            )
+            chunk = infer_chunk(
+                model,
+                normalizer,
+                obs,
+                num_samples=num_samples,
+                flow_seed=flow_seed,
+            )
             horizon = min(len(chunk), 14)
             gt_indices = np.minimum(
                 np.arange(t, t + horizon, dtype=np.int64),
@@ -325,6 +375,15 @@ def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
                 pred_open = bool(pred[6] > 0.5)
                 gt_open = bool(gt[6] > 0.5)
                 phase = str(phases[gt_index])
+                if phase in ("descend", "close"):
+                    dz_error = float(pred[2] - gt[2])
+                    descend_dz_errors.append(dz_error)
+                    if gt[2] < -1e-4:
+                        descend_total += 1
+                        # Positive error means the prediction is less negative
+                        # than the expert action: systematic under-descent.
+                        if dz_error > 0.001:
+                            descend_under_count += 1
                 phase_pos_err.setdefault(phase, []).append(pos_err)
                 phase_grip_acc.setdefault(phase, []).append(grip_ok)
                 phase_grip_err.setdefault(phase, []).append(grip_abs_err)
@@ -359,6 +418,33 @@ def run_replay_test(ckpt, replay_dir, num_episodes, replay_stride=1,
     print(f"\nReplay open-loop over {len(rows)} held-out episodes, {len(pos_errs)} horizon actions:", flush=True)
     print(f"  position action ADE: mean={pos_errs.mean():.4f}  median={np.median(pos_errs):.4f}  p90={np.percentile(pos_errs, 90):.4f}", flush=True)
     print(f"  gripper accuracy: {grip_acc.mean():.3f}   mean |gripper err|: {grip_errs.mean():.3f}", flush=True)
+    if descend_dz_errors:
+        values = np.asarray(descend_dz_errors, dtype=np.float64)
+        print("\n[Z descent diagnostics]", flush=True)
+        print(
+            "  mean(pred_dz - gt_dz)="
+            f"{values.mean():+.6f}",
+            flush=True,
+        )
+        print(
+            "  median(pred_dz - gt_dz)="
+            f"{np.median(values):+.6f}",
+            flush=True,
+        )
+        print(
+            "  dz_error percentiles="
+            f"P10={np.percentile(values, 10):+.6f} "
+            f"P50={np.percentile(values, 50):+.6f} "
+            f"P90={np.percentile(values, 90):+.6f}",
+            flush=True,
+        )
+        if descend_total:
+            print(
+                "  under_descent="
+                f"{descend_under_count}/{descend_total} "
+                f"({descend_under_count / descend_total:.3f})",
+                flush=True,
+            )
     for phase in sorted(phase_pos_err):
         errs = np.asarray(phase_pos_err[phase])
         g_acc = np.asarray(phase_grip_acc[phase])
@@ -395,7 +481,12 @@ def main():
     parser.add_argument("--num-samples", type=int, default=1,
                         help="Average multiple stochastic flow-matching samples per "
                              "observation. Default 1 preserves original behavior.")
+    parser.add_argument("--flow-seed-base", type=int, default=0,
+                        help="Base flow-noise seed for deterministic replay comparisons.")
     args = parser.parse_args()
+
+    if args.flow_seed_base < 0:
+        parser.error("--flow-seed-base must be >= 0")
 
     if args.replay_dir:
         run_replay_test(
@@ -403,6 +494,7 @@ def main():
             replay_stride=args.replay_stride,
             max_frames_per_episode=args.max_frames_per_episode,
             num_samples=args.num_samples,
+            flow_seed_base=args.flow_seed_base,
         )
         return
 

@@ -617,7 +617,10 @@ class ScriptedExpertPolicy:
         state = obs["state"]
         hand, cube, goal = state[:3], state[3:6], state[6:9]
         safe_z = self.env.SAFE_Z
-        grasp_z = cube[2] + self.env.GRASP_OFFSET
+        grasp_z = (
+            self.env.CUBE_SUPPORT_Z
+            + self.env.GRASP_OFFSET
+        )
         place_z = self.env.PLACE_Z
         hand_cube_xy = np.array([cube[0] + self.env.GRASP_X_BIAS, cube[1]])
         hand_goal_xy = np.array([goal[0] + self.env.GRASP_X_BIAS, goal[1]])
@@ -632,15 +635,15 @@ class ScriptedExpertPolicy:
         if self.phase == "descend":
             target = np.array([hand_cube_xy[0], hand_cube_xy[1], grasp_z], dtype=np.float64)
             xy_error = np.linalg.norm(hand[:2] - target[:2])
-            z_error = abs(float(hand[2] - target[2]))
+            z_above_target = float(hand[2] - target[2])
             grasp_pose_ready = (
                 xy_error <= self.env.GRASP_CLOSE_XY_TOL
                 and
-                z_error <= self.env.GRASP_CLOSE_Z_TOL)
+                z_above_target <= self.env.GRASP_CLOSE_Z_TOL)
 
             action = self._move_before_attachment(
                 target, 0.0 if grasp_pose_ready else 1.0)
-            if 0.0 < hand[2] - target[2] < 0.020:
+            if 0.0 < z_above_target < 0.020:
                 action[2] = max(float(action[2]), -0.003)
 
             if grasp_pose_ready:
@@ -651,6 +654,7 @@ class ScriptedExpertPolicy:
 
         if self.phase == "close":
             grasp_target = np.array([hand_cube_xy[0], hand_cube_xy[1], grasp_z], dtype=np.float64)
+            z_above_grasp = float(hand[2] - grasp_target[2])
 
             if self.env.attached:
                 self._set_phase("lift")
@@ -662,7 +666,7 @@ class ScriptedExpertPolicy:
                 return self._move(np.array([hand[0], hand[1], safe_z], dtype=np.float64), 1.0)
 
             action = self._move_before_attachment(grasp_target, 0.0)
-            if 0.0 < hand[2] - grasp_target[2] < 0.020:
+            if 0.0 < z_above_grasp < 0.020:
                 action[2] = max(float(action[2]), -0.003)
             return action
 
@@ -690,7 +694,6 @@ class ScriptedExpertPolicy:
                 )
                 return self._move(target, 0.0)
 
-            # Then converge to the full safe pose above the goal.
             xy_error = np.linalg.norm(hand[:2] - safe_target[:2])
             z_error = abs(float(hand[2] - safe_z))
             ready_to_lower = (
