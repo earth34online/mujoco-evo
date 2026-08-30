@@ -1,0 +1,701 @@
+2026-08-17 15:19:35,865 [INFO] Logging to: /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/train_log_20260817_151935.log
+2026-08-17 15:19:37,377 [INFO] Loaded 13292 samples from None (lerobot)
+2026-08-17 15:19:37,377 [INFO] Initialized dataloader with batch size 16
+2026-08-17 15:19:38,674 [INFO] vision_select_layer: -1
+2026-08-17 15:19:38,674 [INFO] ps_version: v2
+2026-08-17 15:19:38,674 [INFO] min_dynamic_patch: 1
+2026-08-17 15:19:38,675 [INFO] max_dynamic_patch: 12
+2026-08-17 15:19:39,427 [INFO] num_image_token: 256
+2026-08-17 15:19:39,427 [INFO] ps_version: v2
+2026-08-17 15:19:42,640 [INFO] Optimizer=AdamW, lr=1e-05, weight_decay=0.001
+2026-08-17 15:19:42,835 [INFO] Initialized with Accelerate
+2026-08-17 15:19:42,835 [INFO] Starting fresh training
+2026-08-17 15:19:42,836 [INFO] 
+ Parameter Inspection by Module:
+2026-08-17 15:19:42,836 [INFO] ======================================================================
+2026-08-17 15:19:42,837 [INFO] 
+ Module: vision_model
+2026-08-17 15:19:42,837 [INFO] ----------------------------------------------------------------------
+2026-08-17 15:19:42,837 [INFO] Frozen embeddings.class_embedding                              | shape: (1, 1, 1024)         |   0.00M
+2026-08-17 15:19:42,837 [INFO] Frozen embeddings.position_embedding                           | shape: (1, 1025, 1024)      |   1.05M
+2026-08-17 15:19:42,837 [INFO] Frozen embeddings.patch_embedding.weight                       | shape: (1024, 3, 14, 14)    |   0.60M
+2026-08-17 15:19:42,837 [INFO] Frozen embeddings.patch_embedding.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,838 [INFO] Frozen encoder.layers.0.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,838 [INFO] Frozen encoder.layers.0.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,838 [INFO] Frozen encoder.layers.0.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,838 [INFO] Frozen encoder.layers.0.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,839 [INFO] Frozen encoder.layers.0.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,839 [INFO] Frozen encoder.layers.0.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,839 [INFO] Frozen encoder.layers.0.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,839 [INFO] Frozen encoder.layers.0.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,840 [INFO] Frozen encoder.layers.0.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,840 [INFO] Frozen encoder.layers.0.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,840 [INFO] Frozen encoder.layers.0.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,840 [INFO] Frozen encoder.layers.0.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,841 [INFO] Frozen encoder.layers.0.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,841 [INFO] Frozen encoder.layers.0.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,841 [INFO] Frozen encoder.layers.1.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,842 [INFO] Frozen encoder.layers.1.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,842 [INFO] Frozen encoder.layers.1.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,842 [INFO] Frozen encoder.layers.1.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,843 [INFO] Frozen encoder.layers.1.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,843 [INFO] Frozen encoder.layers.1.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,843 [INFO] Frozen encoder.layers.1.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,844 [INFO] Frozen encoder.layers.1.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,844 [INFO] Frozen encoder.layers.1.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,844 [INFO] Frozen encoder.layers.1.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,844 [INFO] Frozen encoder.layers.1.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,844 [INFO] Frozen encoder.layers.1.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,844 [INFO] Frozen encoder.layers.1.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,844 [INFO] Frozen encoder.layers.1.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,845 [INFO] Frozen encoder.layers.2.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,845 [INFO] Frozen encoder.layers.2.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,845 [INFO] Frozen encoder.layers.2.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,845 [INFO] Frozen encoder.layers.2.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,845 [INFO] Frozen encoder.layers.2.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,846 [INFO] Frozen encoder.layers.2.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,846 [INFO] Frozen encoder.layers.2.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,846 [INFO] Frozen encoder.layers.2.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,846 [INFO] Frozen encoder.layers.2.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,847 [INFO] Frozen encoder.layers.2.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,847 [INFO] Frozen encoder.layers.2.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,847 [INFO] Frozen encoder.layers.2.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,847 [INFO] Frozen encoder.layers.2.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,847 [INFO] Frozen encoder.layers.2.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,847 [INFO] Frozen encoder.layers.3.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,848 [INFO] Frozen encoder.layers.3.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,848 [INFO] Frozen encoder.layers.3.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,848 [INFO] Frozen encoder.layers.3.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,848 [INFO] Frozen encoder.layers.3.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,848 [INFO] Frozen encoder.layers.3.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,848 [INFO] Frozen encoder.layers.3.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,848 [INFO] Frozen encoder.layers.3.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,848 [INFO] Frozen encoder.layers.3.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,848 [INFO] Frozen encoder.layers.3.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,849 [INFO] Frozen encoder.layers.3.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,849 [INFO] Frozen encoder.layers.3.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,849 [INFO] Frozen encoder.layers.3.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,850 [INFO] Frozen encoder.layers.3.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,850 [INFO] Frozen encoder.layers.4.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,850 [INFO] Frozen encoder.layers.4.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,850 [INFO] Frozen encoder.layers.4.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,850 [INFO] Frozen encoder.layers.4.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,851 [INFO] Frozen encoder.layers.4.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,851 [INFO] Frozen encoder.layers.4.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,851 [INFO] Frozen encoder.layers.4.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,852 [INFO] Frozen encoder.layers.4.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,852 [INFO] Frozen encoder.layers.4.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,852 [INFO] Frozen encoder.layers.4.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,852 [INFO] Frozen encoder.layers.4.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,853 [INFO] Frozen encoder.layers.4.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,853 [INFO] Frozen encoder.layers.4.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,853 [INFO] Frozen encoder.layers.4.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,854 [INFO] Frozen encoder.layers.5.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,854 [INFO] Frozen encoder.layers.5.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,854 [INFO] Frozen encoder.layers.5.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,854 [INFO] Frozen encoder.layers.5.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,855 [INFO] Frozen encoder.layers.5.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,855 [INFO] Frozen encoder.layers.5.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,855 [INFO] Frozen encoder.layers.5.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,856 [INFO] Frozen encoder.layers.5.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,856 [INFO] Frozen encoder.layers.5.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,856 [INFO] Frozen encoder.layers.5.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,857 [INFO] Frozen encoder.layers.5.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,857 [INFO] Frozen encoder.layers.5.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,857 [INFO] Frozen encoder.layers.5.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,858 [INFO] Frozen encoder.layers.5.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,858 [INFO] Frozen encoder.layers.6.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,858 [INFO] Frozen encoder.layers.6.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,858 [INFO] Frozen encoder.layers.6.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,859 [INFO] Frozen encoder.layers.6.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,859 [INFO] Frozen encoder.layers.6.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,859 [INFO] Frozen encoder.layers.6.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,860 [INFO] Frozen encoder.layers.6.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,860 [INFO] Frozen encoder.layers.6.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,860 [INFO] Frozen encoder.layers.6.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,860 [INFO] Frozen encoder.layers.6.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,861 [INFO] Frozen encoder.layers.6.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,861 [INFO] Frozen encoder.layers.6.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,862 [INFO] Frozen encoder.layers.6.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,862 [INFO] Frozen encoder.layers.6.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,862 [INFO] Frozen encoder.layers.7.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,862 [INFO] Frozen encoder.layers.7.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,863 [INFO] Frozen encoder.layers.7.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,863 [INFO] Frozen encoder.layers.7.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,863 [INFO] Frozen encoder.layers.7.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,864 [INFO] Frozen encoder.layers.7.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,864 [INFO] Frozen encoder.layers.7.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,864 [INFO] Frozen encoder.layers.7.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,864 [INFO] Frozen encoder.layers.7.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,864 [INFO] Frozen encoder.layers.7.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,865 [INFO] Frozen encoder.layers.7.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,865 [INFO] Frozen encoder.layers.7.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,865 [INFO] Frozen encoder.layers.7.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,865 [INFO] Frozen encoder.layers.7.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,865 [INFO] Frozen encoder.layers.8.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,866 [INFO] Frozen encoder.layers.8.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,866 [INFO] Frozen encoder.layers.8.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,866 [INFO] Frozen encoder.layers.8.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,867 [INFO] Frozen encoder.layers.8.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,867 [INFO] Frozen encoder.layers.8.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,867 [INFO] Frozen encoder.layers.8.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,868 [INFO] Frozen encoder.layers.8.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,868 [INFO] Frozen encoder.layers.8.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,868 [INFO] Frozen encoder.layers.8.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,868 [INFO] Frozen encoder.layers.8.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,869 [INFO] Frozen encoder.layers.8.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,869 [INFO] Frozen encoder.layers.8.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,869 [INFO] Frozen encoder.layers.8.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,869 [INFO] Frozen encoder.layers.9.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,869 [INFO] Frozen encoder.layers.9.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,869 [INFO] Frozen encoder.layers.9.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,870 [INFO] Frozen encoder.layers.9.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,870 [INFO] Frozen encoder.layers.9.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,870 [INFO] Frozen encoder.layers.9.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,871 [INFO] Frozen encoder.layers.9.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,871 [INFO] Frozen encoder.layers.9.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,871 [INFO] Frozen encoder.layers.9.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,871 [INFO] Frozen encoder.layers.9.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,872 [INFO] Frozen encoder.layers.9.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,872 [INFO] Frozen encoder.layers.9.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,872 [INFO] Frozen encoder.layers.9.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,872 [INFO] Frozen encoder.layers.9.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,872 [INFO] Frozen encoder.layers.10.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,873 [INFO] Frozen encoder.layers.10.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,873 [INFO] Frozen encoder.layers.10.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,873 [INFO] Frozen encoder.layers.10.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,873 [INFO] Frozen encoder.layers.10.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,874 [INFO] Frozen encoder.layers.10.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,874 [INFO] Frozen encoder.layers.10.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,874 [INFO] Frozen encoder.layers.10.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,874 [INFO] Frozen encoder.layers.10.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,875 [INFO] Frozen encoder.layers.10.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,875 [INFO] Frozen encoder.layers.10.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,875 [INFO] Frozen encoder.layers.10.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,875 [INFO] Frozen encoder.layers.10.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,876 [INFO] Frozen encoder.layers.10.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,876 [INFO] Frozen encoder.layers.11.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,876 [INFO] Frozen encoder.layers.11.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,877 [INFO] Frozen encoder.layers.11.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,877 [INFO] Frozen encoder.layers.11.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,877 [INFO] Frozen encoder.layers.11.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,877 [INFO] Frozen encoder.layers.11.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,878 [INFO] Frozen encoder.layers.11.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,878 [INFO] Frozen encoder.layers.11.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,878 [INFO] Frozen encoder.layers.11.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,879 [INFO] Frozen encoder.layers.11.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,879 [INFO] Frozen encoder.layers.11.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,879 [INFO] Frozen encoder.layers.11.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,879 [INFO] Frozen encoder.layers.11.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,880 [INFO] Frozen encoder.layers.11.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,880 [INFO] Frozen encoder.layers.12.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,880 [INFO] Frozen encoder.layers.12.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,881 [INFO] Frozen encoder.layers.12.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,881 [INFO] Frozen encoder.layers.12.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,881 [INFO] Frozen encoder.layers.12.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,882 [INFO] Frozen encoder.layers.12.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,882 [INFO] Frozen encoder.layers.12.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,882 [INFO] Frozen encoder.layers.12.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,883 [INFO] Frozen encoder.layers.12.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,883 [INFO] Frozen encoder.layers.12.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,883 [INFO] Frozen encoder.layers.12.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,883 [INFO] Frozen encoder.layers.12.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,884 [INFO] Frozen encoder.layers.12.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,884 [INFO] Frozen encoder.layers.12.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,884 [INFO] Frozen encoder.layers.13.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,885 [INFO] Frozen encoder.layers.13.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,885 [INFO] Frozen encoder.layers.13.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,885 [INFO] Frozen encoder.layers.13.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,886 [INFO] Frozen encoder.layers.13.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,886 [INFO] Frozen encoder.layers.13.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,886 [INFO] Frozen encoder.layers.13.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,886 [INFO] Frozen encoder.layers.13.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,887 [INFO] Frozen encoder.layers.13.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,887 [INFO] Frozen encoder.layers.13.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,887 [INFO] Frozen encoder.layers.13.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,887 [INFO] Frozen encoder.layers.13.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,887 [INFO] Frozen encoder.layers.13.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,888 [INFO] Frozen encoder.layers.13.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,888 [INFO] Frozen encoder.layers.14.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,888 [INFO] Frozen encoder.layers.14.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,888 [INFO] Frozen encoder.layers.14.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,889 [INFO] Frozen encoder.layers.14.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,889 [INFO] Frozen encoder.layers.14.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,889 [INFO] Frozen encoder.layers.14.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,890 [INFO] Frozen encoder.layers.14.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,890 [INFO] Frozen encoder.layers.14.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,890 [INFO] Frozen encoder.layers.14.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,890 [INFO] Frozen encoder.layers.14.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,891 [INFO] Frozen encoder.layers.14.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,891 [INFO] Frozen encoder.layers.14.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,891 [INFO] Frozen encoder.layers.14.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,891 [INFO] Frozen encoder.layers.14.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,891 [INFO] Frozen encoder.layers.15.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,892 [INFO] Frozen encoder.layers.15.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,892 [INFO] Frozen encoder.layers.15.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,892 [INFO] Frozen encoder.layers.15.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,892 [INFO] Frozen encoder.layers.15.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,892 [INFO] Frozen encoder.layers.15.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,893 [INFO] Frozen encoder.layers.15.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,893 [INFO] Frozen encoder.layers.15.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,893 [INFO] Frozen encoder.layers.15.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,893 [INFO] Frozen encoder.layers.15.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,893 [INFO] Frozen encoder.layers.15.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,894 [INFO] Frozen encoder.layers.15.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,894 [INFO] Frozen encoder.layers.15.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,894 [INFO] Frozen encoder.layers.15.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,895 [INFO] Frozen encoder.layers.16.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,895 [INFO] Frozen encoder.layers.16.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,895 [INFO] Frozen encoder.layers.16.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,895 [INFO] Frozen encoder.layers.16.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,895 [INFO] Frozen encoder.layers.16.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,896 [INFO] Frozen encoder.layers.16.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,896 [INFO] Frozen encoder.layers.16.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,896 [INFO] Frozen encoder.layers.16.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,896 [INFO] Frozen encoder.layers.16.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,897 [INFO] Frozen encoder.layers.16.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,897 [INFO] Frozen encoder.layers.16.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,897 [INFO] Frozen encoder.layers.16.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,897 [INFO] Frozen encoder.layers.16.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,897 [INFO] Frozen encoder.layers.16.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,898 [INFO] Frozen encoder.layers.17.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,898 [INFO] Frozen encoder.layers.17.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,898 [INFO] Frozen encoder.layers.17.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,898 [INFO] Frozen encoder.layers.17.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,899 [INFO] Frozen encoder.layers.17.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,899 [INFO] Frozen encoder.layers.17.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,899 [INFO] Frozen encoder.layers.17.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,900 [INFO] Frozen encoder.layers.17.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,900 [INFO] Frozen encoder.layers.17.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,900 [INFO] Frozen encoder.layers.17.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,900 [INFO] Frozen encoder.layers.17.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,901 [INFO] Frozen encoder.layers.17.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,901 [INFO] Frozen encoder.layers.17.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,901 [INFO] Frozen encoder.layers.17.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,901 [INFO] Frozen encoder.layers.18.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,902 [INFO] Frozen encoder.layers.18.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,902 [INFO] Frozen encoder.layers.18.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,902 [INFO] Frozen encoder.layers.18.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,902 [INFO] Frozen encoder.layers.18.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,902 [INFO] Frozen encoder.layers.18.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,903 [INFO] Frozen encoder.layers.18.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,903 [INFO] Frozen encoder.layers.18.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,903 [INFO] Frozen encoder.layers.18.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,904 [INFO] Frozen encoder.layers.18.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,904 [INFO] Frozen encoder.layers.18.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,904 [INFO] Frozen encoder.layers.18.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,904 [INFO] Frozen encoder.layers.18.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,905 [INFO] Frozen encoder.layers.18.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,905 [INFO] Frozen encoder.layers.19.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,905 [INFO] Frozen encoder.layers.19.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,905 [INFO] Frozen encoder.layers.19.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,906 [INFO] Frozen encoder.layers.19.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,906 [INFO] Frozen encoder.layers.19.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,907 [INFO] Frozen encoder.layers.19.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,907 [INFO] Frozen encoder.layers.19.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,907 [INFO] Frozen encoder.layers.19.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,907 [INFO] Frozen encoder.layers.19.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,908 [INFO] Frozen encoder.layers.19.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,908 [INFO] Frozen encoder.layers.19.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,908 [INFO] Frozen encoder.layers.19.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,908 [INFO] Frozen encoder.layers.19.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,909 [INFO] Frozen encoder.layers.19.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,909 [INFO] Frozen encoder.layers.20.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,909 [INFO] Frozen encoder.layers.20.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,909 [INFO] Frozen encoder.layers.20.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,910 [INFO] Frozen encoder.layers.20.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,910 [INFO] Frozen encoder.layers.20.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,910 [INFO] Frozen encoder.layers.20.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,910 [INFO] Frozen encoder.layers.20.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,911 [INFO] Frozen encoder.layers.20.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,911 [INFO] Frozen encoder.layers.20.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,911 [INFO] Frozen encoder.layers.20.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,911 [INFO] Frozen encoder.layers.20.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,912 [INFO] Frozen encoder.layers.20.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,912 [INFO] Frozen encoder.layers.20.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,912 [INFO] Frozen encoder.layers.20.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,912 [INFO] Frozen encoder.layers.21.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,913 [INFO] Frozen encoder.layers.21.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,913 [INFO] Frozen encoder.layers.21.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,913 [INFO] Frozen encoder.layers.21.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,913 [INFO] Frozen encoder.layers.21.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,914 [INFO] Frozen encoder.layers.21.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,914 [INFO] Frozen encoder.layers.21.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,914 [INFO] Frozen encoder.layers.21.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,914 [INFO] Frozen encoder.layers.21.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,914 [INFO] Frozen encoder.layers.21.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,914 [INFO] Frozen encoder.layers.21.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,915 [INFO] Frozen encoder.layers.21.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,915 [INFO] Frozen encoder.layers.21.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,915 [INFO] Frozen encoder.layers.21.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,916 [INFO] Frozen encoder.layers.22.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,916 [INFO] Frozen encoder.layers.22.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,916 [INFO] Frozen encoder.layers.22.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,916 [INFO] Frozen encoder.layers.22.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,917 [INFO] Frozen encoder.layers.22.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,917 [INFO] Frozen encoder.layers.22.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,917 [INFO] Frozen encoder.layers.22.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,917 [INFO] Frozen encoder.layers.22.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,918 [INFO] Frozen encoder.layers.22.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,918 [INFO] Frozen encoder.layers.22.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,919 [INFO] Frozen encoder.layers.22.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,919 [INFO] Frozen encoder.layers.22.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,919 [INFO] Frozen encoder.layers.22.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,919 [INFO] Frozen encoder.layers.22.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,920 [INFO] Frozen encoder.layers.23.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,920 [INFO] Frozen encoder.layers.23.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,920 [INFO] Frozen encoder.layers.23.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-17 15:19:42,920 [INFO] Frozen encoder.layers.23.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-17 15:19:42,921 [INFO] Frozen encoder.layers.23.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-17 15:19:42,921 [INFO] Frozen encoder.layers.23.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,921 [INFO] Frozen encoder.layers.23.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-17 15:19:42,922 [INFO] Frozen encoder.layers.23.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-17 15:19:42,922 [INFO] Frozen encoder.layers.23.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-17 15:19:42,922 [INFO] Frozen encoder.layers.23.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,922 [INFO] Frozen encoder.layers.23.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,923 [INFO] Frozen encoder.layers.23.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,923 [INFO] Frozen encoder.layers.23.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,923 [INFO] Frozen encoder.layers.23.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,923 [INFO] ----------------------------------------------------------------------
+2026-08-17 15:19:42,924 [INFO] Total     : 304.01M
+2026-08-17 15:19:42,924 [INFO] Trainable : 0.00M
+2026-08-17 15:19:42,924 [INFO] Frozen    : 304.01M
+2026-08-17 15:19:42,924 [INFO] 
+ Module: language_model
+2026-08-17 15:19:42,925 [INFO] ----------------------------------------------------------------------
+2026-08-17 15:19:42,925 [INFO] Frozen model.embed_tokens.weight                               | shape: (151674, 896)        | 135.90M
+2026-08-17 15:19:42,925 [INFO] Frozen model.layers.0.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,925 [INFO] Frozen model.layers.0.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,926 [INFO] Frozen model.layers.0.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,926 [INFO] Frozen model.layers.0.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,926 [INFO] Frozen model.layers.0.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,926 [INFO] Frozen model.layers.0.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,927 [INFO] Frozen model.layers.0.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,927 [INFO] Frozen model.layers.0.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,927 [INFO] Frozen model.layers.0.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,927 [INFO] Frozen model.layers.0.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,928 [INFO] Frozen model.layers.0.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,928 [INFO] Frozen model.layers.0.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,928 [INFO] Frozen model.layers.1.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,928 [INFO] Frozen model.layers.1.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,928 [INFO] Frozen model.layers.1.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,929 [INFO] Frozen model.layers.1.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,929 [INFO] Frozen model.layers.1.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,929 [INFO] Frozen model.layers.1.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,930 [INFO] Frozen model.layers.1.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,930 [INFO] Frozen model.layers.1.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,930 [INFO] Frozen model.layers.1.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,930 [INFO] Frozen model.layers.1.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,930 [INFO] Frozen model.layers.1.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,930 [INFO] Frozen model.layers.1.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,931 [INFO] Frozen model.layers.2.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,931 [INFO] Frozen model.layers.2.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,931 [INFO] Frozen model.layers.2.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,932 [INFO] Frozen model.layers.2.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,932 [INFO] Frozen model.layers.2.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,932 [INFO] Frozen model.layers.2.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,933 [INFO] Frozen model.layers.2.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,933 [INFO] Frozen model.layers.2.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,933 [INFO] Frozen model.layers.2.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,933 [INFO] Frozen model.layers.2.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,934 [INFO] Frozen model.layers.2.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,934 [INFO] Frozen model.layers.2.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,934 [INFO] Frozen model.layers.3.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,934 [INFO] Frozen model.layers.3.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,934 [INFO] Frozen model.layers.3.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,935 [INFO] Frozen model.layers.3.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,935 [INFO] Frozen model.layers.3.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,935 [INFO] Frozen model.layers.3.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,936 [INFO] Frozen model.layers.3.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,936 [INFO] Frozen model.layers.3.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,936 [INFO] Frozen model.layers.3.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,936 [INFO] Frozen model.layers.3.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,937 [INFO] Frozen model.layers.3.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,937 [INFO] Frozen model.layers.3.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,937 [INFO] Frozen model.layers.4.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,937 [INFO] Frozen model.layers.4.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,938 [INFO] Frozen model.layers.4.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,938 [INFO] Frozen model.layers.4.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,938 [INFO] Frozen model.layers.4.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,938 [INFO] Frozen model.layers.4.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,938 [INFO] Frozen model.layers.4.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,938 [INFO] Frozen model.layers.4.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,939 [INFO] Frozen model.layers.4.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,939 [INFO] Frozen model.layers.4.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,939 [INFO] Frozen model.layers.4.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,940 [INFO] Frozen model.layers.4.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,940 [INFO] Frozen model.layers.5.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,940 [INFO] Frozen model.layers.5.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,940 [INFO] Frozen model.layers.5.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,941 [INFO] Frozen model.layers.5.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,941 [INFO] Frozen model.layers.5.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,941 [INFO] Frozen model.layers.5.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,941 [INFO] Frozen model.layers.5.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,941 [INFO] Frozen model.layers.5.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,942 [INFO] Frozen model.layers.5.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,942 [INFO] Frozen model.layers.5.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,942 [INFO] Frozen model.layers.5.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,943 [INFO] Frozen model.layers.5.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,943 [INFO] Frozen model.layers.6.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,943 [INFO] Frozen model.layers.6.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,943 [INFO] Frozen model.layers.6.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,943 [INFO] Frozen model.layers.6.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,944 [INFO] Frozen model.layers.6.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,944 [INFO] Frozen model.layers.6.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,944 [INFO] Frozen model.layers.6.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,945 [INFO] Frozen model.layers.6.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,945 [INFO] Frozen model.layers.6.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,945 [INFO] Frozen model.layers.6.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,945 [INFO] Frozen model.layers.6.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,945 [INFO] Frozen model.layers.6.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,946 [INFO] Frozen model.layers.7.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,946 [INFO] Frozen model.layers.7.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,946 [INFO] Frozen model.layers.7.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,946 [INFO] Frozen model.layers.7.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,947 [INFO] Frozen model.layers.7.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,947 [INFO] Frozen model.layers.7.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,947 [INFO] Frozen model.layers.7.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,948 [INFO] Frozen model.layers.7.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,948 [INFO] Frozen model.layers.7.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,949 [INFO] Frozen model.layers.7.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,949 [INFO] Frozen model.layers.7.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,949 [INFO] Frozen model.layers.7.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,949 [INFO] Frozen model.layers.8.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,950 [INFO] Frozen model.layers.8.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,950 [INFO] Frozen model.layers.8.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,950 [INFO] Frozen model.layers.8.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,951 [INFO] Frozen model.layers.8.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,951 [INFO] Frozen model.layers.8.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,951 [INFO] Frozen model.layers.8.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,951 [INFO] Frozen model.layers.8.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,952 [INFO] Frozen model.layers.8.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,952 [INFO] Frozen model.layers.8.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,952 [INFO] Frozen model.layers.8.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,953 [INFO] Frozen model.layers.8.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,953 [INFO] Frozen model.layers.9.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,953 [INFO] Frozen model.layers.9.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,953 [INFO] Frozen model.layers.9.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,954 [INFO] Frozen model.layers.9.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,954 [INFO] Frozen model.layers.9.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,954 [INFO] Frozen model.layers.9.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,954 [INFO] Frozen model.layers.9.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,954 [INFO] Frozen model.layers.9.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,955 [INFO] Frozen model.layers.9.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,955 [INFO] Frozen model.layers.9.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,955 [INFO] Frozen model.layers.9.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,956 [INFO] Frozen model.layers.9.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,956 [INFO] Frozen model.layers.10.self_attn.q_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,956 [INFO] Frozen model.layers.10.self_attn.q_proj.bias                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,956 [INFO] Frozen model.layers.10.self_attn.k_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,957 [INFO] Frozen model.layers.10.self_attn.k_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,957 [INFO] Frozen model.layers.10.self_attn.v_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,957 [INFO] Frozen model.layers.10.self_attn.v_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,958 [INFO] Frozen model.layers.10.self_attn.o_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,958 [INFO] Frozen model.layers.10.mlp.gate_proj.weight                    | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,958 [INFO] Frozen model.layers.10.mlp.up_proj.weight                      | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,958 [INFO] Frozen model.layers.10.mlp.down_proj.weight                    | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,959 [INFO] Frozen model.layers.10.input_layernorm.weight                  | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,959 [INFO] Frozen model.layers.10.post_attention_layernorm.weight         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,959 [INFO] Frozen model.layers.11.self_attn.q_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,959 [INFO] Frozen model.layers.11.self_attn.q_proj.bias                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,959 [INFO] Frozen model.layers.11.self_attn.k_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,960 [INFO] Frozen model.layers.11.self_attn.k_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,960 [INFO] Frozen model.layers.11.self_attn.v_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,960 [INFO] Frozen model.layers.11.self_attn.v_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,961 [INFO] Frozen model.layers.11.self_attn.o_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,961 [INFO] Frozen model.layers.11.mlp.gate_proj.weight                    | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,961 [INFO] Frozen model.layers.11.mlp.up_proj.weight                      | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,962 [INFO] Frozen model.layers.11.mlp.down_proj.weight                    | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,962 [INFO] Frozen model.layers.11.input_layernorm.weight                  | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,962 [INFO] Frozen model.layers.11.post_attention_layernorm.weight         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,962 [INFO] Frozen model.layers.12.self_attn.q_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,963 [INFO] Frozen model.layers.12.self_attn.q_proj.bias                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,963 [INFO] Frozen model.layers.12.self_attn.k_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,963 [INFO] Frozen model.layers.12.self_attn.k_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,963 [INFO] Frozen model.layers.12.self_attn.v_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,964 [INFO] Frozen model.layers.12.self_attn.v_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,964 [INFO] Frozen model.layers.12.self_attn.o_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,964 [INFO] Frozen model.layers.12.mlp.gate_proj.weight                    | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,964 [INFO] Frozen model.layers.12.mlp.up_proj.weight                      | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,965 [INFO] Frozen model.layers.12.mlp.down_proj.weight                    | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,965 [INFO] Frozen model.layers.12.input_layernorm.weight                  | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,965 [INFO] Frozen model.layers.12.post_attention_layernorm.weight         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,965 [INFO] Frozen model.layers.13.self_attn.q_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,965 [INFO] Frozen model.layers.13.self_attn.q_proj.bias                   | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,966 [INFO] Frozen model.layers.13.self_attn.k_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,966 [INFO] Frozen model.layers.13.self_attn.k_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,966 [INFO] Frozen model.layers.13.self_attn.v_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-17 15:19:42,966 [INFO] Frozen model.layers.13.self_attn.v_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-17 15:19:42,967 [INFO] Frozen model.layers.13.self_attn.o_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,967 [INFO] Frozen model.layers.13.mlp.gate_proj.weight                    | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,967 [INFO] Frozen model.layers.13.mlp.up_proj.weight                      | shape: (4864, 896)          |   4.36M
+2026-08-17 15:19:42,967 [INFO] Frozen model.layers.13.mlp.down_proj.weight                    | shape: (896, 4864)          |   4.36M
+2026-08-17 15:19:42,967 [INFO] Frozen model.layers.13.input_layernorm.weight                  | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,968 [INFO] Frozen model.layers.13.post_attention_layernorm.weight         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,968 [INFO] Frozen model.norm.weight                                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,968 [INFO] ----------------------------------------------------------------------
+2026-08-17 15:19:42,969 [INFO] Total     : 344.67M
+2026-08-17 15:19:42,969 [INFO] Trainable : 0.00M
+2026-08-17 15:19:42,969 [INFO] Frozen    : 344.67M
+2026-08-17 15:19:42,970 [INFO] 
+ Module: action_head
+2026-08-17 15:19:42,970 [INFO] ----------------------------------------------------------------------
+2026-08-17 15:19:42,970 [INFO] Trainable transformer_blocks.0.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-17 15:19:42,970 [INFO] Trainable transformer_blocks.0.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-17 15:19:42,971 [INFO] Trainable transformer_blocks.0.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,971 [INFO] Trainable transformer_blocks.0.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,971 [INFO] Trainable transformer_blocks.0.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,971 [INFO] Trainable transformer_blocks.0.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,972 [INFO] Trainable transformer_blocks.0.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,972 [INFO] Trainable transformer_blocks.0.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,972 [INFO] Trainable transformer_blocks.0.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-17 15:19:42,973 [INFO] Trainable transformer_blocks.0.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-17 15:19:42,973 [INFO] Trainable transformer_blocks.0.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-17 15:19:42,973 [INFO] Trainable transformer_blocks.0.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,973 [INFO] Trainable transformer_blocks.1.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-17 15:19:42,974 [INFO] Trainable transformer_blocks.1.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-17 15:19:42,974 [INFO] Trainable transformer_blocks.1.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,974 [INFO] Trainable transformer_blocks.1.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,974 [INFO] Trainable transformer_blocks.1.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,975 [INFO] Trainable transformer_blocks.1.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,975 [INFO] Trainable transformer_blocks.1.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,975 [INFO] Trainable transformer_blocks.1.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,975 [INFO] Trainable transformer_blocks.1.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-17 15:19:42,976 [INFO] Trainable transformer_blocks.1.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-17 15:19:42,976 [INFO] Trainable transformer_blocks.1.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-17 15:19:42,976 [INFO] Trainable transformer_blocks.1.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,976 [INFO] Trainable transformer_blocks.2.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-17 15:19:42,977 [INFO] Trainable transformer_blocks.2.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-17 15:19:42,977 [INFO] Trainable transformer_blocks.2.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,977 [INFO] Trainable transformer_blocks.2.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,978 [INFO] Trainable transformer_blocks.2.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,978 [INFO] Trainable transformer_blocks.2.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,978 [INFO] Trainable transformer_blocks.2.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,978 [INFO] Trainable transformer_blocks.2.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,979 [INFO] Trainable transformer_blocks.2.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-17 15:19:42,979 [INFO] Trainable transformer_blocks.2.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-17 15:19:42,979 [INFO] Trainable transformer_blocks.2.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-17 15:19:42,979 [INFO] Trainable transformer_blocks.2.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,980 [INFO] Trainable transformer_blocks.3.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-17 15:19:42,980 [INFO] Trainable transformer_blocks.3.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-17 15:19:42,980 [INFO] Trainable transformer_blocks.3.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,981 [INFO] Trainable transformer_blocks.3.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,981 [INFO] Trainable transformer_blocks.3.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,981 [INFO] Trainable transformer_blocks.3.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,981 [INFO] Trainable transformer_blocks.3.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,982 [INFO] Trainable transformer_blocks.3.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,982 [INFO] Trainable transformer_blocks.3.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-17 15:19:42,982 [INFO] Trainable transformer_blocks.3.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-17 15:19:42,983 [INFO] Trainable transformer_blocks.3.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-17 15:19:42,983 [INFO] Trainable transformer_blocks.3.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,983 [INFO] Trainable transformer_blocks.4.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-17 15:19:42,983 [INFO] Trainable transformer_blocks.4.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-17 15:19:42,983 [INFO] Trainable transformer_blocks.4.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,984 [INFO] Trainable transformer_blocks.4.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,984 [INFO] Trainable transformer_blocks.4.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,984 [INFO] Trainable transformer_blocks.4.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,984 [INFO] Trainable transformer_blocks.4.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,984 [INFO] Trainable transformer_blocks.4.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,984 [INFO] Trainable transformer_blocks.4.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-17 15:19:42,985 [INFO] Trainable transformer_blocks.4.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-17 15:19:42,985 [INFO] Trainable transformer_blocks.4.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-17 15:19:42,985 [INFO] Trainable transformer_blocks.4.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,986 [INFO] Trainable transformer_blocks.5.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-17 15:19:42,986 [INFO] Trainable transformer_blocks.5.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-17 15:19:42,986 [INFO] Trainable transformer_blocks.5.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,987 [INFO] Trainable transformer_blocks.5.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,987 [INFO] Trainable transformer_blocks.5.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,987 [INFO] Trainable transformer_blocks.5.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,987 [INFO] Trainable transformer_blocks.5.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,987 [INFO] Trainable transformer_blocks.5.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,988 [INFO] Trainable transformer_blocks.5.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-17 15:19:42,988 [INFO] Trainable transformer_blocks.5.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-17 15:19:42,988 [INFO] Trainable transformer_blocks.5.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-17 15:19:42,988 [INFO] Trainable transformer_blocks.5.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,988 [INFO] Trainable transformer_blocks.6.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-17 15:19:42,988 [INFO] Trainable transformer_blocks.6.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-17 15:19:42,989 [INFO] Trainable transformer_blocks.6.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,989 [INFO] Trainable transformer_blocks.6.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,989 [INFO] Trainable transformer_blocks.6.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,989 [INFO] Trainable transformer_blocks.6.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,990 [INFO] Trainable transformer_blocks.6.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,990 [INFO] Trainable transformer_blocks.6.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,990 [INFO] Trainable transformer_blocks.6.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-17 15:19:42,991 [INFO] Trainable transformer_blocks.6.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-17 15:19:42,991 [INFO] Trainable transformer_blocks.6.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-17 15:19:42,991 [INFO] Trainable transformer_blocks.6.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,992 [INFO] Trainable transformer_blocks.7.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-17 15:19:42,992 [INFO] Trainable transformer_blocks.7.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-17 15:19:42,992 [INFO] Trainable transformer_blocks.7.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,992 [INFO] Trainable transformer_blocks.7.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,992 [INFO] Trainable transformer_blocks.7.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,993 [INFO] Trainable transformer_blocks.7.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,993 [INFO] Trainable transformer_blocks.7.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,993 [INFO] Trainable transformer_blocks.7.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,993 [INFO] Trainable transformer_blocks.7.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-17 15:19:42,994 [INFO] Trainable transformer_blocks.7.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-17 15:19:42,994 [INFO] Trainable transformer_blocks.7.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-17 15:19:42,994 [INFO] Trainable transformer_blocks.7.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,995 [INFO] Trainable norm_out.weight                                         | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,995 [INFO] Trainable norm_out.bias                                           | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,995 [INFO] Trainable seq_pool_proj.weight                                    | shape: (896, 12544)         |  11.24M
+2026-08-17 15:19:42,995 [INFO] Trainable seq_pool_proj.bias                                      | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,996 [INFO] Trainable mlp_head.fc1.linear.weight                              | shape: (1024, 896)          |   0.92M
+2026-08-17 15:19:42,996 [INFO] Trainable mlp_head.fc1.linear.bias                                | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,996 [INFO] Trainable mlp_head.fc2.linear.weight                              | shape: (336, 1024)          |   0.34M
+2026-08-17 15:19:42,996 [INFO] Trainable mlp_head.fc2.linear.bias                                | shape: (336,)               |   0.00M
+2026-08-17 15:19:42,997 [INFO] Trainable state_encoder.fc1.linear.weight                         | shape: (1024, 24)           |   0.02M
+2026-08-17 15:19:42,997 [INFO] Trainable state_encoder.fc1.linear.bias                           | shape: (1024,)              |   0.00M
+2026-08-17 15:19:42,997 [INFO] Trainable state_encoder.fc2.linear.weight                         | shape: (896, 1024)          |   0.92M
+2026-08-17 15:19:42,997 [INFO] Trainable state_encoder.fc2.linear.bias                           | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,998 [INFO] Trainable action_encoder.W1.linear.weight                         | shape: (896, 24)            |   0.02M
+2026-08-17 15:19:42,998 [INFO] Trainable action_encoder.W1.linear.bias                           | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,998 [INFO] Trainable action_encoder.W2.linear.weight                         | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,999 [INFO] Trainable action_encoder.W2.linear.bias                           | shape: (896,)               |   0.00M
+2026-08-17 15:19:42,999 [INFO] Trainable action_encoder.W3.linear.weight                         | shape: (896, 896)           |   0.80M
+2026-08-17 15:19:42,999 [INFO] Trainable action_encoder.W3.linear.bias                           | shape: (896,)               |   0.00M
+2026-08-17 15:19:43,000 [INFO] ----------------------------------------------------------------------
+2026-08-17 15:19:43,000 [INFO] Total     : 92.24M
+2026-08-17 15:19:43,000 [INFO] Trainable : 92.24M
+2026-08-17 15:19:43,000 [INFO] Frozen    : 0.00M
+2026-08-17 15:19:43,000 [INFO] ======================================================================
+2026-08-17 15:19:43,001 [INFO] ALL TOTAL     : 740.93M
+2026-08-17 15:19:43,001 [INFO] ALL TRAINABLE : 92.24M
+2026-08-17 15:19:43,001 [INFO] ALL FROZEN    : 648.69M
+2026-08-17 15:19:43,001 [INFO] ======================================================================
+2026-08-17 15:19:43,523 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:19:47,639 [INFO] Estimated Epoch: 0.00
+2026-08-17 15:19:47,640 [INFO] [Step 0] Loss: 0.9023
+2026-08-17 15:20:10,844 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:20:39,205 [INFO] Estimated Epoch: 0.02
+2026-08-17 15:20:39,206 [INFO] [Step 20] Loss: 0.9219
+2026-08-17 15:20:45,548 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:21:31,028 [INFO] Estimated Epoch: 0.05
+2026-08-17 15:21:31,028 [INFO] [Step 40] Loss: 0.9453
+2026-08-17 15:21:54,973 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:22:23,259 [INFO] Estimated Epoch: 0.07
+2026-08-17 15:22:23,260 [INFO] [Step 60] Loss: 0.8047
+2026-08-17 15:23:13,869 [INFO] Estimated Epoch: 0.10
+2026-08-17 15:23:13,870 [INFO] [Step 80] Loss: 0.8125
+2026-08-17 15:23:34,850 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:23:45,484 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:23:57,664 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:24:03,100 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:24:05,069 [INFO] Estimated Epoch: 0.12
+2026-08-17 15:24:05,069 [INFO] [Step 100] Loss: 0.6602
+2026-08-17 15:24:18,138 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:24:21,053 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:24:41,955 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:24:56,690 [INFO] Estimated Epoch: 0.14
+2026-08-17 15:24:56,690 [INFO] [Step 120] Loss: 0.7461
+2026-08-17 15:25:02,954 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:25:27,196 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:25:50,898 [INFO] Estimated Epoch: 0.17
+2026-08-17 15:25:50,899 [INFO] [Step 140] Loss: 0.7422
+2026-08-17 15:26:26,589 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:26:45,817 [INFO] Estimated Epoch: 0.19
+2026-08-17 15:26:45,818 [INFO] [Step 160] Loss: 0.7344
+2026-08-17 15:27:13,775 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-17 15:27:41,283 [INFO] Estimated Epoch: 0.22
+2026-08-17 15:27:41,283 [INFO] [Step 180] Loss: 0.7422
+2026-08-17 15:28:00,803 [INFO] KeyboardInterrupt received. Cleaning up...

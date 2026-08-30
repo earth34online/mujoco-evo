@@ -1,0 +1,5 @@
+{
+  "type": "ds_model",
+  "version": 0.0,
+  "checkpoints": "mp_rank_00_model_states.pt"
+}

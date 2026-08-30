@@ -1,0 +1,10 @@
+2026-08-18 02:43:10,340 [INFO] Logging to: /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/train_log_20260818_024310.log
+2026-08-18 02:43:11,906 [INFO] Loaded 13193 samples from None (lerobot)
+2026-08-18 02:43:11,907 [INFO] Initialized dataloader with batch size 16
+2026-08-18 02:43:31,968 [WARNING] '(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /OpenGVLab/InternVL3-1B/resolve/main/tokenizer_config.json (Caused by ConnectTimeoutError(<HTTPSConnection(host='huggingface.co', port=443) at 0x7058b1ee5030>, 'Connection to huggingface.co timed out. (connect timeout=10)'))"), '(Request ID: e515e10a-635b-4f13-b563-3bc0fc1668c1)')' thrown while requesting HEAD https://huggingface.co/OpenGVLab/InternVL3-1B/resolve/main/tokenizer_config.json
+2026-08-18 02:43:31,969 [WARNING] Retrying in 1s [Retry 1/5].
+2026-08-18 02:43:53,033 [WARNING] '(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /OpenGVLab/InternVL3-1B/resolve/main/tokenizer_config.json (Caused by ConnectTimeoutError(<HTTPSConnection(host='huggingface.co', port=443) at 0x7058b1ee5a20>, 'Connection to huggingface.co timed out. (connect timeout=10)'))"), '(Request ID: 8df85bee-19f9-4d46-979e-595aa4d4d2b2)')' thrown while requesting HEAD https://huggingface.co/OpenGVLab/InternVL3-1B/resolve/main/tokenizer_config.json
+2026-08-18 02:43:53,034 [WARNING] Retrying in 2s [Retry 2/5].
+2026-08-18 02:44:15,095 [WARNING] '(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /OpenGVLab/InternVL3-1B/resolve/main/tokenizer_config.json (Caused by ConnectTimeoutError(<HTTPSConnection(host='huggingface.co', port=443) at 0x7058b1ee59f0>, 'Connection to huggingface.co timed out. (connect timeout=10)'))"), '(Request ID: b433de31-559c-4eab-8df8-7f5e3a0830e8)')' thrown while requesting HEAD https://huggingface.co/OpenGVLab/InternVL3-1B/resolve/main/tokenizer_config.json
+2026-08-18 02:46:35,173 [WARNING] Retrying in 4s [Retry 3/5].
+2026-08-18 02:46:35,273 [INFO] KeyboardInterrupt received. Cleaning up...

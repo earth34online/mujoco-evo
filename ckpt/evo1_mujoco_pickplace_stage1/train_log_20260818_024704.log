@@ -1,0 +1,5 @@
+2026-08-18 02:47:04,300 [INFO] Logging to: /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/train_log_20260818_024704.log
+2026-08-18 02:47:05,735 [INFO] Loaded 13193 samples from None (lerobot)
+2026-08-18 02:47:05,736 [INFO] Initialized dataloader with batch size 16
+2026-08-18 02:47:15,905 [WARNING] '(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /OpenGVLab/InternVL3-1B/resolve/main/tokenizer_config.json (Caused by ConnectTimeoutError(<HTTPSConnection(host='huggingface.co', port=443) at 0x703e6e4f57e0>, 'Connection to huggingface.co timed out. (connect timeout=10)'))"), '(Request ID: be4d97b2-18e5-4305-892b-791b1eeed2d0)')' thrown while requesting HEAD https://huggingface.co/OpenGVLab/InternVL3-1B/resolve/main/tokenizer_config.json
+2026-08-18 02:47:15,907 [WARNING] Retrying in 1s [Retry 1/5].

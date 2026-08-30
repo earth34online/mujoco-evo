@@ -1,0 +1,1595 @@
+2026-08-20 00:57:23,996 [INFO] Logging to: /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/train_log_20260820_005723.log
+2026-08-20 00:57:25,129 [INFO] Loaded 18254 samples from None (lerobot)
+2026-08-20 00:57:25,129 [INFO] Initialized dataloader with batch size 16
+2026-08-20 00:57:26,386 [INFO] vision_select_layer: -1
+2026-08-20 00:57:26,386 [INFO] ps_version: v2
+2026-08-20 00:57:26,386 [INFO] min_dynamic_patch: 1
+2026-08-20 00:57:26,386 [INFO] max_dynamic_patch: 12
+2026-08-20 00:57:27,050 [INFO] num_image_token: 256
+2026-08-20 00:57:27,051 [INFO] ps_version: v2
+2026-08-20 00:57:33,512 [INFO] Optimizer=AdamW, lr=1e-05, weight_decay=0.001
+2026-08-20 00:57:33,722 [INFO] Initialized with Accelerate
+2026-08-20 00:57:33,723 [INFO] Starting fresh training
+2026-08-20 00:57:33,723 [INFO] 
+ Parameter Inspection by Module:
+2026-08-20 00:57:33,723 [INFO] ======================================================================
+2026-08-20 00:57:33,724 [INFO] 
+ Module: vision_model
+2026-08-20 00:57:33,724 [INFO] ----------------------------------------------------------------------
+2026-08-20 00:57:33,724 [INFO] Frozen embeddings.class_embedding                              | shape: (1, 1, 1024)         |   0.00M
+2026-08-20 00:57:33,724 [INFO] Frozen embeddings.position_embedding                           | shape: (1, 1025, 1024)      |   1.05M
+2026-08-20 00:57:33,725 [INFO] Frozen embeddings.patch_embedding.weight                       | shape: (1024, 3, 14, 14)    |   0.60M
+2026-08-20 00:57:33,725 [INFO] Frozen embeddings.patch_embedding.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,725 [INFO] Frozen encoder.layers.0.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,726 [INFO] Frozen encoder.layers.0.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,726 [INFO] Frozen encoder.layers.0.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,726 [INFO] Frozen encoder.layers.0.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,726 [INFO] Frozen encoder.layers.0.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,726 [INFO] Frozen encoder.layers.0.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,727 [INFO] Frozen encoder.layers.0.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,727 [INFO] Frozen encoder.layers.0.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,727 [INFO] Frozen encoder.layers.0.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,727 [INFO] Frozen encoder.layers.0.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,728 [INFO] Frozen encoder.layers.0.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,728 [INFO] Frozen encoder.layers.0.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,728 [INFO] Frozen encoder.layers.0.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,728 [INFO] Frozen encoder.layers.0.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,728 [INFO] Frozen encoder.layers.1.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,729 [INFO] Frozen encoder.layers.1.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,729 [INFO] Frozen encoder.layers.1.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,729 [INFO] Frozen encoder.layers.1.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,729 [INFO] Frozen encoder.layers.1.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,730 [INFO] Frozen encoder.layers.1.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,730 [INFO] Frozen encoder.layers.1.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,730 [INFO] Frozen encoder.layers.1.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,731 [INFO] Frozen encoder.layers.1.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,731 [INFO] Frozen encoder.layers.1.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,731 [INFO] Frozen encoder.layers.1.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,731 [INFO] Frozen encoder.layers.1.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,732 [INFO] Frozen encoder.layers.1.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,732 [INFO] Frozen encoder.layers.1.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,732 [INFO] Frozen encoder.layers.2.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,732 [INFO] Frozen encoder.layers.2.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,732 [INFO] Frozen encoder.layers.2.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,733 [INFO] Frozen encoder.layers.2.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,733 [INFO] Frozen encoder.layers.2.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,733 [INFO] Frozen encoder.layers.2.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,733 [INFO] Frozen encoder.layers.2.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,734 [INFO] Frozen encoder.layers.2.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,734 [INFO] Frozen encoder.layers.2.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,734 [INFO] Frozen encoder.layers.2.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,734 [INFO] Frozen encoder.layers.2.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,734 [INFO] Frozen encoder.layers.2.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,735 [INFO] Frozen encoder.layers.2.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,735 [INFO] Frozen encoder.layers.2.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,735 [INFO] Frozen encoder.layers.3.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,735 [INFO] Frozen encoder.layers.3.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,736 [INFO] Frozen encoder.layers.3.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,736 [INFO] Frozen encoder.layers.3.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,736 [INFO] Frozen encoder.layers.3.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,736 [INFO] Frozen encoder.layers.3.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,736 [INFO] Frozen encoder.layers.3.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,737 [INFO] Frozen encoder.layers.3.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,737 [INFO] Frozen encoder.layers.3.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,737 [INFO] Frozen encoder.layers.3.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,737 [INFO] Frozen encoder.layers.3.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,737 [INFO] Frozen encoder.layers.3.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,738 [INFO] Frozen encoder.layers.3.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,738 [INFO] Frozen encoder.layers.3.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,738 [INFO] Frozen encoder.layers.4.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,738 [INFO] Frozen encoder.layers.4.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,739 [INFO] Frozen encoder.layers.4.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,739 [INFO] Frozen encoder.layers.4.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,739 [INFO] Frozen encoder.layers.4.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,739 [INFO] Frozen encoder.layers.4.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,740 [INFO] Frozen encoder.layers.4.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,740 [INFO] Frozen encoder.layers.4.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,740 [INFO] Frozen encoder.layers.4.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,740 [INFO] Frozen encoder.layers.4.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,741 [INFO] Frozen encoder.layers.4.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,741 [INFO] Frozen encoder.layers.4.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,741 [INFO] Frozen encoder.layers.4.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,741 [INFO] Frozen encoder.layers.4.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,742 [INFO] Frozen encoder.layers.5.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,742 [INFO] Frozen encoder.layers.5.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,742 [INFO] Frozen encoder.layers.5.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,743 [INFO] Frozen encoder.layers.5.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,743 [INFO] Frozen encoder.layers.5.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,743 [INFO] Frozen encoder.layers.5.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,743 [INFO] Frozen encoder.layers.5.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,744 [INFO] Frozen encoder.layers.5.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,744 [INFO] Frozen encoder.layers.5.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,744 [INFO] Frozen encoder.layers.5.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,744 [INFO] Frozen encoder.layers.5.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,745 [INFO] Frozen encoder.layers.5.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,745 [INFO] Frozen encoder.layers.5.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,745 [INFO] Frozen encoder.layers.5.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,745 [INFO] Frozen encoder.layers.6.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,746 [INFO] Frozen encoder.layers.6.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,746 [INFO] Frozen encoder.layers.6.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,746 [INFO] Frozen encoder.layers.6.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,747 [INFO] Frozen encoder.layers.6.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,747 [INFO] Frozen encoder.layers.6.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,747 [INFO] Frozen encoder.layers.6.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,747 [INFO] Frozen encoder.layers.6.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,747 [INFO] Frozen encoder.layers.6.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,748 [INFO] Frozen encoder.layers.6.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,748 [INFO] Frozen encoder.layers.6.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,748 [INFO] Frozen encoder.layers.6.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,749 [INFO] Frozen encoder.layers.6.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,749 [INFO] Frozen encoder.layers.6.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,749 [INFO] Frozen encoder.layers.7.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,749 [INFO] Frozen encoder.layers.7.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,749 [INFO] Frozen encoder.layers.7.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,750 [INFO] Frozen encoder.layers.7.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,750 [INFO] Frozen encoder.layers.7.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,750 [INFO] Frozen encoder.layers.7.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,751 [INFO] Frozen encoder.layers.7.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,751 [INFO] Frozen encoder.layers.7.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,751 [INFO] Frozen encoder.layers.7.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,751 [INFO] Frozen encoder.layers.7.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,752 [INFO] Frozen encoder.layers.7.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,752 [INFO] Frozen encoder.layers.7.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,752 [INFO] Frozen encoder.layers.7.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,752 [INFO] Frozen encoder.layers.7.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,753 [INFO] Frozen encoder.layers.8.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,753 [INFO] Frozen encoder.layers.8.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,753 [INFO] Frozen encoder.layers.8.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,753 [INFO] Frozen encoder.layers.8.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,754 [INFO] Frozen encoder.layers.8.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,754 [INFO] Frozen encoder.layers.8.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,754 [INFO] Frozen encoder.layers.8.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,754 [INFO] Frozen encoder.layers.8.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,755 [INFO] Frozen encoder.layers.8.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,755 [INFO] Frozen encoder.layers.8.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,755 [INFO] Frozen encoder.layers.8.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,756 [INFO] Frozen encoder.layers.8.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,756 [INFO] Frozen encoder.layers.8.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,756 [INFO] Frozen encoder.layers.8.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,756 [INFO] Frozen encoder.layers.9.ls1                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,757 [INFO] Frozen encoder.layers.9.ls2                                    | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,757 [INFO] Frozen encoder.layers.9.attn.qkv.weight                        | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,757 [INFO] Frozen encoder.layers.9.attn.qkv.bias                          | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,757 [INFO] Frozen encoder.layers.9.attn.proj.weight                       | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,758 [INFO] Frozen encoder.layers.9.attn.proj.bias                         | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,758 [INFO] Frozen encoder.layers.9.mlp.fc1.weight                         | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,758 [INFO] Frozen encoder.layers.9.mlp.fc1.bias                           | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,759 [INFO] Frozen encoder.layers.9.mlp.fc2.weight                         | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,759 [INFO] Frozen encoder.layers.9.mlp.fc2.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,759 [INFO] Frozen encoder.layers.9.norm1.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,760 [INFO] Frozen encoder.layers.9.norm1.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,760 [INFO] Frozen encoder.layers.9.norm2.weight                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,760 [INFO] Frozen encoder.layers.9.norm2.bias                             | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,761 [INFO] Frozen encoder.layers.10.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,761 [INFO] Frozen encoder.layers.10.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,761 [INFO] Frozen encoder.layers.10.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,761 [INFO] Frozen encoder.layers.10.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,762 [INFO] Frozen encoder.layers.10.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,762 [INFO] Frozen encoder.layers.10.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,762 [INFO] Frozen encoder.layers.10.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,762 [INFO] Frozen encoder.layers.10.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,763 [INFO] Frozen encoder.layers.10.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,763 [INFO] Frozen encoder.layers.10.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,763 [INFO] Frozen encoder.layers.10.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,764 [INFO] Frozen encoder.layers.10.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,764 [INFO] Frozen encoder.layers.10.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,764 [INFO] Frozen encoder.layers.10.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,765 [INFO] Frozen encoder.layers.11.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,765 [INFO] Frozen encoder.layers.11.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,765 [INFO] Frozen encoder.layers.11.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,766 [INFO] Frozen encoder.layers.11.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,766 [INFO] Frozen encoder.layers.11.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,766 [INFO] Frozen encoder.layers.11.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,766 [INFO] Frozen encoder.layers.11.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,767 [INFO] Frozen encoder.layers.11.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,767 [INFO] Frozen encoder.layers.11.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,767 [INFO] Frozen encoder.layers.11.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,768 [INFO] Frozen encoder.layers.11.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,768 [INFO] Frozen encoder.layers.11.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,768 [INFO] Frozen encoder.layers.11.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,768 [INFO] Frozen encoder.layers.11.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,769 [INFO] Frozen encoder.layers.12.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,769 [INFO] Frozen encoder.layers.12.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,769 [INFO] Frozen encoder.layers.12.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,769 [INFO] Frozen encoder.layers.12.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,769 [INFO] Frozen encoder.layers.12.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,770 [INFO] Frozen encoder.layers.12.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,770 [INFO] Frozen encoder.layers.12.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,770 [INFO] Frozen encoder.layers.12.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,770 [INFO] Frozen encoder.layers.12.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,771 [INFO] Frozen encoder.layers.12.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,771 [INFO] Frozen encoder.layers.12.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,771 [INFO] Frozen encoder.layers.12.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,772 [INFO] Frozen encoder.layers.12.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,772 [INFO] Frozen encoder.layers.12.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,772 [INFO] Frozen encoder.layers.13.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,772 [INFO] Frozen encoder.layers.13.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,773 [INFO] Frozen encoder.layers.13.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,773 [INFO] Frozen encoder.layers.13.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,773 [INFO] Frozen encoder.layers.13.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,773 [INFO] Frozen encoder.layers.13.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,773 [INFO] Frozen encoder.layers.13.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,774 [INFO] Frozen encoder.layers.13.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,774 [INFO] Frozen encoder.layers.13.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,774 [INFO] Frozen encoder.layers.13.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,775 [INFO] Frozen encoder.layers.13.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,775 [INFO] Frozen encoder.layers.13.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,775 [INFO] Frozen encoder.layers.13.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,776 [INFO] Frozen encoder.layers.13.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,776 [INFO] Frozen encoder.layers.14.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,776 [INFO] Frozen encoder.layers.14.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,777 [INFO] Frozen encoder.layers.14.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,777 [INFO] Frozen encoder.layers.14.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,777 [INFO] Frozen encoder.layers.14.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,777 [INFO] Frozen encoder.layers.14.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,778 [INFO] Frozen encoder.layers.14.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,778 [INFO] Frozen encoder.layers.14.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,778 [INFO] Frozen encoder.layers.14.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,778 [INFO] Frozen encoder.layers.14.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,779 [INFO] Frozen encoder.layers.14.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,779 [INFO] Frozen encoder.layers.14.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,779 [INFO] Frozen encoder.layers.14.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,780 [INFO] Frozen encoder.layers.14.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,780 [INFO] Frozen encoder.layers.15.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,780 [INFO] Frozen encoder.layers.15.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,781 [INFO] Frozen encoder.layers.15.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,781 [INFO] Frozen encoder.layers.15.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,781 [INFO] Frozen encoder.layers.15.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,782 [INFO] Frozen encoder.layers.15.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,782 [INFO] Frozen encoder.layers.15.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,782 [INFO] Frozen encoder.layers.15.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,783 [INFO] Frozen encoder.layers.15.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,783 [INFO] Frozen encoder.layers.15.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,783 [INFO] Frozen encoder.layers.15.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,784 [INFO] Frozen encoder.layers.15.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,784 [INFO] Frozen encoder.layers.15.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,784 [INFO] Frozen encoder.layers.15.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,784 [INFO] Frozen encoder.layers.16.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,785 [INFO] Frozen encoder.layers.16.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,785 [INFO] Frozen encoder.layers.16.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,785 [INFO] Frozen encoder.layers.16.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,785 [INFO] Frozen encoder.layers.16.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,786 [INFO] Frozen encoder.layers.16.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,786 [INFO] Frozen encoder.layers.16.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,786 [INFO] Frozen encoder.layers.16.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,786 [INFO] Frozen encoder.layers.16.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,787 [INFO] Frozen encoder.layers.16.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,787 [INFO] Frozen encoder.layers.16.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,787 [INFO] Frozen encoder.layers.16.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,788 [INFO] Frozen encoder.layers.16.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,788 [INFO] Frozen encoder.layers.16.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,788 [INFO] Frozen encoder.layers.17.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,788 [INFO] Frozen encoder.layers.17.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,788 [INFO] Frozen encoder.layers.17.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,789 [INFO] Frozen encoder.layers.17.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,789 [INFO] Frozen encoder.layers.17.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,789 [INFO] Frozen encoder.layers.17.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,789 [INFO] Frozen encoder.layers.17.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,790 [INFO] Frozen encoder.layers.17.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,790 [INFO] Frozen encoder.layers.17.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,790 [INFO] Frozen encoder.layers.17.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,791 [INFO] Frozen encoder.layers.17.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,791 [INFO] Frozen encoder.layers.17.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,791 [INFO] Frozen encoder.layers.17.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,791 [INFO] Frozen encoder.layers.17.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,792 [INFO] Frozen encoder.layers.18.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,792 [INFO] Frozen encoder.layers.18.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,793 [INFO] Frozen encoder.layers.18.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,793 [INFO] Frozen encoder.layers.18.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,793 [INFO] Frozen encoder.layers.18.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,794 [INFO] Frozen encoder.layers.18.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,794 [INFO] Frozen encoder.layers.18.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,794 [INFO] Frozen encoder.layers.18.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,795 [INFO] Frozen encoder.layers.18.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,795 [INFO] Frozen encoder.layers.18.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,795 [INFO] Frozen encoder.layers.18.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,795 [INFO] Frozen encoder.layers.18.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,796 [INFO] Frozen encoder.layers.18.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,796 [INFO] Frozen encoder.layers.18.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,797 [INFO] Frozen encoder.layers.19.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,797 [INFO] Frozen encoder.layers.19.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,797 [INFO] Frozen encoder.layers.19.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,797 [INFO] Frozen encoder.layers.19.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,798 [INFO] Frozen encoder.layers.19.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,798 [INFO] Frozen encoder.layers.19.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,798 [INFO] Frozen encoder.layers.19.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,799 [INFO] Frozen encoder.layers.19.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,799 [INFO] Frozen encoder.layers.19.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,799 [INFO] Frozen encoder.layers.19.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,799 [INFO] Frozen encoder.layers.19.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,800 [INFO] Frozen encoder.layers.19.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,800 [INFO] Frozen encoder.layers.19.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,800 [INFO] Frozen encoder.layers.19.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,800 [INFO] Frozen encoder.layers.20.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,801 [INFO] Frozen encoder.layers.20.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,801 [INFO] Frozen encoder.layers.20.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,801 [INFO] Frozen encoder.layers.20.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,801 [INFO] Frozen encoder.layers.20.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,802 [INFO] Frozen encoder.layers.20.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,802 [INFO] Frozen encoder.layers.20.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,802 [INFO] Frozen encoder.layers.20.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,803 [INFO] Frozen encoder.layers.20.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,803 [INFO] Frozen encoder.layers.20.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,803 [INFO] Frozen encoder.layers.20.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,803 [INFO] Frozen encoder.layers.20.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,804 [INFO] Frozen encoder.layers.20.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,804 [INFO] Frozen encoder.layers.20.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,805 [INFO] Frozen encoder.layers.21.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,805 [INFO] Frozen encoder.layers.21.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,805 [INFO] Frozen encoder.layers.21.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,805 [INFO] Frozen encoder.layers.21.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,806 [INFO] Frozen encoder.layers.21.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,806 [INFO] Frozen encoder.layers.21.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,806 [INFO] Frozen encoder.layers.21.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,807 [INFO] Frozen encoder.layers.21.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,807 [INFO] Frozen encoder.layers.21.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,807 [INFO] Frozen encoder.layers.21.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,807 [INFO] Frozen encoder.layers.21.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,808 [INFO] Frozen encoder.layers.21.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,808 [INFO] Frozen encoder.layers.21.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,808 [INFO] Frozen encoder.layers.21.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,808 [INFO] Frozen encoder.layers.22.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,809 [INFO] Frozen encoder.layers.22.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,809 [INFO] Frozen encoder.layers.22.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,809 [INFO] Frozen encoder.layers.22.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,809 [INFO] Frozen encoder.layers.22.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,810 [INFO] Frozen encoder.layers.22.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,810 [INFO] Frozen encoder.layers.22.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,810 [INFO] Frozen encoder.layers.22.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,810 [INFO] Frozen encoder.layers.22.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,811 [INFO] Frozen encoder.layers.22.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,811 [INFO] Frozen encoder.layers.22.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,811 [INFO] Frozen encoder.layers.22.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,811 [INFO] Frozen encoder.layers.22.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,812 [INFO] Frozen encoder.layers.22.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,812 [INFO] Frozen encoder.layers.23.ls1                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,812 [INFO] Frozen encoder.layers.23.ls2                                   | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,813 [INFO] Frozen encoder.layers.23.attn.qkv.weight                       | shape: (3072, 1024)         |   3.15M
+2026-08-20 00:57:33,813 [INFO] Frozen encoder.layers.23.attn.qkv.bias                         | shape: (3072,)              |   0.00M
+2026-08-20 00:57:33,813 [INFO] Frozen encoder.layers.23.attn.proj.weight                      | shape: (1024, 1024)         |   1.05M
+2026-08-20 00:57:33,813 [INFO] Frozen encoder.layers.23.attn.proj.bias                        | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,814 [INFO] Frozen encoder.layers.23.mlp.fc1.weight                        | shape: (4096, 1024)         |   4.19M
+2026-08-20 00:57:33,814 [INFO] Frozen encoder.layers.23.mlp.fc1.bias                          | shape: (4096,)              |   0.00M
+2026-08-20 00:57:33,814 [INFO] Frozen encoder.layers.23.mlp.fc2.weight                        | shape: (1024, 4096)         |   4.19M
+2026-08-20 00:57:33,814 [INFO] Frozen encoder.layers.23.mlp.fc2.bias                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,815 [INFO] Frozen encoder.layers.23.norm1.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,815 [INFO] Frozen encoder.layers.23.norm1.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,815 [INFO] Frozen encoder.layers.23.norm2.weight                          | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,815 [INFO] Frozen encoder.layers.23.norm2.bias                            | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,816 [INFO] ----------------------------------------------------------------------
+2026-08-20 00:57:33,816 [INFO] Total     : 304.01M
+2026-08-20 00:57:33,816 [INFO] Trainable : 0.00M
+2026-08-20 00:57:33,816 [INFO] Frozen    : 304.01M
+2026-08-20 00:57:33,816 [INFO] 
+ Module: language_model
+2026-08-20 00:57:33,817 [INFO] ----------------------------------------------------------------------
+2026-08-20 00:57:33,817 [INFO] Frozen model.embed_tokens.weight                               | shape: (151674, 896)        | 135.90M
+2026-08-20 00:57:33,817 [INFO] Frozen model.layers.0.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,817 [INFO] Frozen model.layers.0.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,817 [INFO] Frozen model.layers.0.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,818 [INFO] Frozen model.layers.0.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,818 [INFO] Frozen model.layers.0.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,818 [INFO] Frozen model.layers.0.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,818 [INFO] Frozen model.layers.0.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,818 [INFO] Frozen model.layers.0.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,819 [INFO] Frozen model.layers.0.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,819 [INFO] Frozen model.layers.0.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,819 [INFO] Frozen model.layers.0.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,819 [INFO] Frozen model.layers.0.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,820 [INFO] Frozen model.layers.1.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,820 [INFO] Frozen model.layers.1.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,820 [INFO] Frozen model.layers.1.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,820 [INFO] Frozen model.layers.1.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,820 [INFO] Frozen model.layers.1.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,821 [INFO] Frozen model.layers.1.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,821 [INFO] Frozen model.layers.1.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,821 [INFO] Frozen model.layers.1.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,821 [INFO] Frozen model.layers.1.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,822 [INFO] Frozen model.layers.1.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,822 [INFO] Frozen model.layers.1.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,822 [INFO] Frozen model.layers.1.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,822 [INFO] Frozen model.layers.2.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,823 [INFO] Frozen model.layers.2.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,823 [INFO] Frozen model.layers.2.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,823 [INFO] Frozen model.layers.2.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,823 [INFO] Frozen model.layers.2.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,824 [INFO] Frozen model.layers.2.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,824 [INFO] Frozen model.layers.2.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,824 [INFO] Frozen model.layers.2.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,824 [INFO] Frozen model.layers.2.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,825 [INFO] Frozen model.layers.2.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,825 [INFO] Frozen model.layers.2.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,825 [INFO] Frozen model.layers.2.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,825 [INFO] Frozen model.layers.3.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,826 [INFO] Frozen model.layers.3.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,826 [INFO] Frozen model.layers.3.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,826 [INFO] Frozen model.layers.3.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,826 [INFO] Frozen model.layers.3.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,827 [INFO] Frozen model.layers.3.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,827 [INFO] Frozen model.layers.3.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,827 [INFO] Frozen model.layers.3.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,827 [INFO] Frozen model.layers.3.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,827 [INFO] Frozen model.layers.3.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,828 [INFO] Frozen model.layers.3.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,828 [INFO] Frozen model.layers.3.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,828 [INFO] Frozen model.layers.4.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,828 [INFO] Frozen model.layers.4.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,828 [INFO] Frozen model.layers.4.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,829 [INFO] Frozen model.layers.4.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,829 [INFO] Frozen model.layers.4.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,829 [INFO] Frozen model.layers.4.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,829 [INFO] Frozen model.layers.4.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,830 [INFO] Frozen model.layers.4.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,830 [INFO] Frozen model.layers.4.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,830 [INFO] Frozen model.layers.4.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,831 [INFO] Frozen model.layers.4.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,831 [INFO] Frozen model.layers.4.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,831 [INFO] Frozen model.layers.5.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,831 [INFO] Frozen model.layers.5.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,831 [INFO] Frozen model.layers.5.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,832 [INFO] Frozen model.layers.5.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,832 [INFO] Frozen model.layers.5.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,832 [INFO] Frozen model.layers.5.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,833 [INFO] Frozen model.layers.5.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,833 [INFO] Frozen model.layers.5.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,833 [INFO] Frozen model.layers.5.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,833 [INFO] Frozen model.layers.5.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,834 [INFO] Frozen model.layers.5.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,834 [INFO] Frozen model.layers.5.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,834 [INFO] Frozen model.layers.6.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,834 [INFO] Frozen model.layers.6.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,835 [INFO] Frozen model.layers.6.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,835 [INFO] Frozen model.layers.6.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,835 [INFO] Frozen model.layers.6.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,835 [INFO] Frozen model.layers.6.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,836 [INFO] Frozen model.layers.6.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,836 [INFO] Frozen model.layers.6.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,836 [INFO] Frozen model.layers.6.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,836 [INFO] Frozen model.layers.6.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,836 [INFO] Frozen model.layers.6.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,837 [INFO] Frozen model.layers.6.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,837 [INFO] Frozen model.layers.7.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,837 [INFO] Frozen model.layers.7.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,837 [INFO] Frozen model.layers.7.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,838 [INFO] Frozen model.layers.7.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,838 [INFO] Frozen model.layers.7.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,838 [INFO] Frozen model.layers.7.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,839 [INFO] Frozen model.layers.7.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,839 [INFO] Frozen model.layers.7.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,839 [INFO] Frozen model.layers.7.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,839 [INFO] Frozen model.layers.7.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,839 [INFO] Frozen model.layers.7.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,840 [INFO] Frozen model.layers.7.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,840 [INFO] Frozen model.layers.8.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,840 [INFO] Frozen model.layers.8.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,840 [INFO] Frozen model.layers.8.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,840 [INFO] Frozen model.layers.8.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,841 [INFO] Frozen model.layers.8.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,841 [INFO] Frozen model.layers.8.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,841 [INFO] Frozen model.layers.8.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,841 [INFO] Frozen model.layers.8.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,841 [INFO] Frozen model.layers.8.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,842 [INFO] Frozen model.layers.8.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,842 [INFO] Frozen model.layers.8.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,842 [INFO] Frozen model.layers.8.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,842 [INFO] Frozen model.layers.9.self_attn.q_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,843 [INFO] Frozen model.layers.9.self_attn.q_proj.bias                    | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,843 [INFO] Frozen model.layers.9.self_attn.k_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,843 [INFO] Frozen model.layers.9.self_attn.k_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,843 [INFO] Frozen model.layers.9.self_attn.v_proj.weight                  | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,844 [INFO] Frozen model.layers.9.self_attn.v_proj.bias                    | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,844 [INFO] Frozen model.layers.9.self_attn.o_proj.weight                  | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,844 [INFO] Frozen model.layers.9.mlp.gate_proj.weight                     | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,844 [INFO] Frozen model.layers.9.mlp.up_proj.weight                       | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,845 [INFO] Frozen model.layers.9.mlp.down_proj.weight                     | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,845 [INFO] Frozen model.layers.9.input_layernorm.weight                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,845 [INFO] Frozen model.layers.9.post_attention_layernorm.weight          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,845 [INFO] Frozen model.layers.10.self_attn.q_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,846 [INFO] Frozen model.layers.10.self_attn.q_proj.bias                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,846 [INFO] Frozen model.layers.10.self_attn.k_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,846 [INFO] Frozen model.layers.10.self_attn.k_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,846 [INFO] Frozen model.layers.10.self_attn.v_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,847 [INFO] Frozen model.layers.10.self_attn.v_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,847 [INFO] Frozen model.layers.10.self_attn.o_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,847 [INFO] Frozen model.layers.10.mlp.gate_proj.weight                    | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,847 [INFO] Frozen model.layers.10.mlp.up_proj.weight                      | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,848 [INFO] Frozen model.layers.10.mlp.down_proj.weight                    | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,848 [INFO] Frozen model.layers.10.input_layernorm.weight                  | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,848 [INFO] Frozen model.layers.10.post_attention_layernorm.weight         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,849 [INFO] Frozen model.layers.11.self_attn.q_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,849 [INFO] Frozen model.layers.11.self_attn.q_proj.bias                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,849 [INFO] Frozen model.layers.11.self_attn.k_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,849 [INFO] Frozen model.layers.11.self_attn.k_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,850 [INFO] Frozen model.layers.11.self_attn.v_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,850 [INFO] Frozen model.layers.11.self_attn.v_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,850 [INFO] Frozen model.layers.11.self_attn.o_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,851 [INFO] Frozen model.layers.11.mlp.gate_proj.weight                    | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,851 [INFO] Frozen model.layers.11.mlp.up_proj.weight                      | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,851 [INFO] Frozen model.layers.11.mlp.down_proj.weight                    | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,851 [INFO] Frozen model.layers.11.input_layernorm.weight                  | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,852 [INFO] Frozen model.layers.11.post_attention_layernorm.weight         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,852 [INFO] Frozen model.layers.12.self_attn.q_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,852 [INFO] Frozen model.layers.12.self_attn.q_proj.bias                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,852 [INFO] Frozen model.layers.12.self_attn.k_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,852 [INFO] Frozen model.layers.12.self_attn.k_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,852 [INFO] Frozen model.layers.12.self_attn.v_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,853 [INFO] Frozen model.layers.12.self_attn.v_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,853 [INFO] Frozen model.layers.12.self_attn.o_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,853 [INFO] Frozen model.layers.12.mlp.gate_proj.weight                    | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,853 [INFO] Frozen model.layers.12.mlp.up_proj.weight                      | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,854 [INFO] Frozen model.layers.12.mlp.down_proj.weight                    | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,854 [INFO] Frozen model.layers.12.input_layernorm.weight                  | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,854 [INFO] Frozen model.layers.12.post_attention_layernorm.weight         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,854 [INFO] Frozen model.layers.13.self_attn.q_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,855 [INFO] Frozen model.layers.13.self_attn.q_proj.bias                   | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,855 [INFO] Frozen model.layers.13.self_attn.k_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,855 [INFO] Frozen model.layers.13.self_attn.k_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,856 [INFO] Frozen model.layers.13.self_attn.v_proj.weight                 | shape: (128, 896)           |   0.11M
+2026-08-20 00:57:33,856 [INFO] Frozen model.layers.13.self_attn.v_proj.bias                   | shape: (128,)               |   0.00M
+2026-08-20 00:57:33,856 [INFO] Frozen model.layers.13.self_attn.o_proj.weight                 | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,856 [INFO] Frozen model.layers.13.mlp.gate_proj.weight                    | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,856 [INFO] Frozen model.layers.13.mlp.up_proj.weight                      | shape: (4864, 896)          |   4.36M
+2026-08-20 00:57:33,857 [INFO] Frozen model.layers.13.mlp.down_proj.weight                    | shape: (896, 4864)          |   4.36M
+2026-08-20 00:57:33,857 [INFO] Frozen model.layers.13.input_layernorm.weight                  | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,857 [INFO] Frozen model.layers.13.post_attention_layernorm.weight         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,857 [INFO] Frozen model.norm.weight                                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,858 [INFO] ----------------------------------------------------------------------
+2026-08-20 00:57:33,858 [INFO] Total     : 344.67M
+2026-08-20 00:57:33,858 [INFO] Trainable : 0.00M
+2026-08-20 00:57:33,858 [INFO] Frozen    : 344.67M
+2026-08-20 00:57:33,859 [INFO] 
+ Module: action_head
+2026-08-20 00:57:33,859 [INFO] ----------------------------------------------------------------------
+2026-08-20 00:57:33,859 [INFO] Trainable transformer_blocks.0.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-20 00:57:33,860 [INFO] Trainable transformer_blocks.0.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-20 00:57:33,860 [INFO] Trainable transformer_blocks.0.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,860 [INFO] Trainable transformer_blocks.0.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,860 [INFO] Trainable transformer_blocks.0.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,860 [INFO] Trainable transformer_blocks.0.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,861 [INFO] Trainable transformer_blocks.0.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,861 [INFO] Trainable transformer_blocks.0.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,861 [INFO] Trainable transformer_blocks.0.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-20 00:57:33,861 [INFO] Trainable transformer_blocks.0.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-20 00:57:33,862 [INFO] Trainable transformer_blocks.0.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-20 00:57:33,862 [INFO] Trainable transformer_blocks.0.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,862 [INFO] Trainable transformer_blocks.1.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-20 00:57:33,862 [INFO] Trainable transformer_blocks.1.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-20 00:57:33,862 [INFO] Trainable transformer_blocks.1.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,863 [INFO] Trainable transformer_blocks.1.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,863 [INFO] Trainable transformer_blocks.1.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,863 [INFO] Trainable transformer_blocks.1.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,863 [INFO] Trainable transformer_blocks.1.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,863 [INFO] Trainable transformer_blocks.1.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,864 [INFO] Trainable transformer_blocks.1.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-20 00:57:33,864 [INFO] Trainable transformer_blocks.1.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-20 00:57:33,864 [INFO] Trainable transformer_blocks.1.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-20 00:57:33,864 [INFO] Trainable transformer_blocks.1.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,865 [INFO] Trainable transformer_blocks.2.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-20 00:57:33,865 [INFO] Trainable transformer_blocks.2.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-20 00:57:33,865 [INFO] Trainable transformer_blocks.2.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,866 [INFO] Trainable transformer_blocks.2.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,866 [INFO] Trainable transformer_blocks.2.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,866 [INFO] Trainable transformer_blocks.2.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,867 [INFO] Trainable transformer_blocks.2.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,867 [INFO] Trainable transformer_blocks.2.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,867 [INFO] Trainable transformer_blocks.2.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-20 00:57:33,868 [INFO] Trainable transformer_blocks.2.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-20 00:57:33,868 [INFO] Trainable transformer_blocks.2.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-20 00:57:33,868 [INFO] Trainable transformer_blocks.2.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,868 [INFO] Trainable transformer_blocks.3.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-20 00:57:33,868 [INFO] Trainable transformer_blocks.3.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-20 00:57:33,869 [INFO] Trainable transformer_blocks.3.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,869 [INFO] Trainable transformer_blocks.3.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,869 [INFO] Trainable transformer_blocks.3.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,869 [INFO] Trainable transformer_blocks.3.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,870 [INFO] Trainable transformer_blocks.3.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,870 [INFO] Trainable transformer_blocks.3.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,870 [INFO] Trainable transformer_blocks.3.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-20 00:57:33,870 [INFO] Trainable transformer_blocks.3.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-20 00:57:33,870 [INFO] Trainable transformer_blocks.3.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-20 00:57:33,871 [INFO] Trainable transformer_blocks.3.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,871 [INFO] Trainable transformer_blocks.4.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-20 00:57:33,871 [INFO] Trainable transformer_blocks.4.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-20 00:57:33,872 [INFO] Trainable transformer_blocks.4.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,872 [INFO] Trainable transformer_blocks.4.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,872 [INFO] Trainable transformer_blocks.4.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,872 [INFO] Trainable transformer_blocks.4.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,873 [INFO] Trainable transformer_blocks.4.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,873 [INFO] Trainable transformer_blocks.4.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,873 [INFO] Trainable transformer_blocks.4.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-20 00:57:33,873 [INFO] Trainable transformer_blocks.4.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-20 00:57:33,874 [INFO] Trainable transformer_blocks.4.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-20 00:57:33,874 [INFO] Trainable transformer_blocks.4.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,874 [INFO] Trainable transformer_blocks.5.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-20 00:57:33,874 [INFO] Trainable transformer_blocks.5.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-20 00:57:33,874 [INFO] Trainable transformer_blocks.5.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,875 [INFO] Trainable transformer_blocks.5.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,875 [INFO] Trainable transformer_blocks.5.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,875 [INFO] Trainable transformer_blocks.5.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,876 [INFO] Trainable transformer_blocks.5.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,876 [INFO] Trainable transformer_blocks.5.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,876 [INFO] Trainable transformer_blocks.5.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-20 00:57:33,876 [INFO] Trainable transformer_blocks.5.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-20 00:57:33,877 [INFO] Trainable transformer_blocks.5.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-20 00:57:33,877 [INFO] Trainable transformer_blocks.5.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,877 [INFO] Trainable transformer_blocks.6.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-20 00:57:33,877 [INFO] Trainable transformer_blocks.6.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-20 00:57:33,877 [INFO] Trainable transformer_blocks.6.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,878 [INFO] Trainable transformer_blocks.6.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,878 [INFO] Trainable transformer_blocks.6.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,878 [INFO] Trainable transformer_blocks.6.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,878 [INFO] Trainable transformer_blocks.6.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,878 [INFO] Trainable transformer_blocks.6.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,879 [INFO] Trainable transformer_blocks.6.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-20 00:57:33,879 [INFO] Trainable transformer_blocks.6.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-20 00:57:33,879 [INFO] Trainable transformer_blocks.6.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-20 00:57:33,879 [INFO] Trainable transformer_blocks.6.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,880 [INFO] Trainable transformer_blocks.7.attn.in_proj_weight                | shape: (2688, 896)          |   2.41M
+2026-08-20 00:57:33,880 [INFO] Trainable transformer_blocks.7.attn.in_proj_bias                  | shape: (2688,)              |   0.00M
+2026-08-20 00:57:33,880 [INFO] Trainable transformer_blocks.7.attn.out_proj.weight               | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,880 [INFO] Trainable transformer_blocks.7.attn.out_proj.bias                 | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,881 [INFO] Trainable transformer_blocks.7.norm1.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,881 [INFO] Trainable transformer_blocks.7.norm1.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,881 [INFO] Trainable transformer_blocks.7.norm2.weight                       | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,881 [INFO] Trainable transformer_blocks.7.norm2.bias                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,882 [INFO] Trainable transformer_blocks.7.ff.0.weight                        | shape: (3584, 896)          |   3.21M
+2026-08-20 00:57:33,882 [INFO] Trainable transformer_blocks.7.ff.0.bias                          | shape: (3584,)              |   0.00M
+2026-08-20 00:57:33,882 [INFO] Trainable transformer_blocks.7.ff.2.weight                        | shape: (896, 3584)          |   3.21M
+2026-08-20 00:57:33,883 [INFO] Trainable transformer_blocks.7.ff.2.bias                          | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,883 [INFO] Trainable norm_out.weight                                         | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,883 [INFO] Trainable norm_out.bias                                           | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,883 [INFO] Trainable seq_pool_proj.weight                                    | shape: (896, 12544)         |  11.24M
+2026-08-20 00:57:33,884 [INFO] Trainable seq_pool_proj.bias                                      | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,884 [INFO] Trainable mlp_head.fc1.linear.weight                              | shape: (1024, 896)          |   0.92M
+2026-08-20 00:57:33,884 [INFO] Trainable mlp_head.fc1.linear.bias                                | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,884 [INFO] Trainable mlp_head.fc2.linear.weight                              | shape: (336, 1024)          |   0.34M
+2026-08-20 00:57:33,885 [INFO] Trainable mlp_head.fc2.linear.bias                                | shape: (336,)               |   0.00M
+2026-08-20 00:57:33,885 [INFO] Trainable state_encoder.fc1.linear.weight                         | shape: (1024, 24)           |   0.02M
+2026-08-20 00:57:33,885 [INFO] Trainable state_encoder.fc1.linear.bias                           | shape: (1024,)              |   0.00M
+2026-08-20 00:57:33,885 [INFO] Trainable state_encoder.fc2.linear.weight                         | shape: (896, 1024)          |   0.92M
+2026-08-20 00:57:33,886 [INFO] Trainable state_encoder.fc2.linear.bias                           | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,886 [INFO] Trainable action_encoder.W1.linear.weight                         | shape: (896, 24)            |   0.02M
+2026-08-20 00:57:33,886 [INFO] Trainable action_encoder.W1.linear.bias                           | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,886 [INFO] Trainable action_encoder.W2.linear.weight                         | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,887 [INFO] Trainable action_encoder.W2.linear.bias                           | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,887 [INFO] Trainable action_encoder.W3.linear.weight                         | shape: (896, 896)           |   0.80M
+2026-08-20 00:57:33,887 [INFO] Trainable action_encoder.W3.linear.bias                           | shape: (896,)               |   0.00M
+2026-08-20 00:57:33,887 [INFO] ----------------------------------------------------------------------
+2026-08-20 00:57:33,888 [INFO] Total     : 92.24M
+2026-08-20 00:57:33,888 [INFO] Trainable : 92.24M
+2026-08-20 00:57:33,888 [INFO] Frozen    : 0.00M
+2026-08-20 00:57:33,888 [INFO] ======================================================================
+2026-08-20 00:57:33,889 [INFO] ALL TOTAL     : 740.93M
+2026-08-20 00:57:33,889 [INFO] ALL TRAINABLE : 92.24M
+2026-08-20 00:57:33,889 [INFO] ALL FROZEN    : 648.69M
+2026-08-20 00:57:33,889 [INFO] ======================================================================
+2026-08-20 00:57:39,220 [INFO] Estimated Epoch: 0.00
+2026-08-20 00:57:39,221 [INFO] [Step 0] Loss: 0.7383
+2026-08-20 00:58:23,798 [INFO] Estimated Epoch: 0.02
+2026-08-20 00:58:23,799 [INFO] [Step 20] Loss: 0.8047
+2026-08-20 00:59:09,930 [INFO] Estimated Epoch: 0.04
+2026-08-20 00:59:09,931 [INFO] [Step 40] Loss: 0.7266
+2026-08-20 00:59:56,537 [INFO] Estimated Epoch: 0.05
+2026-08-20 00:59:56,538 [INFO] [Step 60] Loss: 0.6875
+2026-08-20 01:00:41,826 [INFO] Estimated Epoch: 0.07
+2026-08-20 01:00:41,827 [INFO] [Step 80] Loss: 0.6719
+2026-08-20 01:01:27,371 [INFO] Estimated Epoch: 0.09
+2026-08-20 01:01:27,372 [INFO] [Step 100] Loss: 0.7148
+2026-08-20 01:02:12,985 [INFO] Estimated Epoch: 0.11
+2026-08-20 01:02:12,986 [INFO] [Step 120] Loss: 0.6641
+2026-08-20 01:02:57,683 [INFO] Estimated Epoch: 0.12
+2026-08-20 01:02:57,683 [INFO] [Step 140] Loss: 0.6523
+2026-08-20 01:03:42,340 [INFO] Estimated Epoch: 0.14
+2026-08-20 01:03:42,341 [INFO] [Step 160] Loss: 0.7109
+2026-08-20 01:04:26,893 [INFO] Estimated Epoch: 0.16
+2026-08-20 01:04:26,893 [INFO] [Step 180] Loss: 0.6953
+2026-08-20 01:04:28,005 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:05:11,902 [INFO] Estimated Epoch: 0.18
+2026-08-20 01:05:11,903 [INFO] [Step 200] Loss: 0.5938
+2026-08-20 01:05:56,880 [INFO] Estimated Epoch: 0.19
+2026-08-20 01:05:56,880 [INFO] [Step 220] Loss: 0.5234
+2026-08-20 01:06:18,699 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:06:41,767 [INFO] Estimated Epoch: 0.21
+2026-08-20 01:06:41,768 [INFO] [Step 240] Loss: 0.5078
+2026-08-20 01:07:26,715 [INFO] Estimated Epoch: 0.23
+2026-08-20 01:07:26,715 [INFO] [Step 260] Loss: 0.5430
+2026-08-20 01:08:11,587 [INFO] Estimated Epoch: 0.25
+2026-08-20 01:08:11,588 [INFO] [Step 280] Loss: 0.5352
+2026-08-20 01:08:56,266 [INFO] Estimated Epoch: 0.26
+2026-08-20 01:08:56,266 [INFO] [Step 300] Loss: 0.5039
+2026-08-20 01:09:41,253 [INFO] Estimated Epoch: 0.28
+2026-08-20 01:09:41,254 [INFO] [Step 320] Loss: 0.5703
+2026-08-20 01:09:59,353 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:10:26,177 [INFO] Estimated Epoch: 0.30
+2026-08-20 01:10:26,178 [INFO] [Step 340] Loss: 0.5469
+2026-08-20 01:11:11,396 [INFO] Estimated Epoch: 0.32
+2026-08-20 01:11:11,396 [INFO] [Step 360] Loss: 0.4727
+2026-08-20 01:11:56,315 [INFO] Estimated Epoch: 0.33
+2026-08-20 01:11:56,315 [INFO] [Step 380] Loss: 0.5469
+2026-08-20 01:12:01,100 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:12:41,354 [INFO] Estimated Epoch: 0.35
+2026-08-20 01:12:41,354 [INFO] [Step 400] Loss: 0.5117
+2026-08-20 01:13:26,121 [INFO] Estimated Epoch: 0.37
+2026-08-20 01:13:26,121 [INFO] [Step 420] Loss: 0.5039
+2026-08-20 01:14:11,063 [INFO] Estimated Epoch: 0.39
+2026-08-20 01:14:11,063 [INFO] [Step 440] Loss: 0.4609
+2026-08-20 01:14:39,032 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:14:56,021 [INFO] Estimated Epoch: 0.40
+2026-08-20 01:14:56,022 [INFO] [Step 460] Loss: 0.4980
+2026-08-20 01:15:40,984 [INFO] Estimated Epoch: 0.42
+2026-08-20 01:15:40,984 [INFO] [Step 480] Loss: 0.4688
+2026-08-20 01:16:25,767 [INFO] Estimated Epoch: 0.44
+2026-08-20 01:16:25,767 [INFO] [Step 500] Loss: 0.4922
+2026-08-20 01:17:11,005 [INFO] Estimated Epoch: 0.46
+2026-08-20 01:17:11,006 [INFO] [Step 520] Loss: 0.5000
+2026-08-20 01:17:56,024 [INFO] Estimated Epoch: 0.47
+2026-08-20 01:17:56,025 [INFO] [Step 540] Loss: 0.5039
+2026-08-20 01:18:41,035 [INFO] Estimated Epoch: 0.49
+2026-08-20 01:18:41,035 [INFO] [Step 560] Loss: 0.4805
+2026-08-20 01:19:26,143 [INFO] Estimated Epoch: 0.51
+2026-08-20 01:19:26,144 [INFO] [Step 580] Loss: 0.4863
+2026-08-20 01:20:11,049 [INFO] Estimated Epoch: 0.53
+2026-08-20 01:20:11,050 [INFO] [Step 600] Loss: 0.4727
+2026-08-20 01:20:56,108 [INFO] Estimated Epoch: 0.54
+2026-08-20 01:20:56,108 [INFO] [Step 620] Loss: 0.4609
+2026-08-20 01:21:41,151 [INFO] Estimated Epoch: 0.56
+2026-08-20 01:21:41,152 [INFO] [Step 640] Loss: 0.4922
+2026-08-20 01:22:26,121 [INFO] Estimated Epoch: 0.58
+2026-08-20 01:22:26,122 [INFO] [Step 660] Loss: 0.4863
+2026-08-20 01:22:37,769 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:23:11,504 [INFO] Estimated Epoch: 0.60
+2026-08-20 01:23:11,505 [INFO] [Step 680] Loss: 0.4277
+2026-08-20 01:23:30,401 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:23:56,495 [INFO] Estimated Epoch: 0.61
+2026-08-20 01:23:56,495 [INFO] [Step 700] Loss: 0.4414
+2026-08-20 01:24:41,503 [INFO] Estimated Epoch: 0.63
+2026-08-20 01:24:41,503 [INFO] [Step 720] Loss: 0.4395
+2026-08-20 01:25:26,556 [INFO] Estimated Epoch: 0.65
+2026-08-20 01:25:26,557 [INFO] [Step 740] Loss: 0.4297
+2026-08-20 01:26:11,356 [INFO] Estimated Epoch: 0.67
+2026-08-20 01:26:11,356 [INFO] [Step 760] Loss: 0.4863
+2026-08-20 01:26:56,319 [INFO] Estimated Epoch: 0.68
+2026-08-20 01:26:56,320 [INFO] [Step 780] Loss: 0.4648
+2026-08-20 01:27:41,365 [INFO] Estimated Epoch: 0.70
+2026-08-20 01:27:41,365 [INFO] [Step 800] Loss: 0.5156
+2026-08-20 01:28:26,259 [INFO] Estimated Epoch: 0.72
+2026-08-20 01:28:26,260 [INFO] [Step 820] Loss: 0.4746
+2026-08-20 01:29:11,498 [INFO] Estimated Epoch: 0.74
+2026-08-20 01:29:11,499 [INFO] [Step 840] Loss: 0.4961
+2026-08-20 01:29:56,573 [INFO] Estimated Epoch: 0.75
+2026-08-20 01:29:56,574 [INFO] [Step 860] Loss: 0.4629
+2026-08-20 01:29:58,044 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:30:41,722 [INFO] Estimated Epoch: 0.77
+2026-08-20 01:30:41,723 [INFO] [Step 880] Loss: 0.3750
+2026-08-20 01:31:26,663 [INFO] Estimated Epoch: 0.79
+2026-08-20 01:31:26,663 [INFO] [Step 900] Loss: 0.4336
+2026-08-20 01:32:11,556 [INFO] Estimated Epoch: 0.81
+2026-08-20 01:32:11,556 [INFO] [Step 920] Loss: 0.4297
+2026-08-20 01:32:56,554 [INFO] Estimated Epoch: 0.82
+2026-08-20 01:32:56,554 [INFO] [Step 940] Loss: 0.4336
+2026-08-20 01:33:41,544 [INFO] Estimated Epoch: 0.84
+2026-08-20 01:33:41,545 [INFO] [Step 960] Loss: 0.4395
+2026-08-20 01:34:26,522 [INFO] Estimated Epoch: 0.86
+2026-08-20 01:34:26,523 [INFO] [Step 980] Loss: 0.4160
+2026-08-20 01:35:11,819 [INFO] Estimated Epoch: 0.88
+2026-08-20 01:35:11,820 [INFO] [Step 1000] Loss: 0.3809
+2026-08-20 01:35:56,870 [INFO] Estimated Epoch: 0.89
+2026-08-20 01:35:56,871 [INFO] [Step 1020] Loss: 0.4023
+2026-08-20 01:36:42,004 [INFO] Estimated Epoch: 0.91
+2026-08-20 01:36:42,005 [INFO] [Step 1040] Loss: 0.4023
+2026-08-20 01:37:18,110 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:37:38,755 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:37:38,763 [INFO] Saved best checkpoint at step 1056 with loss 0.371094
+2026-08-20 01:37:47,781 [INFO] Estimated Epoch: 0.93
+2026-08-20 01:37:47,781 [INFO] [Step 1060] Loss: 0.4414
+2026-08-20 01:38:32,660 [INFO] Estimated Epoch: 0.95
+2026-08-20 01:38:32,661 [INFO] [Step 1080] Loss: 0.4062
+2026-08-20 01:38:34,991 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:38:38,968 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:38:38,969 [INFO] Saved best checkpoint at step 1081 with loss 0.355469
+2026-08-20 01:39:21,703 [INFO] Estimated Epoch: 0.96
+2026-08-20 01:39:21,703 [INFO] [Step 1100] Loss: 0.4102
+2026-08-20 01:39:51,082 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:39:55,097 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:39:55,098 [INFO] Saved best checkpoint at step 1113 with loss 0.343750
+2026-08-20 01:40:10,870 [INFO] Estimated Epoch: 0.98
+2026-08-20 01:40:10,870 [INFO] [Step 1120] Loss: 0.4062
+2026-08-20 01:40:57,860 [INFO] Estimated Epoch: 1.00
+2026-08-20 01:40:57,861 [INFO] [Step 1140] Loss: 0.3906
+2026-08-20 01:41:43,346 [INFO] Estimated Epoch: 1.02
+2026-08-20 01:41:43,347 [INFO] [Step 1160] Loss: 0.4746
+2026-08-20 01:42:28,612 [INFO] Estimated Epoch: 1.04
+2026-08-20 01:42:28,612 [INFO] [Step 1180] Loss: 0.3359
+2026-08-20 01:42:28,614 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:42:33,042 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:42:33,044 [INFO] Saved best checkpoint at step 1180 with loss 0.335938
+2026-08-20 01:43:17,952 [INFO] Estimated Epoch: 1.05
+2026-08-20 01:43:17,952 [INFO] [Step 1200] Loss: 0.3672
+2026-08-20 01:44:02,941 [INFO] Estimated Epoch: 1.07
+2026-08-20 01:44:02,942 [INFO] [Step 1220] Loss: 0.4043
+2026-08-20 01:44:47,799 [INFO] Estimated Epoch: 1.09
+2026-08-20 01:44:47,800 [INFO] [Step 1240] Loss: 0.3555
+2026-08-20 01:45:32,844 [INFO] Estimated Epoch: 1.11
+2026-08-20 01:45:32,844 [INFO] [Step 1260] Loss: 0.3672
+2026-08-20 01:46:01,209 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:46:17,874 [INFO] Estimated Epoch: 1.12
+2026-08-20 01:46:17,875 [INFO] [Step 1280] Loss: 0.4297
+2026-08-20 01:46:29,164 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:46:33,277 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:46:33,278 [INFO] Saved best checkpoint at step 1285 with loss 0.322266
+2026-08-20 01:47:07,102 [INFO] Estimated Epoch: 1.14
+2026-08-20 01:47:07,103 [INFO] [Step 1300] Loss: 0.3555
+2026-08-20 01:47:25,361 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:47:28,757 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:47:28,758 [INFO] Saved best checkpoint at step 1308 with loss 0.304688
+2026-08-20 01:47:55,711 [INFO] Estimated Epoch: 1.16
+2026-08-20 01:47:55,712 [INFO] [Step 1320] Loss: 0.3711
+2026-08-20 01:48:40,781 [INFO] Estimated Epoch: 1.18
+2026-08-20 01:48:40,782 [INFO] [Step 1340] Loss: 0.3945
+2026-08-20 01:49:26,136 [INFO] Estimated Epoch: 1.19
+2026-08-20 01:49:26,137 [INFO] [Step 1360] Loss: 0.3418
+2026-08-20 01:49:44,248 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:49:48,082 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:49:48,106 [INFO] Saved best checkpoint at step 1368 with loss 0.300781
+2026-08-20 01:50:09,486 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:50:15,152 [INFO] Estimated Epoch: 1.21
+2026-08-20 01:50:15,152 [INFO] [Step 1380] Loss: 0.3242
+2026-08-20 01:51:00,298 [INFO] Estimated Epoch: 1.23
+2026-08-20 01:51:00,299 [INFO] [Step 1400] Loss: 0.4023
+2026-08-20 01:51:11,703 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:51:15,744 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:51:15,745 [INFO] Saved best checkpoint at step 1405 with loss 0.296875
+2026-08-20 01:51:49,533 [INFO] Estimated Epoch: 1.25
+2026-08-20 01:51:49,534 [INFO] [Step 1420] Loss: 0.3320
+2026-08-20 01:52:34,565 [INFO] Estimated Epoch: 1.26
+2026-08-20 01:52:34,565 [INFO] [Step 1440] Loss: 0.3164
+2026-08-20 01:52:39,147 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:52:42,564 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:52:42,566 [INFO] Saved best checkpoint at step 1442 with loss 0.263672
+2026-08-20 01:53:23,778 [INFO] Estimated Epoch: 1.28
+2026-08-20 01:53:23,779 [INFO] [Step 1460] Loss: 0.3184
+2026-08-20 01:54:08,929 [INFO] Estimated Epoch: 1.30
+2026-08-20 01:54:08,930 [INFO] [Step 1480] Loss: 0.3613
+2026-08-20 01:54:23,976 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 01:54:29,444 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:54:33,184 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:54:33,186 [INFO] Saved best checkpoint at step 1489 with loss 0.261719
+2026-08-20 01:54:57,913 [INFO] Estimated Epoch: 1.32
+2026-08-20 01:54:57,914 [INFO] [Step 1500] Loss: 0.3027
+2026-08-20 01:55:43,074 [INFO] Estimated Epoch: 1.33
+2026-08-20 01:55:43,074 [INFO] [Step 1520] Loss: 0.3945
+2026-08-20 01:56:03,487 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:56:06,549 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:56:06,550 [INFO] Saved best checkpoint at step 1529 with loss 0.251953
+2026-08-20 01:56:31,257 [INFO] Estimated Epoch: 1.35
+2026-08-20 01:56:31,257 [INFO] [Step 1540] Loss: 0.3203
+2026-08-20 01:57:16,294 [INFO] Estimated Epoch: 1.37
+2026-08-20 01:57:16,294 [INFO] [Step 1560] Loss: 0.3086
+2026-08-20 01:58:01,357 [INFO] Estimated Epoch: 1.39
+2026-08-20 01:58:01,358 [INFO] [Step 1580] Loss: 0.3105
+2026-08-20 01:58:46,300 [INFO] Estimated Epoch: 1.40
+2026-08-20 01:58:46,300 [INFO] [Step 1600] Loss: 0.3203
+2026-08-20 01:59:31,871 [INFO] Estimated Epoch: 1.42
+2026-08-20 01:59:31,871 [INFO] [Step 1620] Loss: 0.2969
+2026-08-20 01:59:34,200 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 01:59:37,903 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 01:59:37,904 [INFO] Saved best checkpoint at step 1621 with loss 0.238281
+2026-08-20 02:00:01,545 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:00:07,982 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:00:20,892 [INFO] Estimated Epoch: 1.44
+2026-08-20 02:00:20,892 [INFO] [Step 1640] Loss: 0.3613
+2026-08-20 02:01:05,876 [INFO] Estimated Epoch: 1.46
+2026-08-20 02:01:05,877 [INFO] [Step 1660] Loss: 0.3125
+2026-08-20 02:01:50,704 [INFO] Estimated Epoch: 1.47
+2026-08-20 02:01:50,704 [INFO] [Step 1680] Loss: 0.2734
+2026-08-20 02:02:35,689 [INFO] Estimated Epoch: 1.49
+2026-08-20 02:02:35,690 [INFO] [Step 1700] Loss: 0.2852
+2026-08-20 02:03:20,779 [INFO] Estimated Epoch: 1.51
+2026-08-20 02:03:20,779 [INFO] [Step 1720] Loss: 0.2773
+2026-08-20 02:04:05,849 [INFO] Estimated Epoch: 1.53
+2026-08-20 02:04:05,849 [INFO] [Step 1740] Loss: 0.2852
+2026-08-20 02:04:48,728 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:04:52,460 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:04:52,461 [INFO] Saved best checkpoint at step 1759 with loss 0.237305
+2026-08-20 02:04:54,774 [INFO] Estimated Epoch: 1.54
+2026-08-20 02:04:54,774 [INFO] [Step 1760] Loss: 0.2734
+2026-08-20 02:05:22,286 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:05:25,712 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:05:25,713 [INFO] Saved best checkpoint at step 1772 with loss 0.234375
+2026-08-20 02:05:43,659 [INFO] Estimated Epoch: 1.56
+2026-08-20 02:05:43,660 [INFO] [Step 1780] Loss: 0.2891
+2026-08-20 02:06:01,803 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:06:05,464 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:06:05,465 [INFO] Saved best checkpoint at step 1788 with loss 0.231445
+2026-08-20 02:06:32,532 [INFO] Estimated Epoch: 1.58
+2026-08-20 02:06:32,533 [INFO] [Step 1800] Loss: 0.2539
+2026-08-20 02:07:17,742 [INFO] Estimated Epoch: 1.60
+2026-08-20 02:07:17,743 [INFO] [Step 1820] Loss: 0.3125
+2026-08-20 02:08:03,159 [INFO] Estimated Epoch: 1.61
+2026-08-20 02:08:03,159 [INFO] [Step 1840] Loss: 0.3320
+2026-08-20 02:08:48,457 [INFO] Estimated Epoch: 1.63
+2026-08-20 02:08:48,458 [INFO] [Step 1860] Loss: 0.2969
+2026-08-20 02:09:33,935 [INFO] Estimated Epoch: 1.65
+2026-08-20 02:09:33,935 [INFO] [Step 1880] Loss: 0.3145
+2026-08-20 02:10:19,167 [INFO] Estimated Epoch: 1.67
+2026-08-20 02:10:19,167 [INFO] [Step 1900] Loss: 0.2812
+2026-08-20 02:10:37,284 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:10:40,541 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:10:40,543 [INFO] Saved best checkpoint at step 1908 with loss 0.226562
+2026-08-20 02:11:07,826 [INFO] Estimated Epoch: 1.68
+2026-08-20 02:11:07,826 [INFO] [Step 1920] Loss: 0.2695
+2026-08-20 02:11:11,618 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:11:53,186 [INFO] Estimated Epoch: 1.70
+2026-08-20 02:11:53,187 [INFO] [Step 1940] Loss: 0.3320
+2026-08-20 02:12:11,370 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:12:14,816 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:12:14,817 [INFO] Saved best checkpoint at step 1948 with loss 0.224609
+2026-08-20 02:12:41,825 [INFO] Estimated Epoch: 1.72
+2026-08-20 02:12:41,825 [INFO] [Step 1960] Loss: 0.2773
+2026-08-20 02:13:26,801 [INFO] Estimated Epoch: 1.74
+2026-08-20 02:13:26,802 [INFO] [Step 1980] Loss: 0.2734
+2026-08-20 02:14:11,874 [INFO] Estimated Epoch: 1.75
+2026-08-20 02:14:11,875 [INFO] [Step 2000] Loss: 0.2578
+2026-08-20 02:14:36,777 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:14:40,043 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:14:40,044 [INFO] Saved best checkpoint at step 2011 with loss 0.208984
+2026-08-20 02:15:00,283 [INFO] Estimated Epoch: 1.77
+2026-08-20 02:15:00,284 [INFO] [Step 2020] Loss: 0.2754
+2026-08-20 02:15:45,458 [INFO] Estimated Epoch: 1.79
+2026-08-20 02:15:45,458 [INFO] [Step 2040] Loss: 0.2500
+2026-08-20 02:15:59,041 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:16:02,380 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:16:02,381 [INFO] Saved best checkpoint at step 2046 with loss 0.193359
+2026-08-20 02:16:33,809 [INFO] Estimated Epoch: 1.81
+2026-08-20 02:16:33,810 [INFO] [Step 2060] Loss: 0.2754
+2026-08-20 02:17:19,443 [INFO] Estimated Epoch: 1.82
+2026-08-20 02:17:19,443 [INFO] [Step 2080] Loss: 0.2598
+2026-08-20 02:18:04,345 [INFO] Estimated Epoch: 1.84
+2026-08-20 02:18:04,345 [INFO] [Step 2100] Loss: 0.2461
+2026-08-20 02:18:49,447 [INFO] Estimated Epoch: 1.86
+2026-08-20 02:18:49,447 [INFO] [Step 2120] Loss: 0.2656
+2026-08-20 02:19:34,555 [INFO] Estimated Epoch: 1.88
+2026-08-20 02:19:34,556 [INFO] [Step 2140] Loss: 0.2578
+2026-08-20 02:19:51,780 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:20:19,921 [INFO] Estimated Epoch: 1.89
+2026-08-20 02:20:19,922 [INFO] [Step 2160] Loss: 0.2891
+2026-08-20 02:21:05,400 [INFO] Estimated Epoch: 1.91
+2026-08-20 02:21:05,401 [INFO] [Step 2180] Loss: 0.2383
+2026-08-20 02:21:50,785 [INFO] Estimated Epoch: 1.93
+2026-08-20 02:21:50,786 [INFO] [Step 2200] Loss: 0.2773
+2026-08-20 02:21:59,889 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:22:03,451 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:22:03,453 [INFO] Saved best checkpoint at step 2204 with loss 0.179688
+2026-08-20 02:22:39,685 [INFO] Estimated Epoch: 1.95
+2026-08-20 02:22:39,686 [INFO] [Step 2220] Loss: 0.2910
+2026-08-20 02:23:25,482 [INFO] Estimated Epoch: 1.96
+2026-08-20 02:23:25,483 [INFO] [Step 2240] Loss: 0.2559
+2026-08-20 02:23:33,333 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:24:11,060 [INFO] Estimated Epoch: 1.98
+2026-08-20 02:24:11,061 [INFO] [Step 2260] Loss: 0.2090
+2026-08-20 02:24:58,265 [INFO] Estimated Epoch: 2.00
+2026-08-20 02:24:58,267 [INFO] [Step 2280] Loss: 0.2266
+2026-08-20 02:25:43,587 [INFO] Estimated Epoch: 2.02
+2026-08-20 02:25:43,587 [INFO] [Step 2300] Loss: 0.2402
+2026-08-20 02:26:28,778 [INFO] Estimated Epoch: 2.04
+2026-08-20 02:26:28,779 [INFO] [Step 2320] Loss: 0.2656
+2026-08-20 02:27:13,996 [INFO] Estimated Epoch: 2.05
+2026-08-20 02:27:13,996 [INFO] [Step 2340] Loss: 0.2539
+2026-08-20 02:27:19,276 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:27:59,344 [INFO] Estimated Epoch: 2.07
+2026-08-20 02:27:59,345 [INFO] [Step 2360] Loss: 0.2754
+2026-08-20 02:28:44,415 [INFO] Estimated Epoch: 2.09
+2026-08-20 02:28:44,415 [INFO] [Step 2380] Loss: 0.2695
+2026-08-20 02:29:29,862 [INFO] Estimated Epoch: 2.11
+2026-08-20 02:29:29,863 [INFO] [Step 2400] Loss: 0.2490
+2026-08-20 02:30:15,081 [INFO] Estimated Epoch: 2.12
+2026-08-20 02:30:15,082 [INFO] [Step 2420] Loss: 0.2734
+2026-08-20 02:31:00,251 [INFO] Estimated Epoch: 2.14
+2026-08-20 02:31:00,251 [INFO] [Step 2440] Loss: 0.2168
+2026-08-20 02:31:45,494 [INFO] Estimated Epoch: 2.16
+2026-08-20 02:31:45,495 [INFO] [Step 2460] Loss: 0.2168
+2026-08-20 02:32:30,658 [INFO] Estimated Epoch: 2.18
+2026-08-20 02:32:30,658 [INFO] [Step 2480] Loss: 0.2373
+2026-08-20 02:33:13,595 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_2500 exists. Removing before overwrite.
+2026-08-20 02:33:17,656 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_2500
+2026-08-20 02:33:19,976 [INFO] Estimated Epoch: 2.19
+2026-08-20 02:33:19,977 [INFO] [Step 2500] Loss: 0.2080
+2026-08-20 02:34:04,858 [INFO] Estimated Epoch: 2.21
+2026-08-20 02:34:04,859 [INFO] [Step 2520] Loss: 0.2285
+2026-08-20 02:34:50,064 [INFO] Estimated Epoch: 2.23
+2026-08-20 02:34:50,064 [INFO] [Step 2540] Loss: 0.2314
+2026-08-20 02:35:35,720 [INFO] Estimated Epoch: 2.25
+2026-08-20 02:35:35,721 [INFO] [Step 2560] Loss: 0.2070
+2026-08-20 02:36:21,055 [INFO] Estimated Epoch: 2.26
+2026-08-20 02:36:21,056 [INFO] [Step 2580] Loss: 0.2637
+2026-08-20 02:37:06,270 [INFO] Estimated Epoch: 2.28
+2026-08-20 02:37:06,271 [INFO] [Step 2600] Loss: 0.2617
+2026-08-20 02:37:32,056 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:37:51,730 [INFO] Estimated Epoch: 2.30
+2026-08-20 02:37:51,730 [INFO] [Step 2620] Loss: 0.2363
+2026-08-20 02:37:53,243 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:38:28,235 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:38:31,400 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:38:31,402 [INFO] Saved best checkpoint at step 2636 with loss 0.171875
+2026-08-20 02:38:40,527 [INFO] Estimated Epoch: 2.32
+2026-08-20 02:38:40,527 [INFO] [Step 2640] Loss: 0.2188
+2026-08-20 02:39:26,108 [INFO] Estimated Epoch: 2.33
+2026-08-20 02:39:26,109 [INFO] [Step 2660] Loss: 0.1963
+2026-08-20 02:40:11,417 [INFO] Estimated Epoch: 2.35
+2026-08-20 02:40:11,417 [INFO] [Step 2680] Loss: 0.1963
+2026-08-20 02:40:56,706 [INFO] Estimated Epoch: 2.37
+2026-08-20 02:40:56,707 [INFO] [Step 2700] Loss: 0.2656
+2026-08-20 02:41:42,313 [INFO] Estimated Epoch: 2.39
+2026-08-20 02:41:42,314 [INFO] [Step 2720] Loss: 0.1895
+2026-08-20 02:42:00,432 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:42:04,345 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:42:04,346 [INFO] Saved best checkpoint at step 2728 with loss 0.166016
+2026-08-20 02:42:31,465 [INFO] Estimated Epoch: 2.40
+2026-08-20 02:42:31,465 [INFO] [Step 2740] Loss: 0.2461
+2026-08-20 02:42:42,805 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:42:46,461 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:42:46,462 [INFO] Saved best checkpoint at step 2745 with loss 0.162109
+2026-08-20 02:43:20,292 [INFO] Estimated Epoch: 2.42
+2026-08-20 02:43:20,293 [INFO] [Step 2760] Loss: 0.2139
+2026-08-20 02:44:05,306 [INFO] Estimated Epoch: 2.44
+2026-08-20 02:44:05,306 [INFO] [Step 2780] Loss: 0.2363
+2026-08-20 02:44:23,657 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:44:48,767 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:44:50,562 [INFO] Estimated Epoch: 2.46
+2026-08-20 02:44:50,563 [INFO] [Step 2800] Loss: 0.1895
+2026-08-20 02:45:22,245 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:45:25,493 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:45:25,494 [INFO] Saved best checkpoint at step 2814 with loss 0.152344
+2026-08-20 02:45:39,012 [INFO] Estimated Epoch: 2.47
+2026-08-20 02:45:39,012 [INFO] [Step 2820] Loss: 0.2109
+2026-08-20 02:46:23,944 [INFO] Estimated Epoch: 2.49
+2026-08-20 02:46:23,944 [INFO] [Step 2840] Loss: 0.1729
+2026-08-20 02:46:54,501 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:47:00,188 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:47:03,671 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:47:03,673 [INFO] Saved best checkpoint at step 2856 with loss 0.140625
+2026-08-20 02:47:12,927 [INFO] Estimated Epoch: 2.51
+2026-08-20 02:47:12,927 [INFO] [Step 2860] Loss: 0.2324
+2026-08-20 02:47:58,002 [INFO] Estimated Epoch: 2.53
+2026-08-20 02:47:58,002 [INFO] [Step 2880] Loss: 0.1855
+2026-08-20 02:48:43,115 [INFO] Estimated Epoch: 2.54
+2026-08-20 02:48:43,116 [INFO] [Step 2900] Loss: 0.2305
+2026-08-20 02:49:28,140 [INFO] Estimated Epoch: 2.56
+2026-08-20 02:49:28,141 [INFO] [Step 2920] Loss: 0.2207
+2026-08-20 02:50:13,344 [INFO] Estimated Epoch: 2.58
+2026-08-20 02:50:13,345 [INFO] [Step 2940] Loss: 0.1680
+2026-08-20 02:50:58,435 [INFO] Estimated Epoch: 2.60
+2026-08-20 02:50:58,436 [INFO] [Step 2960] Loss: 0.1738
+2026-08-20 02:51:43,743 [INFO] Estimated Epoch: 2.61
+2026-08-20 02:51:43,744 [INFO] [Step 2980] Loss: 0.1914
+2026-08-20 02:52:29,040 [INFO] Estimated Epoch: 2.63
+2026-08-20 02:52:29,040 [INFO] [Step 3000] Loss: 0.1914
+2026-08-20 02:53:14,772 [INFO] Estimated Epoch: 2.65
+2026-08-20 02:53:14,773 [INFO] [Step 3020] Loss: 0.1660
+2026-08-20 02:53:57,870 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:54:01,296 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:54:01,298 [INFO] Saved best checkpoint at step 3039 with loss 0.112793
+2026-08-20 02:54:03,619 [INFO] Estimated Epoch: 2.67
+2026-08-20 02:54:03,620 [INFO] [Step 3040] Loss: 0.1562
+2026-08-20 02:54:48,754 [INFO] Estimated Epoch: 2.68
+2026-08-20 02:54:48,755 [INFO] [Step 3060] Loss: 0.1660
+2026-08-20 02:55:33,902 [INFO] Estimated Epoch: 2.70
+2026-08-20 02:55:33,903 [INFO] [Step 3080] Loss: 0.1826
+2026-08-20 02:56:18,802 [INFO] Estimated Epoch: 2.72
+2026-08-20 02:56:18,802 [INFO] [Step 3100] Loss: 0.1621
+2026-08-20 02:57:03,925 [INFO] Estimated Epoch: 2.74
+2026-08-20 02:57:03,925 [INFO] [Step 3120] Loss: 0.1914
+2026-08-20 02:57:15,294 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 02:57:18,823 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 02:57:18,852 [INFO] Saved best checkpoint at step 3125 with loss 0.109863
+2026-08-20 02:57:27,002 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:57:52,536 [INFO] Estimated Epoch: 2.75
+2026-08-20 02:57:52,537 [INFO] [Step 3140] Loss: 0.1836
+2026-08-20 02:58:37,630 [INFO] Estimated Epoch: 2.77
+2026-08-20 02:58:37,631 [INFO] [Step 3160] Loss: 0.2031
+2026-08-20 02:58:41,160 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 02:59:23,343 [INFO] Estimated Epoch: 2.79
+2026-08-20 02:59:23,344 [INFO] [Step 3180] Loss: 0.2109
+2026-08-20 03:00:08,371 [INFO] Estimated Epoch: 2.81
+2026-08-20 03:00:08,372 [INFO] [Step 3200] Loss: 0.1934
+2026-08-20 03:00:53,368 [INFO] Estimated Epoch: 2.82
+2026-08-20 03:00:53,368 [INFO] [Step 3220] Loss: 0.1455
+2026-08-20 03:01:38,525 [INFO] Estimated Epoch: 2.84
+2026-08-20 03:01:38,526 [INFO] [Step 3240] Loss: 0.1934
+2026-08-20 03:02:23,440 [INFO] Estimated Epoch: 2.86
+2026-08-20 03:02:23,441 [INFO] [Step 3260] Loss: 0.1611
+2026-08-20 03:03:08,576 [INFO] Estimated Epoch: 2.88
+2026-08-20 03:03:08,577 [INFO] [Step 3280] Loss: 0.1660
+2026-08-20 03:03:53,563 [INFO] Estimated Epoch: 2.89
+2026-08-20 03:03:53,564 [INFO] [Step 3300] Loss: 0.1484
+2026-08-20 03:04:38,622 [INFO] Estimated Epoch: 2.91
+2026-08-20 03:04:38,623 [INFO] [Step 3320] Loss: 0.1680
+2026-08-20 03:05:24,386 [INFO] Estimated Epoch: 2.93
+2026-08-20 03:05:24,387 [INFO] [Step 3340] Loss: 0.1758
+2026-08-20 03:06:09,707 [INFO] Estimated Epoch: 2.95
+2026-08-20 03:06:09,707 [INFO] [Step 3360] Loss: 0.2139
+2026-08-20 03:06:55,043 [INFO] Estimated Epoch: 2.96
+2026-08-20 03:06:55,043 [INFO] [Step 3380] Loss: 0.2012
+2026-08-20 03:07:40,463 [INFO] Estimated Epoch: 2.98
+2026-08-20 03:07:40,464 [INFO] [Step 3400] Loss: 0.1875
+2026-08-20 03:08:27,512 [INFO] Estimated Epoch: 3.00
+2026-08-20 03:08:27,514 [INFO] [Step 3420] Loss: 0.1719
+2026-08-20 03:09:10,731 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 03:09:14,434 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 03:09:14,435 [INFO] Saved best checkpoint at step 3439 with loss 0.109375
+2026-08-20 03:09:16,758 [INFO] Estimated Epoch: 3.02
+2026-08-20 03:09:16,759 [INFO] [Step 3440] Loss: 0.1318
+2026-08-20 03:09:55,067 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 03:09:59,234 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 03:09:59,235 [INFO] Saved best checkpoint at step 3457 with loss 0.104492
+2026-08-20 03:10:06,051 [INFO] Estimated Epoch: 3.04
+2026-08-20 03:10:06,051 [INFO] [Step 3460] Loss: 0.1387
+2026-08-20 03:10:51,094 [INFO] Estimated Epoch: 3.05
+2026-08-20 03:10:51,094 [INFO] [Step 3480] Loss: 0.1221
+2026-08-20 03:11:36,750 [INFO] Estimated Epoch: 3.07
+2026-08-20 03:11:36,751 [INFO] [Step 3500] Loss: 0.1553
+2026-08-20 03:11:39,095 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 03:11:42,984 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 03:11:42,986 [INFO] Saved best checkpoint at step 3501 with loss 0.103516
+2026-08-20 03:12:10,072 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 03:12:15,803 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 03:12:15,804 [INFO] Saved best checkpoint at step 3513 with loss 0.095703
+2026-08-20 03:12:31,570 [INFO] Estimated Epoch: 3.09
+2026-08-20 03:12:31,570 [INFO] [Step 3520] Loss: 0.1230
+2026-08-20 03:12:35,186 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 03:13:16,770 [INFO] Estimated Epoch: 3.11
+2026-08-20 03:13:16,770 [INFO] [Step 3540] Loss: 0.1992
+2026-08-20 03:13:19,100 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 03:13:22,674 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 03:13:22,676 [INFO] Saved best checkpoint at step 3541 with loss 0.091797
+2026-08-20 03:14:05,422 [INFO] Estimated Epoch: 3.12
+2026-08-20 03:14:05,423 [INFO] [Step 3560] Loss: 0.1377
+2026-08-20 03:14:50,586 [INFO] Estimated Epoch: 3.14
+2026-08-20 03:14:50,586 [INFO] [Step 3580] Loss: 0.1328
+2026-08-20 03:15:35,972 [INFO] Estimated Epoch: 3.16
+2026-08-20 03:15:35,973 [INFO] [Step 3600] Loss: 0.1426
+2026-08-20 03:16:21,159 [INFO] Estimated Epoch: 3.18
+2026-08-20 03:16:21,160 [INFO] [Step 3620] Loss: 0.1035
+2026-08-20 03:17:06,516 [INFO] Estimated Epoch: 3.19
+2026-08-20 03:17:06,517 [INFO] [Step 3640] Loss: 0.1621
+2026-08-20 03:17:51,848 [INFO] Estimated Epoch: 3.21
+2026-08-20 03:17:51,848 [INFO] [Step 3660] Loss: 0.1709
+2026-08-20 03:18:01,398 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 03:18:39,432 [INFO] Estimated Epoch: 3.23
+2026-08-20 03:18:39,432 [INFO] [Step 3680] Loss: 0.1426
+2026-08-20 03:19:31,061 [INFO] Estimated Epoch: 3.25
+2026-08-20 03:19:31,062 [INFO] [Step 3700] Loss: 0.1562
+2026-08-20 03:20:22,315 [INFO] Estimated Epoch: 3.26
+2026-08-20 03:20:22,315 [INFO] [Step 3720] Loss: 0.1777
+2026-08-20 03:21:14,032 [INFO] Estimated Epoch: 3.28
+2026-08-20 03:21:14,032 [INFO] [Step 3740] Loss: 0.1318
+2026-08-20 03:22:05,335 [INFO] Estimated Epoch: 3.30
+2026-08-20 03:22:05,336 [INFO] [Step 3760] Loss: 0.1719
+2026-08-20 03:22:51,431 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 03:22:54,922 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 03:22:54,951 [INFO] Saved best checkpoint at step 3778 with loss 0.090820
+2026-08-20 03:23:00,227 [INFO] Estimated Epoch: 3.32
+2026-08-20 03:23:00,228 [INFO] [Step 3780] Loss: 0.1240
+2026-08-20 03:23:52,145 [INFO] Estimated Epoch: 3.33
+2026-08-20 03:23:52,145 [INFO] [Step 3800] Loss: 0.1260
+2026-08-20 03:24:43,717 [INFO] Estimated Epoch: 3.35
+2026-08-20 03:24:43,717 [INFO] [Step 3820] Loss: 0.0957
+2026-08-20 03:25:35,100 [INFO] Estimated Epoch: 3.37
+2026-08-20 03:25:35,101 [INFO] [Step 3840] Loss: 0.1328
+2026-08-20 03:26:21,448 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 03:26:24,893 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 03:26:24,894 [INFO] Saved best checkpoint at step 3858 with loss 0.080078
+2026-08-20 03:26:30,117 [INFO] Estimated Epoch: 3.39
+2026-08-20 03:26:30,118 [INFO] [Step 3860] Loss: 0.1221
+2026-08-20 03:26:59,637 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 03:27:21,820 [INFO] Estimated Epoch: 3.40
+2026-08-20 03:27:21,821 [INFO] [Step 3880] Loss: 0.1328
+2026-08-20 03:28:13,328 [INFO] Estimated Epoch: 3.42
+2026-08-20 03:28:13,328 [INFO] [Step 3900] Loss: 0.1157
+2026-08-20 03:29:04,821 [INFO] Estimated Epoch: 3.44
+2026-08-20 03:29:04,822 [INFO] [Step 3920] Loss: 0.1299
+2026-08-20 03:29:56,396 [INFO] Estimated Epoch: 3.46
+2026-08-20 03:29:56,397 [INFO] [Step 3940] Loss: 0.1035
+2026-08-20 03:30:47,874 [INFO] Estimated Epoch: 3.47
+2026-08-20 03:30:47,875 [INFO] [Step 3960] Loss: 0.1455
+2026-08-20 03:31:39,411 [INFO] Estimated Epoch: 3.49
+2026-08-20 03:31:39,412 [INFO] [Step 3980] Loss: 0.1191
+2026-08-20 03:32:30,767 [INFO] Estimated Epoch: 3.51
+2026-08-20 03:32:30,768 [INFO] [Step 4000] Loss: 0.1426
+2026-08-20 03:33:22,358 [INFO] Estimated Epoch: 3.53
+2026-08-20 03:33:22,359 [INFO] [Step 4020] Loss: 0.1143
+2026-08-20 03:33:31,424 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 03:34:13,860 [INFO] Estimated Epoch: 3.54
+2026-08-20 03:34:13,861 [INFO] [Step 4040] Loss: 0.1357
+2026-08-20 03:35:05,479 [INFO] Estimated Epoch: 3.56
+2026-08-20 03:35:05,480 [INFO] [Step 4060] Loss: 0.1152
+2026-08-20 03:35:13,362 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 03:35:16,865 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 03:35:16,865 [INFO] Saved best checkpoint at step 4063 with loss 0.069336
+2026-08-20 03:36:00,860 [INFO] Estimated Epoch: 3.58
+2026-08-20 03:36:00,860 [INFO] [Step 4080] Loss: 0.1602
+2026-08-20 03:36:52,094 [INFO] Estimated Epoch: 3.60
+2026-08-20 03:36:52,095 [INFO] [Step 4100] Loss: 0.1157
+2026-08-20 03:36:53,253 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 03:37:44,002 [INFO] Estimated Epoch: 3.61
+2026-08-20 03:37:44,002 [INFO] [Step 4120] Loss: 0.1309
+2026-08-20 03:38:35,707 [INFO] Estimated Epoch: 3.63
+2026-08-20 03:38:35,708 [INFO] [Step 4140] Loss: 0.1270
+2026-08-20 03:39:27,335 [INFO] Estimated Epoch: 3.65
+2026-08-20 03:39:27,335 [INFO] [Step 4160] Loss: 0.1553
+2026-08-20 03:40:18,569 [INFO] Estimated Epoch: 3.67
+2026-08-20 03:40:18,570 [INFO] [Step 4180] Loss: 0.1387
+2026-08-20 03:41:10,371 [INFO] Estimated Epoch: 3.68
+2026-08-20 03:41:10,372 [INFO] [Step 4200] Loss: 0.1367
+2026-08-20 03:42:02,285 [INFO] Estimated Epoch: 3.70
+2026-08-20 03:42:02,286 [INFO] [Step 4220] Loss: 0.1553
+2026-08-20 03:42:53,790 [INFO] Estimated Epoch: 3.72
+2026-08-20 03:42:53,790 [INFO] [Step 4240] Loss: 0.1016
+2026-08-20 03:43:45,166 [INFO] Estimated Epoch: 3.74
+2026-08-20 03:43:45,167 [INFO] [Step 4260] Loss: 0.1445
+2026-08-20 03:43:56,377 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 03:44:36,551 [INFO] Estimated Epoch: 3.75
+2026-08-20 03:44:36,551 [INFO] [Step 4280] Loss: 0.1533
+2026-08-20 03:45:28,078 [INFO] Estimated Epoch: 3.77
+2026-08-20 03:45:28,078 [INFO] [Step 4300] Loss: 0.0952
+2026-08-20 03:46:19,422 [INFO] Estimated Epoch: 3.79
+2026-08-20 03:46:19,422 [INFO] [Step 4320] Loss: 0.1543
+2026-08-20 03:47:11,341 [INFO] Estimated Epoch: 3.81
+2026-08-20 03:47:11,342 [INFO] [Step 4340] Loss: 0.1533
+2026-08-20 03:48:02,926 [INFO] Estimated Epoch: 3.82
+2026-08-20 03:48:02,926 [INFO] [Step 4360] Loss: 0.1133
+2026-08-20 03:48:54,458 [INFO] Estimated Epoch: 3.84
+2026-08-20 03:48:54,459 [INFO] [Step 4380] Loss: 0.1230
+2026-08-20 03:49:46,275 [INFO] Estimated Epoch: 3.86
+2026-08-20 03:49:46,276 [INFO] [Step 4400] Loss: 0.1240
+2026-08-20 03:50:15,135 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 03:50:37,713 [INFO] Estimated Epoch: 3.88
+2026-08-20 03:50:37,713 [INFO] [Step 4420] Loss: 0.1240
+2026-08-20 03:51:29,346 [INFO] Estimated Epoch: 3.89
+2026-08-20 03:51:29,347 [INFO] [Step 4440] Loss: 0.1387
+2026-08-20 03:52:20,517 [INFO] Estimated Epoch: 3.91
+2026-08-20 03:52:20,517 [INFO] [Step 4460] Loss: 0.1592
+2026-08-20 03:53:11,879 [INFO] Estimated Epoch: 3.93
+2026-08-20 03:53:11,879 [INFO] [Step 4480] Loss: 0.1338
+2026-08-20 03:54:03,246 [INFO] Estimated Epoch: 3.95
+2026-08-20 03:54:03,246 [INFO] [Step 4500] Loss: 0.1084
+2026-08-20 03:54:40,133 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 03:54:54,683 [INFO] Estimated Epoch: 3.96
+2026-08-20 03:54:54,683 [INFO] [Step 4520] Loss: 0.0923
+2026-08-20 03:55:46,298 [INFO] Estimated Epoch: 3.98
+2026-08-20 03:55:46,299 [INFO] [Step 4540] Loss: 0.1123
+2026-08-20 03:56:38,858 [INFO] Estimated Epoch: 4.00
+2026-08-20 03:56:38,859 [INFO] [Step 4560] Loss: 0.1455
+2026-08-20 03:57:30,672 [INFO] Estimated Epoch: 4.02
+2026-08-20 03:57:30,673 [INFO] [Step 4580] Loss: 0.1260
+2026-08-20 03:58:22,219 [INFO] Estimated Epoch: 4.04
+2026-08-20 03:58:22,219 [INFO] [Step 4600] Loss: 0.1069
+2026-08-20 03:59:14,076 [INFO] Estimated Epoch: 4.05
+2026-08-20 03:59:14,077 [INFO] [Step 4620] Loss: 0.1299
+2026-08-20 03:59:43,280 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:00:05,682 [INFO] Estimated Epoch: 4.07
+2026-08-20 04:00:05,683 [INFO] [Step 4640] Loss: 0.1396
+2026-08-20 04:00:56,980 [INFO] Estimated Epoch: 4.09
+2026-08-20 04:00:56,981 [INFO] [Step 4660] Loss: 0.1621
+2026-08-20 04:01:48,732 [INFO] Estimated Epoch: 4.11
+2026-08-20 04:01:48,732 [INFO] [Step 4680] Loss: 0.0889
+2026-08-20 04:02:40,200 [INFO] Estimated Epoch: 4.12
+2026-08-20 04:02:40,201 [INFO] [Step 4700] Loss: 0.1143
+2026-08-20 04:03:31,826 [INFO] Estimated Epoch: 4.14
+2026-08-20 04:03:31,826 [INFO] [Step 4720] Loss: 0.0986
+2026-08-20 04:04:21,442 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:04:23,193 [INFO] Estimated Epoch: 4.16
+2026-08-20 04:04:23,194 [INFO] [Step 4740] Loss: 0.1055
+2026-08-20 04:05:14,901 [INFO] Estimated Epoch: 4.18
+2026-08-20 04:05:14,902 [INFO] [Step 4760] Loss: 0.1309
+2026-08-20 04:06:06,220 [INFO] Estimated Epoch: 4.19
+2026-08-20 04:06:06,221 [INFO] [Step 4780] Loss: 0.0879
+2026-08-20 04:06:57,469 [INFO] Estimated Epoch: 4.21
+2026-08-20 04:06:57,469 [INFO] [Step 4800] Loss: 0.0957
+2026-08-20 04:07:48,980 [INFO] Estimated Epoch: 4.23
+2026-08-20 04:07:48,981 [INFO] [Step 4820] Loss: 0.1069
+2026-08-20 04:08:40,549 [INFO] Estimated Epoch: 4.25
+2026-08-20 04:08:40,550 [INFO] [Step 4840] Loss: 0.1396
+2026-08-20 04:09:32,089 [INFO] Estimated Epoch: 4.26
+2026-08-20 04:09:32,089 [INFO] [Step 4860] Loss: 0.1777
+2026-08-20 04:09:52,828 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 04:09:56,493 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 04:09:56,494 [INFO] Saved best checkpoint at step 4868 with loss 0.056641
+2026-08-20 04:10:27,455 [INFO] Estimated Epoch: 4.28
+2026-08-20 04:10:27,455 [INFO] [Step 4880] Loss: 0.1328
+2026-08-20 04:11:19,612 [INFO] Estimated Epoch: 4.30
+2026-08-20 04:11:19,612 [INFO] [Step 4900] Loss: 0.1338
+2026-08-20 04:11:28,439 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:12:11,474 [INFO] Estimated Epoch: 4.32
+2026-08-20 04:12:11,475 [INFO] [Step 4920] Loss: 0.1162
+2026-08-20 04:13:02,780 [INFO] Estimated Epoch: 4.33
+2026-08-20 04:13:02,780 [INFO] [Step 4940] Loss: 0.0981
+2026-08-20 04:13:53,853 [INFO] Estimated Epoch: 4.35
+2026-08-20 04:13:53,856 [INFO] [Step 4960] Loss: 0.1162
+2026-08-20 04:14:45,552 [INFO] Estimated Epoch: 4.37
+2026-08-20 04:14:45,553 [INFO] [Step 4980] Loss: 0.0938
+2026-08-20 04:15:34,587 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_5000 exists. Removing before overwrite.
+2026-08-20 04:15:37,849 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_5000
+2026-08-20 04:15:40,541 [INFO] Estimated Epoch: 4.39
+2026-08-20 04:15:40,541 [INFO] [Step 5000] Loss: 0.1006
+2026-08-20 04:16:31,882 [INFO] Estimated Epoch: 4.40
+2026-08-20 04:16:31,882 [INFO] [Step 5020] Loss: 0.1602
+2026-08-20 04:16:33,467 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:17:24,132 [INFO] Estimated Epoch: 4.42
+2026-08-20 04:17:24,133 [INFO] [Step 5040] Loss: 0.0947
+2026-08-20 04:18:15,729 [INFO] Estimated Epoch: 4.44
+2026-08-20 04:18:15,730 [INFO] [Step 5060] Loss: 0.1157
+2026-08-20 04:19:06,944 [INFO] Estimated Epoch: 4.46
+2026-08-20 04:19:06,945 [INFO] [Step 5080] Loss: 0.0967
+2026-08-20 04:19:58,610 [INFO] Estimated Epoch: 4.47
+2026-08-20 04:19:58,611 [INFO] [Step 5100] Loss: 0.1504
+2026-08-20 04:20:49,941 [INFO] Estimated Epoch: 4.49
+2026-08-20 04:20:49,941 [INFO] [Step 5120] Loss: 0.1128
+2026-08-20 04:21:41,478 [INFO] Estimated Epoch: 4.51
+2026-08-20 04:21:41,479 [INFO] [Step 5140] Loss: 0.0894
+2026-08-20 04:22:32,920 [INFO] Estimated Epoch: 4.53
+2026-08-20 04:22:32,921 [INFO] [Step 5160] Loss: 0.1436
+2026-08-20 04:23:25,025 [INFO] Estimated Epoch: 4.54
+2026-08-20 04:23:25,026 [INFO] [Step 5180] Loss: 0.0840
+2026-08-20 04:24:16,627 [INFO] Estimated Epoch: 4.56
+2026-08-20 04:24:16,628 [INFO] [Step 5200] Loss: 0.0879
+2026-08-20 04:25:07,838 [INFO] Estimated Epoch: 4.58
+2026-08-20 04:25:07,838 [INFO] [Step 5220] Loss: 0.1357
+2026-08-20 04:25:59,402 [INFO] Estimated Epoch: 4.60
+2026-08-20 04:25:59,402 [INFO] [Step 5240] Loss: 0.0928
+2026-08-20 04:26:50,596 [INFO] Estimated Epoch: 4.61
+2026-08-20 04:26:50,596 [INFO] [Step 5260] Loss: 0.0801
+2026-08-20 04:27:42,394 [INFO] Estimated Epoch: 4.63
+2026-08-20 04:27:42,395 [INFO] [Step 5280] Loss: 0.1455
+2026-08-20 04:28:33,679 [INFO] Estimated Epoch: 4.65
+2026-08-20 04:28:33,679 [INFO] [Step 5300] Loss: 0.1240
+2026-08-20 04:29:25,726 [INFO] Estimated Epoch: 4.67
+2026-08-20 04:29:25,727 [INFO] [Step 5320] Loss: 0.1128
+2026-08-20 04:30:17,210 [INFO] Estimated Epoch: 4.68
+2026-08-20 04:30:17,210 [INFO] [Step 5340] Loss: 0.0752
+2026-08-20 04:31:08,676 [INFO] Estimated Epoch: 4.70
+2026-08-20 04:31:08,676 [INFO] [Step 5360] Loss: 0.1318
+2026-08-20 04:32:00,127 [INFO] Estimated Epoch: 4.72
+2026-08-20 04:32:00,127 [INFO] [Step 5380] Loss: 0.1406
+2026-08-20 04:32:51,399 [INFO] Estimated Epoch: 4.74
+2026-08-20 04:32:51,400 [INFO] [Step 5400] Loss: 0.1011
+2026-08-20 04:33:42,652 [INFO] Estimated Epoch: 4.75
+2026-08-20 04:33:42,653 [INFO] [Step 5420] Loss: 0.0957
+2026-08-20 04:34:33,928 [INFO] Estimated Epoch: 4.77
+2026-08-20 04:34:33,928 [INFO] [Step 5440] Loss: 0.0771
+2026-08-20 04:34:48,034 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:35:26,017 [INFO] Estimated Epoch: 4.79
+2026-08-20 04:35:26,017 [INFO] [Step 5460] Loss: 0.1416
+2026-08-20 04:36:17,478 [INFO] Estimated Epoch: 4.81
+2026-08-20 04:36:17,479 [INFO] [Step 5480] Loss: 0.1025
+2026-08-20 04:37:08,717 [INFO] Estimated Epoch: 4.82
+2026-08-20 04:37:08,717 [INFO] [Step 5500] Loss: 0.0884
+2026-08-20 04:38:00,113 [INFO] Estimated Epoch: 4.84
+2026-08-20 04:38:00,113 [INFO] [Step 5520] Loss: 0.1230
+2026-08-20 04:38:51,679 [INFO] Estimated Epoch: 4.86
+2026-08-20 04:38:51,679 [INFO] [Step 5540] Loss: 0.1309
+2026-08-20 04:39:43,300 [INFO] Estimated Epoch: 4.88
+2026-08-20 04:39:43,301 [INFO] [Step 5560] Loss: 0.1064
+2026-08-20 04:40:33,707 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:40:34,990 [INFO] Estimated Epoch: 4.89
+2026-08-20 04:40:34,991 [INFO] [Step 5580] Loss: 0.1123
+2026-08-20 04:40:51,493 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:41:23,173 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:41:26,642 [INFO] Estimated Epoch: 4.91
+2026-08-20 04:41:26,643 [INFO] [Step 5600] Loss: 0.1245
+2026-08-20 04:42:17,852 [INFO] Estimated Epoch: 4.93
+2026-08-20 04:42:17,853 [INFO] [Step 5620] Loss: 0.0801
+2026-08-20 04:43:09,419 [INFO] Estimated Epoch: 4.95
+2026-08-20 04:43:09,420 [INFO] [Step 5640] Loss: 0.1094
+2026-08-20 04:44:00,900 [INFO] Estimated Epoch: 4.96
+2026-08-20 04:44:00,901 [INFO] [Step 5660] Loss: 0.0913
+2026-08-20 04:44:52,243 [INFO] Estimated Epoch: 4.98
+2026-08-20 04:44:52,244 [INFO] [Step 5680] Loss: 0.1201
+2026-08-20 04:45:44,997 [INFO] Estimated Epoch: 5.00
+2026-08-20 04:45:44,999 [INFO] [Step 5700] Loss: 0.1377
+2026-08-20 04:46:36,530 [INFO] Estimated Epoch: 5.02
+2026-08-20 04:46:36,530 [INFO] [Step 5720] Loss: 0.1025
+2026-08-20 04:47:28,435 [INFO] Estimated Epoch: 5.04
+2026-08-20 04:47:28,435 [INFO] [Step 5740] Loss: 0.0815
+2026-08-20 04:48:19,885 [INFO] Estimated Epoch: 5.05
+2026-08-20 04:48:19,885 [INFO] [Step 5760] Loss: 0.0933
+2026-08-20 04:49:11,133 [INFO] Estimated Epoch: 5.07
+2026-08-20 04:49:11,134 [INFO] [Step 5780] Loss: 0.0957
+2026-08-20 04:50:02,629 [INFO] Estimated Epoch: 5.09
+2026-08-20 04:50:02,630 [INFO] [Step 5800] Loss: 0.1143
+2026-08-20 04:50:54,287 [INFO] Estimated Epoch: 5.11
+2026-08-20 04:50:54,288 [INFO] [Step 5820] Loss: 0.0898
+2026-08-20 04:51:45,876 [INFO] Estimated Epoch: 5.12
+2026-08-20 04:51:45,877 [INFO] [Step 5840] Loss: 0.1245
+2026-08-20 04:52:37,196 [INFO] Estimated Epoch: 5.14
+2026-08-20 04:52:37,197 [INFO] [Step 5860] Loss: 0.0601
+2026-08-20 04:53:28,948 [INFO] Estimated Epoch: 5.16
+2026-08-20 04:53:28,949 [INFO] [Step 5880] Loss: 0.1387
+2026-08-20 04:54:20,469 [INFO] Estimated Epoch: 5.18
+2026-08-20 04:54:20,470 [INFO] [Step 5900] Loss: 0.0928
+2026-08-20 04:55:11,890 [INFO] Estimated Epoch: 5.19
+2026-08-20 04:55:11,890 [INFO] [Step 5920] Loss: 0.0938
+2026-08-20 04:55:49,512 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:56:03,425 [INFO] Estimated Epoch: 5.21
+2026-08-20 04:56:03,425 [INFO] [Step 5940] Loss: 0.0796
+2026-08-20 04:56:39,438 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 04:56:42,704 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 04:56:42,704 [INFO] Saved best checkpoint at step 5954 with loss 0.056152
+2026-08-20 04:56:58,269 [INFO] Estimated Epoch: 5.23
+2026-08-20 04:56:58,270 [INFO] [Step 5960] Loss: 0.0776
+2026-08-20 04:57:49,782 [INFO] Estimated Epoch: 5.25
+2026-08-20 04:57:49,782 [INFO] [Step 5980] Loss: 0.1143
+2026-08-20 04:58:31,710 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 04:58:41,613 [INFO] Estimated Epoch: 5.26
+2026-08-20 04:58:41,613 [INFO] [Step 6000] Loss: 0.1055
+2026-08-20 04:59:33,614 [INFO] Estimated Epoch: 5.28
+2026-08-20 04:59:33,615 [INFO] [Step 6020] Loss: 0.0889
+2026-08-20 05:00:25,415 [INFO] Estimated Epoch: 5.30
+2026-08-20 05:00:25,415 [INFO] [Step 6040] Loss: 0.0884
+2026-08-20 05:01:16,741 [INFO] Estimated Epoch: 5.32
+2026-08-20 05:01:16,741 [INFO] [Step 6060] Loss: 0.1387
+2026-08-20 05:02:08,480 [INFO] Estimated Epoch: 5.33
+2026-08-20 05:02:08,481 [INFO] [Step 6080] Loss: 0.0752
+2026-08-20 05:02:59,917 [INFO] Estimated Epoch: 5.35
+2026-08-20 05:02:59,918 [INFO] [Step 6100] Loss: 0.1016
+2026-08-20 05:03:51,405 [INFO] Estimated Epoch: 5.37
+2026-08-20 05:03:51,405 [INFO] [Step 6120] Loss: 0.0625
+2026-08-20 05:04:43,028 [INFO] Estimated Epoch: 5.39
+2026-08-20 05:04:43,029 [INFO] [Step 6140] Loss: 0.0903
+2026-08-20 05:05:05,284 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:05:34,916 [INFO] Estimated Epoch: 5.40
+2026-08-20 05:05:34,916 [INFO] [Step 6160] Loss: 0.1245
+2026-08-20 05:06:26,827 [INFO] Estimated Epoch: 5.42
+2026-08-20 05:06:26,828 [INFO] [Step 6180] Loss: 0.1025
+2026-08-20 05:06:30,079 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:07:18,477 [INFO] Estimated Epoch: 5.44
+2026-08-20 05:07:18,478 [INFO] [Step 6200] Loss: 0.1289
+2026-08-20 05:08:00,934 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:08:10,054 [INFO] Estimated Epoch: 5.46
+2026-08-20 05:08:10,055 [INFO] [Step 6220] Loss: 0.1172
+2026-08-20 05:09:01,689 [INFO] Estimated Epoch: 5.47
+2026-08-20 05:09:01,689 [INFO] [Step 6240] Loss: 0.0933
+2026-08-20 05:09:53,251 [INFO] Estimated Epoch: 5.49
+2026-08-20 05:09:53,251 [INFO] [Step 6260] Loss: 0.0654
+2026-08-20 05:10:44,667 [INFO] Estimated Epoch: 5.51
+2026-08-20 05:10:44,668 [INFO] [Step 6280] Loss: 0.1055
+2026-08-20 05:11:36,636 [INFO] Estimated Epoch: 5.53
+2026-08-20 05:11:36,636 [INFO] [Step 6300] Loss: 0.0884
+2026-08-20 05:12:28,170 [INFO] Estimated Epoch: 5.54
+2026-08-20 05:12:28,170 [INFO] [Step 6320] Loss: 0.0737
+2026-08-20 05:13:15,149 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:13:19,564 [INFO] Estimated Epoch: 5.56
+2026-08-20 05:13:19,564 [INFO] [Step 6340] Loss: 0.1045
+2026-08-20 05:14:11,048 [INFO] Estimated Epoch: 5.58
+2026-08-20 05:14:11,048 [INFO] [Step 6360] Loss: 0.1318
+2026-08-20 05:15:02,523 [INFO] Estimated Epoch: 5.60
+2026-08-20 05:15:02,524 [INFO] [Step 6380] Loss: 0.0713
+2026-08-20 05:15:15,524 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 05:15:19,296 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 05:15:19,312 [INFO] Saved best checkpoint at step 6385 with loss 0.050293
+2026-08-20 05:15:58,083 [INFO] Estimated Epoch: 5.61
+2026-08-20 05:15:58,084 [INFO] [Step 6400] Loss: 0.0947
+2026-08-20 05:16:49,356 [INFO] Estimated Epoch: 5.63
+2026-08-20 05:16:49,357 [INFO] [Step 6420] Loss: 0.1025
+2026-08-20 05:17:41,604 [INFO] Estimated Epoch: 5.65
+2026-08-20 05:17:41,604 [INFO] [Step 6440] Loss: 0.1035
+2026-08-20 05:18:33,124 [INFO] Estimated Epoch: 5.67
+2026-08-20 05:18:33,125 [INFO] [Step 6460] Loss: 0.0781
+2026-08-20 05:19:24,979 [INFO] Estimated Epoch: 5.68
+2026-08-20 05:19:24,980 [INFO] [Step 6480] Loss: 0.1055
+2026-08-20 05:20:16,563 [INFO] Estimated Epoch: 5.70
+2026-08-20 05:20:16,564 [INFO] [Step 6500] Loss: 0.0801
+2026-08-20 05:21:07,986 [INFO] Estimated Epoch: 5.72
+2026-08-20 05:21:07,987 [INFO] [Step 6520] Loss: 0.1064
+2026-08-20 05:21:59,532 [INFO] Estimated Epoch: 5.74
+2026-08-20 05:21:59,533 [INFO] [Step 6540] Loss: 0.1006
+2026-08-20 05:22:50,995 [INFO] Estimated Epoch: 5.75
+2026-08-20 05:22:50,996 [INFO] [Step 6560] Loss: 0.1064
+2026-08-20 05:23:24,007 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:23:43,268 [INFO] Estimated Epoch: 5.77
+2026-08-20 05:23:43,269 [INFO] [Step 6580] Loss: 0.0898
+2026-08-20 05:24:33,308 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:24:35,022 [INFO] Estimated Epoch: 5.79
+2026-08-20 05:24:35,023 [INFO] [Step 6600] Loss: 0.0801
+2026-08-20 05:25:26,599 [INFO] Estimated Epoch: 5.81
+2026-08-20 05:25:26,600 [INFO] [Step 6620] Loss: 0.0918
+2026-08-20 05:26:18,245 [INFO] Estimated Epoch: 5.82
+2026-08-20 05:26:18,245 [INFO] [Step 6640] Loss: 0.1011
+2026-08-20 05:27:09,771 [INFO] Estimated Epoch: 5.84
+2026-08-20 05:27:09,771 [INFO] [Step 6660] Loss: 0.0669
+2026-08-20 05:28:01,288 [INFO] Estimated Epoch: 5.86
+2026-08-20 05:28:01,289 [INFO] [Step 6680] Loss: 0.0908
+2026-08-20 05:28:52,732 [INFO] Estimated Epoch: 5.88
+2026-08-20 05:28:52,733 [INFO] [Step 6700] Loss: 0.1035
+2026-08-20 05:29:44,810 [INFO] Estimated Epoch: 5.89
+2026-08-20 05:29:44,810 [INFO] [Step 6720] Loss: 0.0806
+2026-08-20 05:30:36,646 [INFO] Estimated Epoch: 5.91
+2026-08-20 05:30:36,646 [INFO] [Step 6740] Loss: 0.1445
+2026-08-20 05:31:28,571 [INFO] Estimated Epoch: 5.93
+2026-08-20 05:31:28,571 [INFO] [Step 6760] Loss: 0.0723
+2026-08-20 05:32:20,013 [INFO] Estimated Epoch: 5.95
+2026-08-20 05:32:20,013 [INFO] [Step 6780] Loss: 0.0767
+2026-08-20 05:33:11,538 [INFO] Estimated Epoch: 5.96
+2026-08-20 05:33:11,539 [INFO] [Step 6800] Loss: 0.0845
+2026-08-20 05:34:03,296 [INFO] Estimated Epoch: 5.98
+2026-08-20 05:34:03,297 [INFO] [Step 6820] Loss: 0.0981
+2026-08-20 05:34:55,936 [INFO] Estimated Epoch: 6.00
+2026-08-20 05:34:55,938 [INFO] [Step 6840] Loss: 0.1240
+2026-08-20 05:35:47,813 [INFO] Estimated Epoch: 6.02
+2026-08-20 05:35:47,814 [INFO] [Step 6860] Loss: 0.1240
+2026-08-20 05:36:39,463 [INFO] Estimated Epoch: 6.04
+2026-08-20 05:36:39,463 [INFO] [Step 6880] Loss: 0.1729
+2026-08-20 05:37:31,102 [INFO] Estimated Epoch: 6.05
+2026-08-20 05:37:31,102 [INFO] [Step 6900] Loss: 0.0781
+2026-08-20 05:38:22,812 [INFO] Estimated Epoch: 6.07
+2026-08-20 05:38:22,812 [INFO] [Step 6920] Loss: 0.0957
+2026-08-20 05:39:14,613 [INFO] Estimated Epoch: 6.09
+2026-08-20 05:39:14,613 [INFO] [Step 6940] Loss: 0.1758
+2026-08-20 05:40:06,355 [INFO] Estimated Epoch: 6.11
+2026-08-20 05:40:06,355 [INFO] [Step 6960] Loss: 0.1016
+2026-08-20 05:40:57,804 [INFO] Estimated Epoch: 6.12
+2026-08-20 05:40:57,805 [INFO] [Step 6980] Loss: 0.0608
+2026-08-20 05:41:17,470 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:41:49,787 [INFO] Estimated Epoch: 6.14
+2026-08-20 05:41:49,788 [INFO] [Step 7000] Loss: 0.0840
+2026-08-20 05:42:41,252 [INFO] Estimated Epoch: 6.16
+2026-08-20 05:42:41,253 [INFO] [Step 7020] Loss: 0.1094
+2026-08-20 05:43:32,930 [INFO] Estimated Epoch: 6.18
+2026-08-20 05:43:32,931 [INFO] [Step 7040] Loss: 0.0859
+2026-08-20 05:44:24,402 [INFO] Estimated Epoch: 6.19
+2026-08-20 05:44:24,403 [INFO] [Step 7060] Loss: 0.0947
+2026-08-20 05:44:27,533 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:45:16,133 [INFO] Estimated Epoch: 6.21
+2026-08-20 05:45:16,134 [INFO] [Step 7080] Loss: 0.1172
+2026-08-20 05:46:07,599 [INFO] Estimated Epoch: 6.23
+2026-08-20 05:46:07,600 [INFO] [Step 7100] Loss: 0.0981
+2026-08-20 05:46:59,164 [INFO] Estimated Epoch: 6.25
+2026-08-20 05:46:59,165 [INFO] [Step 7120] Loss: 0.0918
+2026-08-20 05:47:51,175 [INFO] Estimated Epoch: 6.26
+2026-08-20 05:47:51,176 [INFO] [Step 7140] Loss: 0.1074
+2026-08-20 05:48:17,961 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:48:42,969 [INFO] Estimated Epoch: 6.28
+2026-08-20 05:48:42,969 [INFO] [Step 7160] Loss: 0.1006
+2026-08-20 05:49:34,513 [INFO] Estimated Epoch: 6.30
+2026-08-20 05:49:34,513 [INFO] [Step 7180] Loss: 0.0679
+2026-08-20 05:50:25,944 [INFO] Estimated Epoch: 6.32
+2026-08-20 05:50:25,944 [INFO] [Step 7200] Loss: 0.0786
+2026-08-20 05:51:17,571 [INFO] Estimated Epoch: 6.33
+2026-08-20 05:51:17,571 [INFO] [Step 7220] Loss: 0.1069
+2026-08-20 05:52:09,135 [INFO] Estimated Epoch: 6.35
+2026-08-20 05:52:09,135 [INFO] [Step 7240] Loss: 0.0713
+2026-08-20 05:53:00,783 [INFO] Estimated Epoch: 6.37
+2026-08-20 05:53:00,783 [INFO] [Step 7260] Loss: 0.0996
+2026-08-20 05:53:24,737 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:53:52,707 [INFO] Estimated Epoch: 6.39
+2026-08-20 05:53:52,708 [INFO] [Step 7280] Loss: 0.1084
+2026-08-20 05:54:44,137 [INFO] Estimated Epoch: 6.40
+2026-08-20 05:54:44,138 [INFO] [Step 7300] Loss: 0.1074
+2026-08-20 05:55:20,965 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:55:35,651 [INFO] Estimated Epoch: 6.42
+2026-08-20 05:55:35,651 [INFO] [Step 7320] Loss: 0.1289
+2026-08-20 05:56:27,038 [INFO] Estimated Epoch: 6.44
+2026-08-20 05:56:27,039 [INFO] [Step 7340] Loss: 0.1328
+2026-08-20 05:56:34,823 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best exists. Removing before overwrite.
+2026-08-20 05:56:38,350 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best
+2026-08-20 05:56:38,372 [INFO] Saved best checkpoint at step 7343 with loss 0.047607
+2026-08-20 05:57:22,222 [INFO] Estimated Epoch: 6.46
+2026-08-20 05:57:22,223 [INFO] [Step 7360] Loss: 0.1040
+2026-08-20 05:58:13,901 [INFO] Estimated Epoch: 6.47
+2026-08-20 05:58:13,902 [INFO] [Step 7380] Loss: 0.0835
+2026-08-20 05:59:05,493 [INFO] Estimated Epoch: 6.49
+2026-08-20 05:59:05,493 [INFO] [Step 7400] Loss: 0.1162
+2026-08-20 05:59:47,629 [INFO] Warning: Image list is empty, using zero tensor for padding
+2026-08-20 05:59:57,362 [INFO] Estimated Epoch: 6.51
+2026-08-20 05:59:57,363 [INFO] [Step 7420] Loss: 0.1099
+2026-08-20 06:00:48,919 [INFO] Estimated Epoch: 6.53
+2026-08-20 06:00:48,919 [INFO] [Step 7440] Loss: 0.0654
+2026-08-20 06:01:40,459 [INFO] Estimated Epoch: 6.54
+2026-08-20 06:01:40,459 [INFO] [Step 7460] Loss: 0.1128
+2026-08-20 06:02:32,162 [INFO] Estimated Epoch: 6.56
+2026-08-20 06:02:32,162 [INFO] [Step 7480] Loss: 0.1768
+2026-08-20 06:03:24,699 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_7500
+2026-08-20 06:03:26,363 [WARNING] Checkpoint directory /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_final exists. Removing before overwrite.
+2026-08-20 06:03:29,232 [INFO] [Rank 0] Saved checkpoint to /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_final
+2026-08-20 06:03:29,232 [INFO] Final model saved to step_final/
+2026-08-20 06:03:29,233 [INFO] Best checkpoint saved to step_best/ with loss 0.047607
