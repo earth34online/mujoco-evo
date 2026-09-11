@@ -4,17 +4,17 @@ import argparse
 import sys
 import os
 import asyncio
+import base64
+import io
 import websockets
 import numpy as np
-import cv2
 import json
 import torch
 from PIL import Image
-from torchvision import transforms
-from fvcore.nn import FlopCountAnalysis
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from scripts.Evo1 import EVO1
+from model.lora import merge_lora_weights
 
 
 class Normalizer:
@@ -110,18 +110,30 @@ def load_model_and_normalizer(ckpt_dir):
 
     config["finetune_vlm"] = False
     config["finetune_action_head"] = False
-    config["num_inference_timesteps"] = 32
+    # 保持 Evo-1 原始评估精度设置；π-MEM 只改变观测记忆，不减少流匹配求解步数。
+    config["num_inference_timesteps"] = 50
+    config["device"] = "cuda"
 
     print("Building EVO_1 module...", flush=True)
     model = EVO1(config).eval()
     ckpt_path = os.path.join(ckpt_dir, "mp_rank_00_model_states.pt")
 
     print(f"Loading checkpoint: {ckpt_path}", flush=True)
-    checkpoint = torch.load(ckpt_path, map_location="cpu")
+    try:
+        checkpoint = torch.load(
+            ckpt_path, map_location="cpu", mmap=True, weights_only=False
+        )
+    except TypeError:
+        checkpoint = torch.load(ckpt_path, map_location="cpu")
     print("Applying checkpoint weights...", flush=True)
     model.load_state_dict(checkpoint["module"], strict=True)
-    print("Moving model to CUDA...", flush=True)
-    model = model.to("cuda")
+    if bool(config.get("use_lora", False)):
+        merged_count = merge_lora_weights(model)
+        print(
+            f"Merged LoRA weights into {merged_count} modules for inference.",
+            flush=True,
+        )
+    print("Model is ready on CUDA.", flush=True)
 
     print("Loading normalizer...", flush=True)
     normalizer = Normalizer(stats)
@@ -130,41 +142,96 @@ def load_model_and_normalizer(ckpt_dir):
 
 def decode_image_from_list(img_list, image_size=448):
     img_array = np.asarray(img_list, dtype=np.uint8, )
-    rgb = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB, )
-    pil = Image.fromarray(rgb)
+    if img_array.ndim != 3 or img_array.shape[2] != 3:
+        raise ValueError(
+            f"Legacy list image must have shape [H,W,3], got {img_array.shape}"
+        )
+    # MuJoCo Renderer and the client both expose RGB.  The old BGR conversion
+    # silently swapped red and blue for legacy requests.
+    pil = Image.fromarray(img_array, mode="RGB")
 
-    transform = transforms.Compose([
-        transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC, ),
-        transforms.ToTensor(),
-    ])
+    return pil.resize((image_size, image_size), Image.Resampling.BICUBIC)
 
-    return transform(pil).to("cuda")
+
+def decode_jpeg_base64(encoded: str, image_size=448):
+    try:
+        payload = base64.b64decode(encoded, validate=True)
+        with Image.open(io.BytesIO(payload)) as image:
+            return image.convert("RGB").resize(
+                (image_size, image_size), Image.Resampling.BICUBIC
+            )
+    except Exception as exc:
+        raise ValueError("Invalid base64 JPEG observation") from exc
+
+
+def decode_memory_images(data: dict, image_size: int):
+    """Decode the compressed temporal schema or the legacy one-frame schema."""
+    if "memory_images" in data:
+        if data.get("image_encoding") != "jpeg_base64":
+            raise ValueError(
+                "memory_images currently requires image_encoding='jpeg_base64'"
+            )
+        encoded_grid = data["memory_images"]
+        if not encoded_grid or not encoded_grid[0]:
+            raise ValueError("memory_images must have shape [T][V]")
+        num_views = len(encoded_grid[0])
+        if any(len(frame) != num_views for frame in encoded_grid):
+            raise ValueError("Every memory timestep must have the same view count")
+        return [
+            [decode_jpeg_base64(image, image_size) for image in frame]
+            for frame in encoded_grid
+        ]
+
+    if "image" not in data:
+        raise ValueError("Request must contain memory_images or legacy image")
+    return [[decode_image_from_list(image, image_size) for image in data["image"]]]
 
 
 def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
     device = "cuda"
     image_size = int(model.config.get("image_size", 448))
 
-    images = [decode_image_from_list(img, image_size=image_size) for img in data["image"]]
-    assert len(images) == 3, "Must provide exactly 3 images."
-    for img in images:
-        assert img.shape == (3, image_size, image_size), f"image_size must be (3,{image_size},{image_size})"
+    images = decode_memory_images(data, image_size=image_size)
+    num_frames = len(images)
+    num_views = len(images[0])
+    max_views = int(model.config.get("max_views", 3))
+    if num_views < 1 or num_views > max_views:
+        raise ValueError(
+            f"Expected 1..{max_views} physical camera views, got {num_views}"
+        )
+    history_mask = torch.as_tensor(
+        data.get("history_mask", [1] * num_frames),
+        dtype=torch.bool,
+        device=device,
+    )
+    if history_mask.shape != (num_frames,):
+        raise ValueError(
+            f"Expected history_mask shape {(num_frames,)}, got {tuple(history_mask.shape)}"
+        )
+    if not bool(history_mask[-1]):
+        raise ValueError("Current memory frame must be valid")
 
     norm_state = None
     if use_state:
         state = torch.tensor(data["state"], dtype=torch.float32, device=device)
         if state.ndim == 1:
             state = state.unsqueeze(0)
-        if state.shape != (1, 8):
+        if state.shape != (num_frames, 8):
             raise ValueError(
-                "MuJoCo Panda state must be exactly 8-D robot proprioception "
+                "MuJoCo Panda state history must be [T,8] robot proprioception "
                 "(eef xyz + axis-angle + two finger qpos); got "
                 f"{tuple(state.shape)}"
             )
         norm_state = normalizer.normalize_state(state).to(dtype=torch.float32)
 
     prompt = data["prompt"]
-    image_mask = torch.tensor(data["image_mask"], dtype=torch.int32, device=device)
+    image_mask = torch.tensor(data["image_mask"], dtype=torch.bool, device=device)
+    if image_mask.ndim == 2:
+        image_mask = image_mask[-1]
+    if image_mask.shape != (num_views,):
+        raise ValueError(
+            f"Expected image_mask shape {(num_views,)}, got {tuple(image_mask.shape)}"
+        )
     action_mask = torch.tensor([data["action_mask"]], dtype=torch.int32, device=device)
 
     flow_seed = data.get("flow_seed", None, )
@@ -183,6 +250,7 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
             prompt=prompt,
             state_input=norm_state,
             action_mask=action_mask,
+            history_mask=history_mask,
         )
         action = action.reshape(1, -1, 24)
         action = normalizer.denormalize_action(action[0])

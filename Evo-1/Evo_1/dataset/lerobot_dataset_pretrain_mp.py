@@ -1,6 +1,7 @@
 #use lerobot_dataset_pretrain_mp.py for multithreading load dataset
 import os
 import io
+import hashlib
 import torch
 import random
 import json
@@ -22,6 +23,54 @@ import pickle
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+def select_history_indices(
+    timestamps,
+    current_index: int,
+    memory_frames: int,
+    memory_stride_steps: int = 1,
+    memory_stride_seconds: Union[float, None] = None,
+):
+    """Select oldest-to-current history indices without crossing an episode.
+
+    Invalid left context is clamped to the first frame and marked false.  When
+    usable timestamps and ``memory_stride_seconds`` are supplied, selection is
+    based on elapsed time; otherwise it uses explicit frame strides.
+    """
+    if memory_frames < 1:
+        raise ValueError("memory_frames must be at least 1")
+    if memory_stride_steps < 1:
+        raise ValueError("memory_stride_steps must be at least 1")
+    if current_index < 0 or current_index >= len(timestamps):
+        raise IndexError(f"current_index {current_index} is outside the episode")
+
+    timestamps = np.asarray(timestamps, dtype=np.float64)
+    use_seconds = (
+        memory_stride_seconds is not None
+        and float(memory_stride_seconds) > 0
+        and np.isfinite(timestamps[: current_index + 1]).all()
+        and np.all(np.diff(timestamps[: current_index + 1]) >= 0)
+    )
+    indices, valid = [], []
+    for slot in range(memory_frames):
+        lag = memory_frames - 1 - slot
+        if use_seconds:
+            target_time = timestamps[current_index] - lag * float(memory_stride_seconds)
+            is_valid = target_time >= timestamps[0] - 1e-8
+            index = int(
+                np.searchsorted(
+                    timestamps[: current_index + 1], target_time + 1e-8, side="right"
+                ) - 1
+            )
+        else:
+            raw_index = current_index - lag * memory_stride_steps
+            is_valid = raw_index >= 0
+            index = raw_index
+        indices.append(max(0, min(current_index, index)))
+        valid.append(bool(is_valid))
+    valid[-1] = True
+    return indices, valid
 
 def compute_lerobot_normalization_stats_from_minmax(jsonl_path):
     state_mins, state_maxs = [], []
@@ -67,7 +116,20 @@ def merge_lerobot_stats(stats_list: List[Dict[str, Dict[str, List[float]]]]) -> 
 
 
 def _process_parquet_file_worker(args):
-    parquet_path, arm_name, dataset_name, dataset_config, dataset_path, task_mapping, action_horizon, max_samples_per_file, cache_dir = args
+    (
+        parquet_path,
+        arm_name,
+        dataset_name,
+        dataset_config,
+        dataset_path,
+        task_mapping,
+        action_horizon,
+        max_samples_per_file,
+        cache_dir,
+        memory_frames,
+        memory_stride_steps,
+        memory_stride_seconds,
+    ) = args
     
     try:
         view_map = dataset_config.get('view_map', None)
@@ -76,22 +138,31 @@ def _process_parquet_file_worker(args):
             default_keys = ["image_1", "image_2", "image_3"]
             view_map = {key: f"observation.images.{key}" for key in default_keys}
 
-        df = pd.read_parquet(parquet_path)
+        source_df = pd.read_parquet(parquet_path)
+        if source_df.empty:
+            raise ValueError("episode parquet is empty")
 
         if action_horizon < 1:
             raise ValueError("action_horizon must be at least 1")
 
+        sample_count = len(source_df)
+        if max_samples_per_file is not None:
+            sample_count = min(sample_count, int(max_samples_per_file))
+
+        if "timestamp" in source_df:
+            source_timestamps = source_df["timestamp"].to_numpy(dtype=np.float64)
+        else:
+            source_timestamps = np.arange(len(source_df), dtype=np.float64)
+
+        df = source_df
         last_row = df.iloc[-1:]
         padding_count = action_horizon - 1
         if padding_count:
             padding_rows = pd.concat([last_row] * padding_count, ignore_index=True)
             df = pd.concat([df, padding_rows], ignore_index=True)
 
-        if max_samples_per_file is not None:
-            df = df.head(max_samples_per_file)
-
         episode_files = []
-        for i in range(len(df) - action_horizon + 1): 
+        for i in range(sample_count):
             start_idx = i
             end_idx = i + action_horizon
             
@@ -107,6 +178,14 @@ def _process_parquet_file_worker(args):
             
             logging.info(f"build {cache_filename}")
             sub_df = df.iloc[i: i + action_horizon]
+            history_indices, history_valid = select_history_indices(
+                source_timestamps,
+                current_index=i,
+                memory_frames=memory_frames,
+                memory_stride_steps=memory_stride_steps,
+                memory_stride_seconds=memory_stride_seconds,
+            )
+            history_df = source_df.iloc[history_indices]
             video_paths = {}
             base_video_path = dataset_path / "videos" / parquet_path.parent.name
 
@@ -130,10 +209,14 @@ def _process_parquet_file_worker(args):
                 "arm_key": arm_name,
                 "dataset_key": dataset_name,
                 "prompt": prompt,
-                "state": sub_df.iloc[0].get("observation.state", None),
+                "states": [
+                    row.get("observation.state", None)
+                    for _, row in history_df.iterrows()
+                ],
                 "action": [row["action"] for _, row in sub_df.iterrows()],
                 "video_paths": video_paths,
-                "timestamp": sub_df.iloc[0].get("timestamp", None),
+                "timestamps": source_timestamps[history_indices].tolist(),
+                "history_mask": history_valid,
             }
             
             cache_subdir.mkdir(parents=True, exist_ok=True)
@@ -160,7 +243,10 @@ class LeRobotDataset(Dataset):
         binarize_gripper: bool = False,
         cache_dir: Union[str, Path] = None,  
         use_augmentation: bool = False,
-        overwrite_horizon_cache: bool = True,
+        overwrite_horizon_cache: bool = False,
+        memory_frames: int = 6,
+        memory_stride_steps: int = 5,
+        memory_stride_seconds: Union[float, None] = 1.0,
     ):
         self.config = config
 
@@ -180,15 +266,31 @@ class LeRobotDataset(Dataset):
         self.max_samples_per_file = max_samples_per_file
         self.binarize_gripper = binarize_gripper
         self.use_augmentation = use_augmentation
+        self.memory_frames = int(memory_frames)
+        self.memory_stride_steps = int(memory_stride_steps)
+        self.memory_stride_seconds = memory_stride_seconds
+        if self.memory_frames < 1:
+            raise ValueError("memory_frames must be at least 1")
+        if self.memory_stride_steps < 1:
+            raise ValueError("memory_stride_steps must be at least 1")
+
+        cache_name = (
+            f"horizon_{action_horizon}_mem_{self.memory_frames}_"
+            f"stride_{self.memory_stride_steps}"
+        )
+        if self.memory_stride_seconds is not None:
+            seconds_tag = str(float(self.memory_stride_seconds)).replace(".", "p")
+            cache_name += f"_seconds_{seconds_tag}"
+        self.cache_name = cache_name
 
         if cache_dir is None:
             self.cache_dir = (
-                Path(__file__).resolve().parents[1] / "training_data_cache" / f"horizon_{action_horizon}"
+                Path(__file__).resolve().parents[1] / "training_data_cache" / cache_name
             )
         else:
             self.cache_dir = Path(cache_dir)
         if overwrite_horizon_cache and self.cache_dir.exists():
-            self._overwrite_horizon_cache(action_horizon)
+            self._overwrite_horizon_cache(cache_name)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         self.data = []  
@@ -201,6 +303,7 @@ class LeRobotDataset(Dataset):
             self.video_backend_kwargs = {"ctx": "cpu"}  
 
         self._load_metadata()
+        self.source_signature = self._compute_source_signature()
         self._load_trajectories()
 
         self.basic_transform = T.Compose([
@@ -215,7 +318,7 @@ class LeRobotDataset(Dataset):
             T.ToTensor()
         ])
 
-    def _overwrite_horizon_cache(self, action_horizon: int):
+    def _overwrite_horizon_cache(self, expected_name: str):
         """Clear the generated cache for the current action horizon.
 
         This cache contains derived .pkl windows built from parquet/video data.
@@ -223,7 +326,6 @@ class LeRobotDataset(Dataset):
         is recollected in place; otherwise training can silently reuse stale
         horizon_14 samples from an older expert policy.
         """
-        expected_name = f"horizon_{action_horizon}"
         cache_path = self.cache_dir.resolve()
         if cache_path.name != expected_name:
             raise ValueError(
@@ -306,10 +408,97 @@ class LeRobotDataset(Dataset):
                         
             self.arm2stats_dict[arm_name] = merged_states
 
+    def _compute_source_signature(self) -> str:
+        """Fingerprint source metadata, parquet and videos using cheap stat data."""
+        digest = hashlib.sha256()
+        for arm_name, arm_config in sorted(self.config["data_groups"].items()):
+            for dataset_name, dataset_config in sorted(arm_config.items()):
+                dataset_path = Path(dataset_config["path"]).resolve()
+                digest.update(f"{arm_name}/{dataset_name}\n".encode("utf-8"))
+                candidates = []
+                for relative in (
+                    "meta/tasks.jsonl",
+                    "meta/episodes.jsonl",
+                    "meta/episodes_stats.jsonl",
+                ):
+                    path = dataset_path / relative
+                    if path.is_file():
+                        candidates.append(path)
+                candidates.extend(dataset_path.glob("data/*/*.parquet"))
+                candidates.extend(dataset_path.glob("videos/*/*/*.mp4"))
+                for path in sorted(candidates, key=lambda value: str(value)):
+                    stat = path.stat()
+                    relative = path.relative_to(dataset_path)
+                    digest.update(
+                        f"{relative}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode(
+                            "utf-8"
+                        )
+                    )
+        return digest.hexdigest()
+
+    def _write_cache_index(self) -> None:
+        relative_files = [
+            str(Path(path).resolve().relative_to(self.cache_dir.resolve()))
+            for path in self.data
+        ]
+        index_path = self.cache_dir / "cache_index.json"
+        temporary_index = index_path.with_suffix(".json.tmp")
+        with open(temporary_index, "w", encoding="utf-8") as index_file:
+            json.dump(
+                {
+                    "version": 2,
+                    "source_signature": self.source_signature,
+                    "files": relative_files,
+                },
+                index_file,
+                ensure_ascii=False,
+            )
+        os.replace(temporary_index, index_path)
+
 
     def _load_trajectories(self):
-
-        
+        index_path = self.cache_dir / "cache_index.json"
+        if index_path.is_file():
+            try:
+                with open(index_path, "r", encoding="utf-8") as index_file:
+                    index_data = json.load(index_file)
+                version = index_data.get("version")
+                if version not in (1, 2):
+                    raise ValueError("unsupported cache index version")
+                relative_files = index_data["files"]
+                self.data = [self.cache_dir / value for value in relative_files]
+                if not self.data:
+                    raise ValueError("cache index is empty")
+                missing_files = [path for path in self.data if not path.is_file()]
+                if missing_files:
+                    raise ValueError(
+                        f"cache index references {len(missing_files)} missing files"
+                    )
+                if (
+                    version == 2
+                    and index_data.get("source_signature") != self.source_signature
+                ):
+                    raise ValueError("source dataset fingerprint changed")
+                if version == 1:
+                    # The existing cache was already validated against the full
+                    # dataset by check_dataset.py.  Stamp it once so subsequent
+                    # source changes are detected without an unconditional rebuild.
+                    self._write_cache_index()
+                print(
+                    f"Loaded {len(self.data)} cached windows from {index_path}"
+                )
+                return
+            except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                logging.warning("Rebuilding invalid cache index %s: %s", index_path, exc)
+                self._overwrite_horizon_cache(self.cache_name)
+                self.cache_dir.mkdir(parents=True, exist_ok=True)
+                self.data = []
+        elif any(self.cache_dir.rglob("*.pkl")):
+            logging.warning(
+                "Rebuilding unindexed derived cache under %s", self.cache_dir
+            )
+            self._overwrite_horizon_cache(self.cache_name)
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         parquet_process_units = []
         for arm_name, arm_config in self.config['data_groups'].items():
@@ -332,11 +521,18 @@ class LeRobotDataset(Dataset):
                         task_mapping,  
                         self.action_horizon,
                         self.max_samples_per_file,
-                        self.cache_dir  
+                        self.cache_dir,
+                        self.memory_frames,
+                        self.memory_stride_steps,
+                        self.memory_stride_seconds,
                     ))
 
        
         print(f"total {len(parquet_process_units)} parquet files to process")
+        if not parquet_process_units:
+            raise FileNotFoundError(
+                "No episode parquet files matched data/*/*.parquet in the configured datasets"
+            )
         
    
         num_processes = min(16, len(parquet_process_units))
@@ -362,6 +558,7 @@ class LeRobotDataset(Dataset):
                     pbar.update(1)
         
         print(f"Data processing completed, total {len(self.data)} files generated")
+        self._write_cache_index()
 
 
     def _pad_tensor(
@@ -388,10 +585,11 @@ class LeRobotDataset(Dataset):
         return padded_tensor, mask
 
 
-    def _load_video_frame(self, video_paths: dict, timestamp: float) -> List[Image.Image]:
-    
-        frames = []
-        for view, path in video_paths.items():
+    def _load_video_frames(self, video_paths: dict, timestamps) -> List[List[Image.Image]]:
+        """Decode all requested timestamps while opening each camera video once."""
+        timestamps = [float(value) for value in timestamps]
+        frames = [[None for _ in video_paths] for _ in timestamps]
+        for view_index, (view, path) in enumerate(video_paths.items()):
             if not os.path.exists(path):
                 raise FileNotFoundError(f"video file not found: {path}")
             
@@ -412,16 +610,17 @@ class LeRobotDataset(Dataset):
                     if fps is None or np.isnan(fps):
                         raise ValueError(f"Unable to read FPS, video may be corrupted: {path}")
 
-                    frame_idx = int(timestamp * fps)
-                    logging.info(f"Reading video {path} frame index: {frame_idx} (timestamp: {timestamp}, fps: {fps})")
-                    if frame_idx >= len(vr):
-                        logging.info(f"the requested frame index exceeds video length: frame_idx={frame_idx}, len={len(vr)}. Using last frame instead.")
-                        
-                        frame_idx = len(vr) - 1
-
-                    frame = vr[frame_idx].asnumpy()
-                    frames.append(Image.fromarray(frame))
-                    logging.info(f"Successfully read video frame: {path}, frame index: {frame_idx}")
+                    for time_index, timestamp in enumerate(timestamps):
+                        # Timestamps generated from decimal control periods can
+                        # land just below an integer frame index in binary
+                        # floating point.  Nearest-frame selection avoids a
+                        # systematic one-frame shift into the past.
+                        frame_idx = min(
+                            max(int(round(timestamp * fps)), 0), len(vr) - 1
+                        )
+                        frames[time_index][view_index] = Image.fromarray(
+                            vr[frame_idx].asnumpy()
+                        )
 
                 except Exception as e:
                     logging.info(f"Failed to read video file: {path}")
@@ -432,10 +631,22 @@ class LeRobotDataset(Dataset):
                 import av
                 try:
                     with av.open(path) as container:
+                        target_index = 0
+                        last_image = None
                         for frame in container.decode(video=0):
-                            if frame.time + 1e-6 >= timestamp:
-                                frames.append(Image.fromarray(frame.to_ndarray(format='rgb24')))
-                                break
+                            last_image = Image.fromarray(frame.to_ndarray(format='rgb24'))
+                            frame_time = float(frame.time or 0.0)
+                            while (
+                                target_index < len(timestamps)
+                                and frame_time + 1e-6 >= timestamps[target_index]
+                            ):
+                                frames[target_index][view_index] = last_image.copy()
+                                target_index += 1
+                        if last_image is None:
+                            raise ValueError(f"Video contains no decodable frames: {path}")
+                        while target_index < len(timestamps):
+                            frames[target_index][view_index] = last_image.copy()
+                            target_index += 1
 
                 except Exception as e:
                     print(f"Failed to read video file: {path}")
@@ -444,6 +655,8 @@ class LeRobotDataset(Dataset):
             else:
                 raise NotImplementedError(f"Video backend {self.video_backend} not implemented")
         
+        if any(image is None for timestep in frames for image in timestep):
+            raise ValueError("Video decoder did not fill every requested history frame")
         return frames
 
     def __len__(self):
@@ -457,9 +670,9 @@ class LeRobotDataset(Dataset):
             with open(cache_filepath, 'rb') as f:
                 item = pickle.load(f)
         except Exception as e:
-            logging.info(f"cannot load cache file {cache_filepath}: {str(e)}")
-            
-            return self[random.randint(0, len(self.data)-1)]
+            raise RuntimeError(
+                f"Cannot load dataset cache file {cache_filepath}"
+            ) from e
  
         
         arm_key = item["arm_key"]
@@ -468,44 +681,41 @@ class LeRobotDataset(Dataset):
 
  
         try:
-            frames = self._load_video_frame(item["video_paths"], item["timestamp"])
+            frames = self._load_video_frames(item["video_paths"], item["timestamps"])
         except Exception as e:
-      
-            logging.info(f"skipping sample that cannot decode video {self.data[idx]}: {e}")
-            return self[random.randint(0, len(self.data)-1)]  
+            raise RuntimeError(
+                f"Cannot decode video frames for dataset sample {self.data[idx]}"
+            ) from e
 
-        images = frames
+        apply_augmentation = self.use_augmentation and random.random() < 0.5
+        augmentation_seed = random.randrange(2**31)
+        images = []
+        for timestep_frames in frames:
+            transformed_timestep = []
+            for image in timestep_frames:
+                if apply_augmentation:
+                    # Reset the transform RNG so crop/rotation/color jitter are
+                    # identical across time and cannot manufacture fake motion.
+                    with torch.random.fork_rng(devices=[]):
+                        torch.manual_seed(augmentation_seed)
+                        transformed = self.aug_transform(image)
+                else:
+                    transformed = self.basic_transform(image)
+                transformed_timestep.append(transformed)
+            images.append(transformed_timestep)
 
-
-        if self.use_augmentation:
-           
-            images = [
-                self.aug_transform(img) if random.random() < 0.5 else self.basic_transform(img)
-                for img in images
-            ]
-        else:
-         
-            images = [self.basic_transform(img) for img in images]
-
- 
-        num_real_views = len(images)
+        num_real_views = len(images[-1])
         image_mask = torch.zeros(self.max_views, dtype=torch.bool)
         image_mask[:num_real_views] = True 
 
-
-        while len(images) < self.max_views:
-           
-            if len(images) == 0:
-                dummy_image = torch.zeros(3, 448, 448)
-                logging.info("Warning: Image list is empty, using zero tensor for padding")
-            else:
-                dummy_image = torch.zeros_like(images[0]) 
-            images.append(dummy_image)
-
-        images = torch.stack(images)
+        for timestep_images in images:
+            while len(timestep_images) < self.max_views:
+                dummy_image = torch.zeros_like(timestep_images[0])
+                timestep_images.append(dummy_image)
+        images = torch.stack([torch.stack(timestep) for timestep in images])
 
 
-        if item["state"] is None:
+        if any(state is None for state in item["states"]):
             raise ValueError("missing observation.state, please check data integrity")
         
     
@@ -518,7 +728,7 @@ class LeRobotDataset(Dataset):
 
         
 
-        state = torch.tensor(item["state"], dtype=torch.float32)
+        state = torch.tensor(np.stack(item["states"]), dtype=torch.float32)
         device = state.device
         state_min = torch.tensor(norm_stats["observation.state"]["min"], dtype=torch.float32, device=device)
         state_max = torch.tensor(norm_stats["observation.state"]["max"], dtype=torch.float32, device=device)
@@ -558,6 +768,7 @@ class LeRobotDataset(Dataset):
             "prompt": prompt,
             "state": state_padded.to(dtype=torch.bfloat16),
             "state_mask": state_mask,
+            "history_mask": torch.tensor(item["history_mask"], dtype=torch.bool),
             "action": action_padded.to(dtype=torch.bfloat16),
             "action_mask": action_mask,
             "embodiment_id": torch.tensor(embodiment_id, dtype=torch.long)

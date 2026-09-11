@@ -1,14 +1,22 @@
 import sys
 import os
 import math
+from contextlib import nullcontext
 from torch import amp
+
+# Keep DeepSpeed JIT artifacts inside the active Python environment.  This
+# avoids depending on user-global cache paths or shell-wide environment
+# variables while allowing CPUAdam to be reused across training launches.
+os.environ.setdefault(
+    "TORCH_EXTENSIONS_DIR",
+    os.path.join(sys.prefix, "var", "torch_extensions"),
+)
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import time
-import wandb
-import swanlab
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 from Evo1 import EVO1
@@ -25,6 +33,8 @@ from torch.optim import AdamW
 import warnings
 
 accelerator = Accelerator()
+wandb = None
+swanlab = None
 
 def get_with_warning(config: dict, key: str, default):
     if key in config:
@@ -73,6 +83,7 @@ def custom_collate_fn(batch):
     action_mask = torch.stack([item["action_mask"] for item in batch], dim=0)
     image_masks = torch.stack([item["image_mask"] for item in batch], dim=0)
     state_mask = torch.stack([item["state_mask"] for item in batch], dim=0)
+    history_mask = torch.stack([item["history_mask"] for item in batch], dim=0)
     embodiment_ids = torch.stack([item["embodiment_id"] for item in batch], dim=0)
 
     return {
@@ -82,6 +93,7 @@ def custom_collate_fn(batch):
         "actions": actions,
         "action_mask": action_mask,
         "state_mask": state_mask,
+        "history_mask": history_mask,
         "image_masks": image_masks,
         "embodiment_ids": embodiment_ids
     }
@@ -115,10 +127,14 @@ def setup_logging(log_dir: str) -> str:
     return log_path
 
 def init_wandb(config: dict, accelerator: Accelerator):
+    global wandb
 
     if accelerator.is_main_process:
         if get_with_warning(config, "disable_wandb", False):
-            os.environ["WANDB_MODE"] = "disabled"
+            return
+        import wandb as wandb_module
+
+        wandb = wandb_module
 
         wandb.init(
             project=get_with_warning(config, "wandb_project", "default_run"),
@@ -132,8 +148,14 @@ def init_wandb(config: dict, accelerator: Accelerator):
         wandb.define_metric("*", step_metric="step")
 
 def init_swanlab(config: dict, accelerator: Accelerator):
+    global swanlab
 
     if accelerator is None or accelerator.is_main_process:
+        if get_with_warning(config, "disable_swanlab", False):
+            return
+        import swanlab as swanlab_module
+
+        swanlab = swanlab_module
         swanlab.init(
             project=config.get("wandb_project", "default_run"),
             name=config.get("run_name", "default_run"),
@@ -147,7 +169,10 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
     horizon = get_with_warning(config, "horizon", 14)
     binarize_gripper = get_with_warning(config, "binarize_gripper", False)
     use_augmentation = get_with_warning(config, "use_augmentation", False)
-    overwrite_horizon_cache = get_with_warning(config, "overwrite_horizon_cache", True)
+    overwrite_horizon_cache = get_with_warning(config, "overwrite_horizon_cache", False)
+    memory_frames = get_with_warning(config, "memory_frames", 6)
+    memory_stride_steps = get_with_warning(config, "memory_stride_steps", 5)
+    memory_stride_seconds = get_with_warning(config, "memory_stride_seconds", 1.0)
     if dataset_type == "lerobot":
         from dataset.lerobot_dataset_pretrain_mp import LeRobotDataset 
         import yaml
@@ -162,6 +187,9 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
             binarize_gripper=binarize_gripper,
             use_augmentation=use_augmentation,
             overwrite_horizon_cache=overwrite_horizon_cache,
+            memory_frames=memory_frames,
+            memory_stride_steps=memory_stride_steps,
+            memory_stride_seconds=memory_stride_seconds,
         )
     else:
         raise ValueError(f"Unknown dataset_type: {dataset_type}")
@@ -192,29 +220,28 @@ def prepare_dataloader(dataset, config: dict) -> DataLoader:
 def check_numerical_stability(step: int, **named_tensors) -> bool:
     for name, tensor in named_tensors.items():
         if not torch.isfinite(tensor).all():
-            logging.info(f"[Step {step}] Non-finite detected in {name}")
-            return False
+            raise FloatingPointError(
+                f"[Step {step}] Non-finite value detected in {name}"
+            )
     return True
 
-def log_training_step(step, loss, total_norm, clipped_norm, scheduler, dataloader, accelerator):
+def log_training_step(
+    step, loss, total_norm, clipped_norm, scheduler, dataloader, accelerator, config
+):
     current_epoch = step / len(dataloader)
     if accelerator is None or accelerator.is_main_process:
         logging.info(f"Estimated Epoch: {current_epoch:.2f}")
         logging.info(f"[Step {step}] Loss: {loss.item():.4f}")
-        wandb.log({
+        metrics = {
             "step": step,
             "loss": loss.item(),
             "current_epoch": current_epoch,
             "learning_rate": scheduler.get_last_lr()[0],
-            
-        })
-        swanlab.log({
-            "step": step,
-            "loss": loss.item(),
-            "current_epoch": current_epoch,
-            "learning_rate": scheduler.get_last_lr()[0],
-    
-        })
+        }
+        if not config.get("disable_wandb", False):
+            wandb.log(metrics)
+        if not config.get("disable_swanlab", False):
+            swanlab.log(metrics)
 
 def _pad_normalization_stats_for_evo1(norm_stats, target_dim=24):
     result = copy.deepcopy(norm_stats)
@@ -297,68 +324,39 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
         logging.info(f"[Rank {accelerator.process_index}] Saved checkpoint to {checkpoint_dir}")
 
 
-def prune_numeric_checkpoints_above_max_steps(save_dir, max_steps, accelerator):
-    """Remove numeric checkpoints that cannot belong to this fresh run.
-
-    A fresh run may intentionally reuse a save directory with a smaller
-    ``max_steps`` value.  DeepSpeed overwrites matching checkpoint tags, but it
-    does not remove larger numeric tags left by the previous run.  Keep all
-    checkpoints at or below the new limit and never touch special tags such as
-    ``step_best`` or ``step_final``.
-    """
-    removed_tags = []
-    if accelerator.is_main_process:
-        save_root = os.path.realpath(save_dir)
-        for entry in os.scandir(save_root):
-            if not entry.is_dir(follow_symlinks=False):
-                continue
-
-            prefix = "step_"
-            if not entry.name.startswith(prefix):
-                continue
-            step_text = entry.name[len(prefix):]
-            if not step_text.isdigit():
-                continue
-            if int(step_text) <= max_steps:
-                continue
-
-            checkpoint_path = os.path.realpath(entry.path)
-            if os.path.dirname(checkpoint_path) != save_root:
-                raise RuntimeError(
-                    "Refusing to remove checkpoint outside save_dir: "
-                    f"{checkpoint_path}"
-                )
-
-            logging.info(
-                "Removing stale checkpoint %s because its step exceeds "
-                "this fresh run's max_steps=%d",
-                checkpoint_path,
-                max_steps,
-            )
-            shutil.rmtree(checkpoint_path)
-            removed_tags.append(entry.name)
-
-    accelerator.wait_for_everyone()
-    return removed_tags
-
-def load_checkpoint_with_deepspeed(model_engine, load_dir, accelerator, tag="step_best", load_optimizer_states=True, resume_pretrain=False):
+def load_checkpoint_with_deepspeed(
+    model_engine,
+    load_dir,
+    accelerator,
+    tag="step_best",
+    load_optimizer_states=True,
+    resume_pretrain=False,
+    allow_missing_lora=False,
+):
     if not hasattr(model_engine, "load_checkpoint"):
         checkpoint_path = os.path.join(load_dir, tag, "mp_rank_00_model_states.pt")
-        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        try:
+            checkpoint = torch.load(
+                checkpoint_path,
+                map_location="cpu",
+                mmap=True,
+                weights_only=False,
+            )
+        except TypeError:
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
         module_state = checkpoint.get("module", checkpoint)
         incompatible = accelerator.unwrap_model(model_engine).load_state_dict(
-            module_state, strict=not resume_pretrain
+            module_state, strict=not allow_missing_lora
         )
-        if resume_pretrain and accelerator.is_main_process:
-            if incompatible.missing_keys:
-                logging.info(
-                    "New parameters initialized for finetuning: %s",
-                    incompatible.missing_keys,
-                )
-            if incompatible.unexpected_keys:
-                logging.info(
-                    "Unused pretrained parameters: %s",
-                    incompatible.unexpected_keys,
+        if allow_missing_lora:
+            invalid_missing = [
+                key for key in incompatible.missing_keys if ".lora_" not in key
+            ]
+            if invalid_missing or incompatible.unexpected_keys:
+                raise RuntimeError(
+                    "基础 checkpoint 与 LoRA 模型存在非适配器键差异："
+                    f"missing={invalid_missing}, "
+                    f"unexpected={incompatible.unexpected_keys}"
                 )
         stored_client_state = checkpoint.get("client_state", {})
         client_state = {
@@ -387,12 +385,22 @@ def load_checkpoint_with_deepspeed(model_engine, load_dir, accelerator, tag="ste
         load_path, client_state = model_engine.load_checkpoint(
             load_dir,
             tag=tag,
-            load_module_strict=True,
+            load_module_strict=not allow_missing_lora,
             load_optimizer_states=load_optimizer_states and not resume_pretrain,
             load_lr_scheduler_states=load_optimizer_states and not resume_pretrain
         )
         if accelerator.is_main_process:
-            logging.info(f"Loaded DeepSpeed checkpoint from {load_dir}/{tag} (including optimizer states)")
+            state_scope = (
+                "including optimizer and scheduler states"
+                if load_optimizer_states and not resume_pretrain
+                else "model weights only"
+            )
+            logging.info(
+                "Loaded DeepSpeed checkpoint from %s/%s (%s)",
+                load_dir,
+                tag,
+                state_scope,
+            )
         return client_state.get("step", 0), client_state
         
     except Exception as e:
@@ -403,7 +411,7 @@ def load_checkpoint_with_deepspeed(model_engine, load_dir, accelerator, tag="ste
             load_path, client_state = model_engine.load_checkpoint(
                 load_dir,
                 tag=tag,
-                load_module_strict=True,
+                load_module_strict=not allow_missing_lora,
                 load_optimizer_states=False,
                 load_lr_scheduler_states=False
             )
@@ -450,11 +458,20 @@ def build_param_groups(model, wd):
             continue
         is_bias = n.endswith("bias") or ".bias" in n
         is_norm = (p.dim() == 1) or ("norm" in n.lower())
-        (no_decay if is_bias or is_norm else decay).append(p)
+        is_lora = ".lora_" in n
+        (no_decay if is_bias or is_norm or is_lora else decay).append(p)
     return [{"params": decay, "weight_decay": wd},
             {"params": no_decay, "weight_decay": 0.0}]
 
 def train(config):
+    # 命令行和直接调用 train(config) 使用同一默认值；EVO1(config) 本身仍以
+    # 缺省关闭保持旧推理 checkpoint 的结构兼容性。
+    config.setdefault("use_lora", True)
+    config.setdefault("lora_rank", 8)
+    config.setdefault("lora_alpha", 16.0)
+    config.setdefault("lora_dropout", 0.0)
+    config.setdefault("lora_targets", "vision,action")
+    config.setdefault("lora_train_bias_norm", True)
 
 
     # === Set logging ===
@@ -475,10 +492,57 @@ def train(config):
     # === DataLoader ===
     dataloader = prepare_dataloader(dataset, config)
 
+    # ``resume_pretrain`` 是跨结构初始化（例如单帧基础模型 -> π-MEM
+    # LoRA），必须在 DeepSpeed 包装模型之前载入。否则 ZeRO 会依据新模型的
+    # 冻结参数表解释旧 checkpoint，并可能在原 MHA 权重上触发 KeyError。
+    resume = get_with_warning(config, "resume", False)
+    resume_path = get_with_warning(config, "resume_path", None)
+    resume_pretrain = get_with_warning(config, "resume_pretrain", False)
+    if resume != bool(resume_path):
+        raise ValueError(
+            "Inconsistent resume configuration: --resume and --resume_path "
+            "must be set together."
+        )
+    if resume_pretrain and not resume:
+        raise ValueError("--resume_pretrain requires --resume and --resume_path.")
+
+    resume_dir = resume_tag = None
+    if resume:
+        resume_path = resume_path.rstrip("/")
+        resume_dir, resume_tag = os.path.split(resume_path)
+        if not resume_dir or not resume_tag:
+            raise ValueError(f"Invalid --resume_path: {resume_path!r}")
+    if (
+        resume_pretrain
+        and os.path.realpath(save_dir) == os.path.realpath(resume_dir)
+    ):
+        raise ValueError(
+            "--resume_pretrain 的 --save_dir 不能与基础 checkpoint 目录相同；"
+            "请把 LoRA 结果写入单独目录，以免覆盖原模型。"
+        )
+
     # === Model ===
     model = EVO1(config)
     model.train()
     model.set_finetune_flags()
+
+    pretrain_client_state = None
+    if resume_pretrain:
+        _, pretrain_client_state = load_checkpoint_with_deepspeed(
+            model,
+            load_dir=resume_dir,
+            accelerator=accelerator,
+            tag=resume_tag,
+            load_optimizer_states=False,
+            resume_pretrain=True,
+            allow_missing_lora=get_with_warning(config, "use_lora", True),
+        )
+        if accelerator.is_main_process:
+            logging.info(
+                "Loaded initialization checkpoint before DeepSpeed wrapping: %s/%s",
+                resume_dir,
+                resume_tag,
+            )
 
     lr = get_with_warning(config, "lr", 1e-5)
     wd = get_with_warning(config, "weight_decay", 1e-5)
@@ -492,18 +556,24 @@ def train(config):
   
     if accelerator.is_main_process:
         logging.info("Initialized with Accelerate")
+        prepared_optimizer = getattr(model_engine, "optimizer", optimizer)
+        base_optimizer = getattr(prepared_optimizer, "optimizer", prepared_optimizer)
+        zero_stage = getattr(model_engine, "zero_optimization_stage", None)
+        zero_stage = zero_stage() if callable(zero_stage) else None
+        logging.info(
+            "Prepared optimizer=%s; base optimizer=%s; DeepSpeed ZeRO stage=%s",
+            type(prepared_optimizer).__name__,
+            type(base_optimizer).__name__,
+            zero_stage,
+        )
     
     
     # === Warmup + Cosine Scheduler ===
     max_steps = get_with_warning(config, "max_steps", 1000)
     warmup_steps = get_with_warning(config, "warmup_steps", 300)
     
-    # === loss function ===
-    loss_fn = nn.MSELoss() 
-
     # === Checkpoint and save path setup ===
     os.makedirs(save_dir, exist_ok=True)
-    best_ckpt_path = os.path.join(save_dir, "best_checkpoint.pt")
     best_loss = float("inf")
     
     # === Logging and interval settings ===
@@ -512,46 +582,37 @@ def train(config):
     max_norm = get_with_warning(config, "grad_clip_norm", 1.0)
 
     # === Resume training from checkpoint ===
-    resume = get_with_warning(config, "resume", False)
-    resume_path = get_with_warning(config, "resume_path", None)
-    resume_pretrain = get_with_warning(config, "resume_pretrain", False)
-
-    if resume != bool(resume_path):
-        raise ValueError("Inconsistent resume configuration: --resume and --resume_path must be set together.")
-
-    if not resume:
-        prune_numeric_checkpoints_above_max_steps(
-            save_dir,
-            max_steps,
-            accelerator,
-        )
-    
-    if resume:
-        resume_path = resume_path.rstrip("/")
-        resume_dir, resume_tag = os.path.split(resume_path)
-
+    if resume and not resume_pretrain:
         step, client_state = load_checkpoint_with_deepspeed(
             model_engine,
             load_dir=resume_dir,
             accelerator=accelerator,
             tag=resume_tag,
             load_optimizer_states=True,  
-            resume_pretrain=resume_pretrain
+            resume_pretrain=resume_pretrain,
+            allow_missing_lora=(
+                resume_pretrain and get_with_warning(config, "use_lora", True)
+            ),
         )
         best_loss = client_state.get("best_loss", float("inf"))
         if accelerator.is_main_process:
             logging.info(f"Resuming from {resume_dir}/{resume_tag}, step {step}")
+    elif resume_pretrain:
+        client_state = pretrain_client_state or {}
+        best_loss = client_state.get("best_loss", float("inf"))
+        step = 0
+        if accelerator.is_main_process:
+            logging.info(
+                "Initialized new π-MEM training from %s/%s",
+                resume_dir,
+                resume_tag,
+            )
     else:
         step = 0
         if accelerator.is_main_process:
             logging.info("Starting fresh training")
 
-    if resume_pretrain:
-        step = 0
-        logging.info("Resuming pretraining from scratch, resetting step to 0")
-
     scheduler = LambdaLR(optimizer, get_lr_lambda(warmup_steps, max_steps, resume_step=step))
-
 
     if accelerator.is_main_process:
         
@@ -559,7 +620,7 @@ def train(config):
             "vision_model": model.embedder.model.vision_model,
             "language_model": model.embedder.model.language_model,
             "action_head": model.action_head
-        })
+        }, verbose=get_with_warning(config, "verbose_parameter_listing", False))
 
     # === Training Loop ===
     while step < max_steps:
@@ -580,46 +641,73 @@ def train(config):
             actions_gt = batch["actions"].to(dtype=torch.bfloat16)
             action_mask = batch["action_mask"]
             state_mask = batch["state_mask"]
+            history_masks = batch["history_mask"]
             embodiment_ids = batch["embodiment_ids"]
             fused_tokens_list = []
+            fused_masks_list = []
             
-            for prompt, images, image_mask in zip(prompts, images_batch, image_masks):
-                fused = model.get_vl_embeddings(images=images, image_mask=image_mask, prompt=prompt, return_cls_only=False)
-                fused_tokens_list.append(fused.to(dtype=torch.bfloat16))
+            for prompt, images, image_mask, history_mask in zip(
+                prompts, images_batch, image_masks, history_masks
+            ):
+                with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+                    fused, fused_mask = model.get_vl_embeddings(
+                        images=images,
+                        image_mask=image_mask,
+                        prompt=prompt,
+                        return_cls_only=False,
+                        history_mask=history_mask,
+                        return_attention_mask=True,
+                    )
+                fused_tokens_list.append(fused.squeeze(0).to(dtype=torch.bfloat16))
+                fused_masks_list.append(fused_mask.squeeze(0))
             
-            fused_tokens = torch.cat(fused_tokens_list, dim=0)
+            fused_tokens = pad_sequence(fused_tokens_list, batch_first=True)
+            fused_mask = pad_sequence(
+                fused_masks_list, batch_first=True, padding_value=False
+            )
 
-            with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+            forward_context = (
+                nullcontext()
+                if accelerator.distributed_type == DistributedType.DEEPSPEED
+                else torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+            )
+            with forward_context:
 
-                pred_velocity, noise = model(fused_tokens, state=states, actions_gt=actions_gt, action_mask=action_mask)
+                pred_velocity, noise = model(
+                    fused_tokens,
+                    state=states,
+                    actions_gt=actions_gt,
+                    action_mask=action_mask,
+                    embodiment_ids=embodiment_ids,
+                    history_mask=history_masks,
+                    fused_mask=fused_mask,
+                )
                 
             target_velocity = (actions_gt - noise).view(actions_gt.shape[0], -1)
             
             assert pred_velocity.shape == target_velocity.shape
 
-            if action_mask.sum() == 0:
-                raise ValueError(f"[Step {step}] action_mask.sum() is 0! All actions are masked. "
+            valid_actions_per_sample = action_mask.reshape(action_mask.shape[0], -1).sum(dim=1)
+            if bool((valid_actions_per_sample == 0).any()):
+                raise ValueError(f"[Step {step}] At least one sample has no valid actions. "
                             f"This indicates a problem with the data or mask generation. "
                             f"action_mask shape: {action_mask.shape}, "
-                            f"action_mask: {action_mask}")
+                            f"valid counts: {valid_actions_per_sample.tolist()}")
             
 
             action_mask = action_mask.view(action_mask.shape[0], -1).to(dtype=pred_velocity.dtype)
-            pred_velocity_mask = pred_velocity * action_mask
-            loss = loss_fn(pred_velocity_mask, target_velocity)
-            scale_factor = action_mask.numel() / (action_mask.sum() + 1e-8)
-            loss = loss * scale_factor
+            squared_error = (pred_velocity - target_velocity).square()
+            loss = (squared_error * action_mask).sum() / action_mask.sum().clamp_min(1)
 
             # === NaN/Inf check ===
-            if not check_numerical_stability(
+            check_numerical_stability(
                 step,
                 states=states,
                 actions_gt=actions_gt,
                 fused_tokens=fused_tokens,
                 pred_velocity=pred_velocity,
                 loss=loss
-            ):
-                continue
+            )
 
             # === Backward and optimizer step ===
             optimizer.zero_grad(set_to_none=True)
@@ -627,13 +715,30 @@ def train(config):
 
             # === Clip grad norm ===
             total_norm, clipped_norm = get_and_clip_grad_norm(accelerator, model, loss, max_norm)
+            if not bool(torch.isfinite(total_norm)):
+                raise FloatingPointError(
+                    f"[Step {step}] Non-finite gradient norm before clipping"
+                )
+            if not bool(torch.isfinite(clipped_norm)):
+                raise FloatingPointError(
+                    f"[Step {step}] Non-finite gradient norm after clipping"
+                )
 
             optimizer.step()
             scheduler.step()
-            
+
             # === Logging ===
             if step % log_interval == 0:
-                log_training_step(step, loss, total_norm, clipped_norm, scheduler, dataloader, accelerator)
+                log_training_step(
+                    step,
+                    loss,
+                    total_norm,
+                    clipped_norm,
+                    scheduler,
+                    dataloader,
+                    accelerator,
+                    config,
+                )
    
             # === Save best checkpoint ===
             loss_value = loss.item()
@@ -667,13 +772,11 @@ def train(config):
 
             # === Save periodic checkpoint ===
             if step % ckpt_interval == 0 and step > 0:
-                checkpoint_path = os.path.join(save_dir, f"checkpoint_step_{step}.pt")
                 save_checkpoint(save_dir, step=step, model_engine=model_engine, loss=loss, accelerator=accelerator, config=config, norm_stats=dataset.arm2stats_dict)
          
     # === Save final model ===
     save_checkpoint(save_dir, step="final", model_engine=model_engine, loss=loss, accelerator=accelerator, config=config, norm_stats=dataset.arm2stats_dict)
     logging.info(f"Final model saved to step_final/")
-    logging.info(f"Best checkpoint saved to step_best/ with loss {best_loss:.6f}")
 
 
 if __name__ == "__main__":
@@ -684,22 +787,75 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--run_name", type=str, default="evo1_mujoco_pickplace")
     parser.add_argument("--vlm_name", type=str, default="OpenGVLab/InternVL3-1B")
+    parser.add_argument(
+        "--use_flash_attn",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use FlashAttention when its compiled extension is importable; otherwise fall back safely.",
+    )
     parser.add_argument("--action_head", type=str, default="flowmatching", choices=["flowmatching"])
     parser.add_argument("--return_cls_only", action="store_true")
     parser.add_argument("--disable_wandb", action="store_true", help="Disable wandb logging.")
+    parser.add_argument("--disable_swanlab", action="store_true", help="Disable SwanLab logging.")
 
     # Dataset
     parser.add_argument("--dataset_type", type=str, default="lerobot")
     parser.add_argument("--data_paths", type=str, required=False)
     parser.add_argument("--dataset_config_path", type=str, default="/home/user/mujoco+evo/Evo-1/Evo_1/dataset/config.yaml")
     parser.add_argument("--image_size", type=int, default=448)
+    parser.add_argument(
+        "--memory_frames",
+        type=int,
+        default=6,
+        help="π-MEM observation count including the current frame (default: 6).",
+    )
+    parser.add_argument(
+        "--memory_stride_steps",
+        type=int,
+        default=5,
+        help="Fallback history spacing in dataset/control steps (default: 5 at 5 Hz).",
+    )
+    parser.add_argument(
+        "--memory_stride_seconds",
+        type=float,
+        default=1.0,
+        help="Prefer timestamp-based history spacing in seconds; set <=0 to use steps.",
+    )
+    parser.add_argument(
+        "--temporal_layer_interval",
+        type=int,
+        default=4,
+        help="Add causal same-patch temporal attention every N ViT layers.",
+    )
+    parser.add_argument(
+        "--temporal_drop_past_after_layer",
+        type=int,
+        default=20,
+        help=(
+            "After this temporal ViT layer, discard past-frame tokens and run "
+            "upper layers on the current frame only (default: 20; <=0 disables)."
+        ),
+    )
+    parser.add_argument(
+        "--gradient_checkpointing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Checkpoint ViT layers to make K-frame memory training fit limited VRAM.",
+    )
+    parser.add_argument(
+        "--compact_masked_views",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Omit padding-camera image tokens before the language model instead "
+            "of computing and masking them later (default: enabled)."
+        ),
+    )
     parser.add_argument("--binarize_gripper", action="store_true", default=False, help="Whether to binarize gripper state/action (default: False).")
     parser.add_argument("--use_augmentation", action="store_true", help="Enable data augmentation on images")
-    parser.add_argument("--overwrite_horizon_cache", action="store_true", default=True,
-                        help="Clear and rebuild training_data_cache/horizon_<horizon> "
-                             "before loading the dataset. Enabled by default "
-                             "to avoid stale MuJoCo horizon_14 samples after "
-                             "overwriting parquet/video data in place.")
+    parser.add_argument("--overwrite_horizon_cache", action="store_true", default=False,
+                        help="Force rebuilding the derived training window cache. "
+                             "Normally source fingerprints invalidate it automatically.")
     parser.add_argument("--no-overwrite_horizon_cache", dest="overwrite_horizon_cache",
                         action="store_false",
                         help="Reuse the existing generated horizon cache.")
@@ -717,6 +873,11 @@ if __name__ == "__main__":
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--ckpt_interval", type=int, default=1000)
     parser.add_argument("--save_dir", type=str, default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1")
+    parser.add_argument(
+        "--verbose_parameter_listing",
+        action="store_true",
+        help="Log every individual model parameter instead of module totals only.",
+    )
 
     # Resume
     parser.add_argument("--resume", action="store_true")
@@ -725,7 +886,53 @@ if __name__ == "__main__":
    
 
     # Finetuning
+    parser.add_argument(
+        "--use_lora",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Use LoRA for the selected vision/action modules (default: enabled). "
+            "Pass --no-use_lora to recover the previous full/partial-finetuning path."
+        ),
+    )
+    parser.add_argument("--lora_rank", type=int, default=8)
+    parser.add_argument("--lora_alpha", type=float, default=16.0)
+    parser.add_argument("--lora_dropout", type=float, default=0.0)
+    parser.add_argument(
+        "--lora_targets",
+        type=str,
+        default="vision,action",
+        help="Comma-separated LoRA targets: vision, language, action.",
+    )
+    parser.add_argument(
+        "--lora_train_bias_norm",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Alongside LoRA, train target-module biases, LayerNorm parameters, "
+            "and temporal ViT layer scales to reduce underfitting risk "
+            "(default: enabled)."
+        ),
+    )
     parser.add_argument("--finetune_vlm", action="store_true")
+    parser.add_argument(
+        "--finetune_temporal_vision",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "When the full VLM is frozen, train the reused attention/norm weights "
+            "of temporal ViT layers (default: enabled)."
+        ),
+    )
+    parser.add_argument(
+        "--fp32_temporal_parameters",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Keep trainable temporal attention/norm weights in FP32 so plain "
+            "AdamW cannot round small BF16 updates to zero (default: enabled)."
+        ),
+    )
     parser.add_argument("--finetune_action_head", action="store_true")
     parser.add_argument("--use_state", action="store_true",
                         help="Keep the state branch active. Leave unset for the pure-vision setup.")

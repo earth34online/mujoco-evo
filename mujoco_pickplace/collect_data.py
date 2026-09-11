@@ -105,6 +105,7 @@ def collect_attempt(env, seed, max_steps):
         "actions": [],
         "phases": [],
         "dones": [],
+        "timestamps": [],
         "joint_targets": [],
         "images": {camera: [] for camera in CAMERAS},
     }
@@ -113,13 +114,15 @@ def collect_attempt(env, seed, max_steps):
     post_success_remaining = 0
     had_two_pad_contact = False
 
-    for _ in range(max_steps):
+    control_period = env.model.opt.timestep * env.CONTROL_NSTEP
+    for step_index in range(max_steps):
         action = expert(obs)
         phase = expert.phase
         trajectory["states"].append(obs["state"].copy())
         trajectory["robot_states"].append(obs["robot_state"].copy())
         trajectory["actions"].append(action.copy())
         trajectory["phases"].append(phase)
+        trajectory["timestamps"].append(step_index * control_period)
         for camera in CAMERAS:
             trajectory["images"][camera].append(obs[f"image_{camera}"].copy())
 
@@ -161,7 +164,7 @@ def collect_attempt(env, seed, max_steps):
     return trajectory, accepted, quality
 
 
-def main():
+def build_argument_parser():
     parser = argparse.ArgumentParser(
         description="Collect smooth contact-aware demonstrations in the project dataset format."
     )
@@ -187,20 +190,40 @@ def main():
         help="Fraction of the full task randomization range (default: 1.0).",
     )
     parser.add_argument(
+        "--compact-static-frames",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Remove redundant static frames before writing (default: disabled). "
+            "π-MEM training should keep the dense 5 Hz timeline."
+        ),
+    )
+    write_mode = parser.add_mutually_exclusive_group()
+    write_mode.add_argument(
         "--overwrite",
         dest="overwrite",
         action="store_true",
         default=True,
         help="Clear the existing data/videos/meta under dataset-dir before "
-             "collecting, then write a fresh dataset starting at episode 0 (default).",
+             "collecting, then write a fresh dataset starting at episode 0 "
+             "(default).",
     )
-    parser.add_argument(
+    write_mode.add_argument(
         "--append",
         dest="overwrite",
         action="store_false",
-        help="Append episodes to the existing dataset instead of overwriting.",
+        help="Preserve the existing dataset and append new episodes. This "
+             "non-default behavior must be requested explicitly.",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def parse_args(argv=None):
+    return build_argument_parser().parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
 
     if args.overwrite:
         removed = []
@@ -255,7 +278,19 @@ def main():
                     rejected += 1
                     continue
 
-                compact, removed = remove_redundant_static_frames(trajectory)
+                if args.compact_static_frames:
+                    compact, removed = remove_redundant_static_frames(trajectory)
+                    # The compacted MP4 is written at a constant FPS, so its
+                    # parquet timestamps must describe that compacted timeline.
+                    compact["timestamps"] = (
+                        np.arange(len(compact["states"]), dtype=np.float64)
+                        * action_period
+                    ).tolist()
+                    quality["timestamps_preserve_control_time"] = False
+                else:
+                    compact = trajectory
+                    removed = 0
+                    quality["timestamps_preserve_control_time"] = True
                 quality["removed_static_frames"] = removed
                 row = writer.write_episode(
                     states=compact["robot_states"],
@@ -266,6 +301,7 @@ def main():
                     seed=attempt_seed,
                     quality=quality,
                     success=True,
+                    timestamps=compact["timestamps"],
                 )
                 writer.validate_episode(row["episode_index"])
                 saved += 1

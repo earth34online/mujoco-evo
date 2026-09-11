@@ -4,10 +4,31 @@
 __pycache__/
 *.py[cod]
 *$py.class
+_README.md
 
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.ipynb_checkpoints/
+
+# 本地测试、证明结果与测试依赖，不上传仓库
+/tests/
+
+# Python package/build outputs
+build/
+dist/
+*.egg-info/
+
+# PyTorch / DeepSpeed JIT outputs
+.torch_extensions/
+.torch_extensions_*/
+**/.torch_extensions/
+**/.torch_extensions_*/
+*.ninja
+.ninja_*
 
 mujoco_menagerie/
 
@@ -39,15 +60,36 @@ Thumbs.db
 # Logs / checkpoints / datasets
 # =========================
 checkpoints/
+/ckpt/
 
 logs/
 **/logs/
+*.log
+
+# Experiment trackers
+wandb/
+**/wandb/
+.swanlab/
+**/.swanlab/
+swanlog/
+**/swanlog/
 
 outputs/
 **/outputs/
 
+# Derived dataset windows; source episodes remain controlled separately below.
+training_data_cache/
+**/training_data_cache/
+
 Mujoco_training_dataset/
 mujoco_training_dataset/
+
+# Downloaded papers and local Chinese reading notes
+/paper/
+
+# 云端迁移、训练、回传脚本及生成物均不上传仓库
+/modelscope/
+/modelscope_results/
 
 datasets/
 data/
@@ -56,6 +98,11 @@ data/
 *.pth
 *.bin
 *.safetensors
+
+# Interrupted downloads and atomic-write leftovers
+*.part
+*.tmp
+*.tmp.*
 
 # =========================
 # Video / media generated
@@ -77,13 +124,14 @@ data/
 mujoco_pickplace/annotated/
 mujoco_pickplace/logs/
 mujoco_pickplace/outputs/
+mujoco_pickplace/_README
 
 
 # =========================
 # Markdown backup files
 # =========================
 markdown_encoding_backup_*/
-md/
+/md/CURRENT_STATUS.md
 
 
 # =========================
@@ -103,6 +151,7 @@ Evo-1/Evo_1/*
 
 !Evo-1/Evo_1/requirements.txt
 !Evo-1/Evo_1/ds_config.json
+!Evo-1/Evo_1/ds_config_pi_mem.json
 
 
 # scripts
@@ -128,6 +177,8 @@ Evo-1/Evo_1/dataset/*
 
 Evo-1/Evo_1/model/*
 
+!Evo-1/Evo_1/model/lora.py
+
 
 # action head
 !Evo-1/Evo_1/model/action_head/
@@ -143,3 +194,4 @@ Evo-1/Evo_1/model/internvl3/*
 
 !Evo-1/Evo_1/model/internvl3/__init__.py
 !Evo-1/Evo_1/model/internvl3/internvl3_embedder.py
+!Evo-1/Evo_1/model/internvl3/temporal_vision_encoder.py

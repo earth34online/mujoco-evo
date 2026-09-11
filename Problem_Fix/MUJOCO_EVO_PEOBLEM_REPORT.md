@@ -518,6 +518,7 @@ dx 连续方向翻转 = 2~6 / 9
 ## 13. 数据层（collect_data.py / removed npz conversion script）
 
 - `collect_data.py`：加 argparse 和质量门，过滤掉失败、过短、过长、动作异常的数据。
+- 采集默认清除目标数据集并从 episode 0 重写；只有显式传入 `--append` 才保留旧 episode 并继续编号。
 - 重新采集了更干净的一批 episode，数据动作的 mean-abs-diff 明显下降。
 - 去掉旧的 `.npz` 转换路径，统一到 Evo-1 直接可读的标准数据结构。
 - 新数据集路径保持在 `Mujoco_training_dataset/cache/mujoco_pickplace`。
@@ -1166,3 +1167,5 @@ under_descent ratio
 ```
 
 `under_descent` 的计数条件为：expert 明确向下时，预测 `dz` 比 expert 高出超过 `0.001`。
+
+```

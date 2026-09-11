@@ -174,14 +174,17 @@ def check_raw_dataset(dataset_dir):
             if not np.all(timestamp_steps > 0):
                 raise AssertionError(f"{parquet_path} timestamps are not increasing")
             expected_period = 1.0 / expected_fps
+            # Static-frame compaction preserves real collection timestamps, so
+            # adjacent retained frames may span multiple control periods.
+            period_multiples = timestamp_steps / expected_period
             if not np.allclose(
-                timestamp_steps,
-                expected_period,
-                atol=1e-5,
-                rtol=1e-5,
+                period_multiples,
+                np.round(period_multiples),
+                atol=1e-4,
+                rtol=1e-4,
             ):
                 raise AssertionError(
-                    f"{parquet_path} timestamp period does not match fps={expected_fps}"
+                    f"{parquet_path} timestamps are not aligned to fps={expected_fps}"
                 )
 
         _check_vector_column(
@@ -240,7 +243,15 @@ def _missing_evo_dependencies():
     return [name for name in required if importlib.util.find_spec(name) is None]
 
 
-def check_evo_interface(dataset_dir, dataset_info, image_size, action_horizon):
+def check_evo_interface(
+    dataset_dir,
+    dataset_info,
+    image_size,
+    action_horizon,
+    memory_frames,
+    memory_stride_steps,
+    memory_stride_seconds,
+):
     missing = _missing_evo_dependencies()
     if missing:
         raise ModuleNotFoundError(
@@ -282,6 +293,9 @@ def check_evo_interface(dataset_dir, dataset_info, image_size, action_horizon):
         max_samples_per_file=None,
         use_augmentation=False,
         overwrite_horizon_cache=False,
+        memory_frames=memory_frames,
+        memory_stride_steps=memory_stride_steps,
+        memory_stride_seconds=memory_stride_seconds,
     )
     if len(dataset) <= 0:
         raise AssertionError("Evo LeRobotDataset did not produce any samples")
@@ -302,8 +316,13 @@ def check_evo_interface(dataset_dir, dataset_info, image_size, action_horizon):
         MAX_ACTION_DIM - len(ACTIVE_ACTION_MASK)
     )
 
-    assert item["images"].shape == (MAX_VIEWS, 3, image_size, image_size)
-    assert item["state"].shape == (MAX_STATE_DIM,)
+    assert item["images"].shape == (
+        memory_frames, MAX_VIEWS, 3, image_size, image_size
+    )
+    assert item["state"].shape == (memory_frames, MAX_STATE_DIM)
+    assert item["state_mask"].shape == (memory_frames, MAX_STATE_DIM)
+    assert item["history_mask"].shape == (memory_frames,)
+    assert bool(item["history_mask"][-1])
     assert item["action"].shape == (action_horizon, MAX_ACTION_DIM)
     assert item["image_mask"].tolist() == expected_image_mask
     assert item["action_mask"].shape == (action_horizon, MAX_ACTION_DIM)
@@ -326,6 +345,9 @@ def parse_args():
     )
     parser.add_argument("--image-size", type=int, default=IMAGE_SIZE)
     parser.add_argument("--action-horizon", type=int, default=ACTION_HORIZON)
+    parser.add_argument("--memory-frames", type=int, default=6)
+    parser.add_argument("--memory-stride-steps", type=int, default=5)
+    parser.add_argument("--memory-stride-seconds", type=float, default=1.0)
     parser.add_argument(
         "--raw-only",
         action="store_true",
@@ -361,6 +383,9 @@ def main():
         dataset_info,
         image_size=args.image_size,
         action_horizon=args.action_horizon,
+        memory_frames=args.memory_frames,
+        memory_stride_steps=args.memory_stride_steps,
+        memory_stride_seconds=args.memory_stride_seconds,
     )
 
 

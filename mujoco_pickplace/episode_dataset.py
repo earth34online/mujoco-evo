@@ -189,15 +189,24 @@ class EpisodeDatasetWriter:
         seed,
         quality,
         success=True,
+        timestamps=None,
     ):
         states = np.asarray(states, dtype=np.float32)
         actions = np.asarray(actions, dtype=np.float32)
         dones = np.asarray(dones, dtype=bool)
         length = len(states)
+        if timestamps is None:
+            timestamps = np.arange(length, dtype=np.float64) / self.fps
+        else:
+            timestamps = np.asarray(timestamps, dtype=np.float64)
         if not success:
             raise ValueError("Unsuccessful episodes must not be written")
         if length == 0 or len(actions) != length or len(phases) != length or len(dones) != length:
             raise ValueError("State, action, phase, and done lengths must match")
+        if len(timestamps) != length:
+            raise ValueError("Timestamp length must match state length")
+        if not np.isfinite(timestamps).all() or np.any(np.diff(timestamps) < 0):
+            raise ValueError("Timestamps must be finite and monotonically nondecreasing")
         for camera in CAMERAS:
             if camera not in images or len(images[camera]) != length:
                 raise ValueError(f"Camera {camera} does not have {length} frames")
@@ -211,7 +220,7 @@ class EpisodeDatasetWriter:
         frame = pd.DataFrame({
             "episode_index": np.full(length, episode_index, dtype=np.int64),
             "frame_index": np.arange(length, dtype=np.int64),
-            "timestamp": np.arange(length, dtype=np.float32) / self.fps,
+            "timestamp": timestamps.astype(np.float32),
             "task_index": np.zeros(length, dtype=np.int64),
             "seed": np.full(length, int(seed), dtype=np.int64),
             "observation.state": [row.tolist() for row in states],
