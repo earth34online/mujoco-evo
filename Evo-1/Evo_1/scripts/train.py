@@ -4,19 +4,10 @@ import math
 from contextlib import nullcontext
 from torch import amp
 
-# Keep DeepSpeed JIT artifacts inside the active Python environment.  This
-# avoids depending on user-global cache paths or shell-wide environment
-# variables while allowing CPUAdam to be reused across training launches.
-os.environ.setdefault(
-    "TORCH_EXTENSIONS_DIR",
-    os.path.join(sys.prefix, "var", "torch_extensions"),
-)
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import time
 import torch
 from torch.utils.data import DataLoader
-from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 from Evo1 import EVO1
@@ -272,7 +263,18 @@ def _pad_normalization_stats_for_evo1(norm_stats, target_dim=24):
 
     return result
 
-def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None, norm_stats=None):
+def save_checkpoint(
+    save_dir,
+    step,
+    model_engine,
+    loss,
+    accelerator,
+    config=None,
+    norm_stats=None,
+    optimizer=None,
+    scheduler=None,
+    global_step=None,
+):
     tag = f"step_{step}"
     checkpoint_dir = os.path.join(save_dir, tag)
 
@@ -283,9 +285,12 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
     accelerator.wait_for_everyone()
 
     client_state = {
-        "step": step,
+        # Human-readable tags such as step_best/step_final must not replace the
+        # numeric progress required for an exact optimizer/scheduler resume.
+        "step": step if global_step is None else int(global_step),
         "best_loss": loss if isinstance(loss, float) else loss.item(),
         "config": config,
+        "scheduler": scheduler.state_dict() if scheduler is not None else None,
     } if accelerator.is_main_process else {} 
 
     if hasattr(model_engine, "save_checkpoint"):
@@ -293,11 +298,14 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
     elif accelerator.is_main_process:
         os.makedirs(checkpoint_dir, exist_ok=True)
         module = accelerator.unwrap_model(model_engine)
+        checkpoint = {
+            "module": module.state_dict(),
+            "client_state": client_state,
+        }
+        if optimizer is not None:
+            checkpoint["optimizer"] = optimizer.state_dict()
         torch.save(
-            {
-                "module": module.state_dict(),
-                "client_state": client_state,
-            },
+            checkpoint,
             os.path.join(checkpoint_dir, "mp_rank_00_model_states.pt"),
         )
     
@@ -332,6 +340,7 @@ def load_checkpoint_with_deepspeed(
     load_optimizer_states=True,
     resume_pretrain=False,
     allow_missing_lora=False,
+    optimizer=None,
 ):
     if not hasattr(model_engine, "load_checkpoint"):
         checkpoint_path = os.path.join(load_dir, tag, "mp_rank_00_model_states.pt")
@@ -358,6 +367,17 @@ def load_checkpoint_with_deepspeed(
                     f"missing={invalid_missing}, "
                     f"unexpected={incompatible.unexpected_keys}"
                 )
+        if load_optimizer_states and not resume_pretrain:
+            if optimizer is None:
+                raise RuntimeError(
+                    "恢复普通 AdamW checkpoint 时必须提供 optimizer"
+                )
+            if "optimizer" not in checkpoint:
+                raise RuntimeError(
+                    f"Checkpoint {checkpoint_path} 不包含 optimizer state，"
+                    "不能作为完整续训点；请仅把它用于 --resume_pretrain 初始化"
+                )
+            optimizer.load_state_dict(checkpoint["optimizer"])
         stored_client_state = checkpoint.get("client_state", {})
         client_state = {
             "step": stored_client_state.get(
@@ -369,11 +389,18 @@ def load_checkpoint_with_deepspeed(
             "config": stored_client_state.get(
                 "config", checkpoint.get("config", {})
             ),
+            "scheduler": stored_client_state.get("scheduler"),
         }
         if accelerator.is_main_process:
+            optimizer_scope = (
+                "including optimizer state"
+                if load_optimizer_states and not resume_pretrain
+                else "model weights only"
+            )
             logging.info(
-                f"Loaded regular checkpoint weights from {checkpoint_path} "
-                "(optimizer state skipped)"
+                "Loaded regular checkpoint from %s (%s)",
+                checkpoint_path,
+                optimizer_scope,
             )
         try:
             start_step = int(client_state.get("step", 0) or 0)
@@ -546,9 +573,20 @@ def train(config):
 
     lr = get_with_warning(config, "lr", 1e-5)
     wd = get_with_warning(config, "weight_decay", 1e-5)
-    optimizer = AdamW(build_param_groups(model, wd), lr=lr)
+    fused_adamw = bool(get_with_warning(config, "fused_adamw", True))
+    fused_adamw = fused_adamw and torch.cuda.is_available()
+    optimizer = AdamW(
+        build_param_groups(model, wd),
+        lr=lr,
+        fused=fused_adamw,
+    )
     if accelerator.is_main_process:
-        logging.info(f"Optimizer=AdamW, lr={lr}, weight_decay={wd}")
+        logging.info(
+            "Optimizer=AdamW, fused=%s, lr=%s, weight_decay=%s",
+            fused_adamw,
+            lr,
+            wd,
+        )
 
 
     model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
@@ -571,6 +609,7 @@ def train(config):
     # === Warmup + Cosine Scheduler ===
     max_steps = get_with_warning(config, "max_steps", 1000)
     warmup_steps = get_with_warning(config, "warmup_steps", 300)
+    best_start_step = max(1000, warmup_steps)
     
     # === Checkpoint and save path setup ===
     os.makedirs(save_dir, exist_ok=True)
@@ -593,13 +632,17 @@ def train(config):
             allow_missing_lora=(
                 resume_pretrain and get_with_warning(config, "use_lora", True)
             ),
+            optimizer=optimizer,
         )
         best_loss = client_state.get("best_loss", float("inf"))
         if accelerator.is_main_process:
             logging.info(f"Resuming from {resume_dir}/{resume_tag}, step {step}")
     elif resume_pretrain:
         client_state = pretrain_client_state or {}
-        best_loss = client_state.get("best_loss", float("inf"))
+        # This starts a new π-MEM/LoRA optimization run.  The source
+        # checkpoint's best loss belongs to a different model structure and
+        # must not prevent the new run from establishing its own step_best.
+        best_loss = float("inf")
         step = 0
         if accelerator.is_main_process:
             logging.info(
@@ -612,7 +655,27 @@ def train(config):
         if accelerator.is_main_process:
             logging.info("Starting fresh training")
 
-    scheduler = LambdaLR(optimizer, get_lr_lambda(warmup_steps, max_steps, resume_step=step))
+    scheduler_state = (
+        client_state.get("scheduler")
+        if resume and not resume_pretrain
+        else None
+    )
+    scheduler = LambdaLR(
+        optimizer,
+        get_lr_lambda(
+            warmup_steps,
+            max_steps,
+            resume_step=0 if scheduler_state is not None else step,
+        ),
+    )
+    if scheduler_state is not None:
+        scheduler.load_state_dict(scheduler_state)
+        for parameter_group, current_lr in zip(
+            optimizer.param_groups, scheduler.get_last_lr()
+        ):
+            parameter_group["lr"] = current_lr
+        if accelerator.is_main_process:
+            logging.info("Restored scheduler state at step %s", step)
 
     if accelerator.is_main_process:
         
@@ -623,6 +686,10 @@ def train(config):
         }, verbose=get_with_warning(config, "verbose_parameter_listing", False))
 
     # === Training Loop ===
+    if accelerator.is_main_process:
+        logging.info(
+            "VLM forward mode=batched: one vision/language forward per physical batch"
+        )
     while step < max_steps:
         for batch in tqdm(
             dataloader,
@@ -643,28 +710,19 @@ def train(config):
             state_mask = batch["state_mask"]
             history_masks = batch["history_mask"]
             embodiment_ids = batch["embodiment_ids"]
-            fused_tokens_list = []
-            fused_masks_list = []
-            
-            for prompt, images, image_mask, history_mask in zip(
-                prompts, images_batch, image_masks, history_masks
-            ):
-                with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-                    fused, fused_mask = model.get_vl_embeddings(
-                        images=images,
-                        image_mask=image_mask,
-                        prompt=prompt,
-                        return_cls_only=False,
-                        history_mask=history_mask,
-                        return_attention_mask=True,
-                    )
-                fused_tokens_list.append(fused.squeeze(0).to(dtype=torch.bfloat16))
-                fused_masks_list.append(fused_mask.squeeze(0))
-            
-            fused_tokens = pad_sequence(fused_tokens_list, batch_first=True)
-            fused_mask = pad_sequence(
-                fused_masks_list, batch_first=True, padding_value=False
-            )
+            # Encode the complete physical batch in one vision-language pass.
+            # The π-MEM encoder keeps batch and time as independent axes, so
+            # causal temporal attention never mixes different samples.
+            with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+                fused_tokens, fused_mask = model.get_vl_embeddings_batch(
+                    images=images_batch,
+                    image_mask=image_masks,
+                    prompts=prompts,
+                    return_cls_only=False,
+                    history_mask=history_masks,
+                    return_attention_mask=True,
+                )
+            fused_tokens = fused_tokens.to(dtype=torch.bfloat16)
 
             forward_context = (
                 nullcontext()
@@ -739,11 +797,25 @@ def train(config):
                     accelerator,
                     config,
                 )
+                if accelerator.is_main_process and torch.cuda.is_available():
+                    mib = 1024 ** 2
+                    logging.info(
+                        "[Step %s] CUDA allocated=%.1f MiB, reserved=%.1f MiB, "
+                        "peak_allocated=%.1f MiB, peak_reserved=%.1f MiB",
+                        step,
+                        torch.cuda.memory_allocated() / mib,
+                        torch.cuda.memory_reserved() / mib,
+                        torch.cuda.max_memory_allocated() / mib,
+                        torch.cuda.max_memory_reserved() / mib,
+                    )
    
             # === Save best checkpoint ===
             loss_value = loss.item()
             if accelerator.is_main_process:
-                is_best = loss_value < best_loss
+                # Do not let an unsaved warmup loss poison the best threshold.
+                # The first eligible step must establish step_best even when an
+                # accidental early loss was numerically lower.
+                is_best = step >= best_start_step and loss_value < best_loss
                 if is_best:
                     best_loss = loss_value
                 is_best_tensor = torch.tensor(int(is_best), device=accelerator.device)
@@ -753,7 +825,7 @@ def train(config):
             if accelerator.distributed_type != DistributedType.NO:
                 torch.distributed.broadcast(is_best_tensor, src=0)
             
-            if is_best_tensor.item() == 1 and step > 1000:
+            if is_best_tensor.item() == 1:
                 accelerator.print("start to save best checkpoint")
                 save_checkpoint(
                     save_dir,
@@ -762,7 +834,10 @@ def train(config):
                     loss=loss,
                     accelerator=accelerator,
                     config=config,
-                    norm_stats=dataset.arm2stats_dict 
+                    norm_stats=dataset.arm2stats_dict,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    global_step=step + 1,
                 )
                 accelerator.print("end to save best checkpoint")
                 if accelerator.is_main_process:
@@ -772,10 +847,31 @@ def train(config):
 
             # === Save periodic checkpoint ===
             if step % ckpt_interval == 0 and step > 0:
-                save_checkpoint(save_dir, step=step, model_engine=model_engine, loss=loss, accelerator=accelerator, config=config, norm_stats=dataset.arm2stats_dict)
+                save_checkpoint(
+                    save_dir,
+                    step=step,
+                    model_engine=model_engine,
+                    loss=best_loss,
+                    accelerator=accelerator,
+                    config=config,
+                    norm_stats=dataset.arm2stats_dict,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                )
          
     # === Save final model ===
-    save_checkpoint(save_dir, step="final", model_engine=model_engine, loss=loss, accelerator=accelerator, config=config, norm_stats=dataset.arm2stats_dict)
+    save_checkpoint(
+        save_dir,
+        step="final",
+        model_engine=model_engine,
+        loss=best_loss,
+        accelerator=accelerator,
+        config=config,
+        norm_stats=dataset.arm2stats_dict,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        global_step=step,
+    )
     logging.info(f"Final model saved to step_final/")
 
 
@@ -867,6 +963,12 @@ if __name__ == "__main__":
     parser.add_argument("--warmup_steps", type=int, default=1000)
     parser.add_argument("--grad_clip_norm", type=float, default=1.0)
     parser.add_argument("--weight_decay", type=float, default=1e-3)
+    parser.add_argument(
+        "--fused_adamw",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use CUDA fused AdamW on the single-GPU LoRA path (default: enabled).",
+    )
 
 
     # Logging & checkpointing

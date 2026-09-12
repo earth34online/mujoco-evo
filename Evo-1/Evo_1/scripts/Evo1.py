@@ -279,6 +279,31 @@ class EVO1(nn.Module):
             return_attention_mask=return_attention_mask,
         )
 
+    def get_vl_embeddings_batch(
+        self,
+        images,
+        image_mask: torch.Tensor,
+        prompts: List[str],
+        return_cls_only: Union[bool, None] = None,
+        history_mask: Union[torch.Tensor, None] = None,
+        return_attention_mask: bool = False,
+    ):
+        """Encode a physical batch in one π-MEM vision-language forward."""
+        if return_cls_only is None:
+            return_cls_only = self.return_cls_only
+        if images is None or len(images) == 0:
+            raise ValueError("Must provide at least one batch of images")
+        if prompts is None:
+            prompts = [""] * len(images)
+        return self.embedder.get_fused_image_text_embedding_batch(
+            image_tensors_batch=images,
+            image_masks=image_mask,
+            text_prompts=prompts,
+            return_cls_only=return_cls_only,
+            history_masks=history_mask,
+            return_attention_mask=return_attention_mask,
+        )
+
     def prepare_state(
         self,
         state_input: Union[list, torch.Tensor],

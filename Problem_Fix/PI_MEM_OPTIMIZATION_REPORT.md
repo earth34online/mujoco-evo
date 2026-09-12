@@ -590,3 +590,64 @@ DeepSpeed 包装后直接读取不含 LoRA 的阶段一 checkpoint，会按新�
 ### 结果
 
 RTX 5060 Laptop 8GB 上，`torch 2.12.0.dev + CUDA 12.8 + flash-attn 2.8.3.post1 + DeepSpeed ZeRO-2 CPU offload` 使用真实阶段一 checkpoint、K=6、448×448、物理 batch 8 完成前向、反向和优化器更新；loss 为 `0.7695`，峰值已分配显存 `4918.1 MiB`。独立评估前向输出为 `[8,14,24]` 且全部有限。
+
+## 22. LoRA 后取消 CPU optimizer offload，并批量化 VLM
+
+### 问题
+
+第 19 节的 CPUAdam 方案针对 113.25M 可训练参数有效；默认 LoRA 后只训练约 1.49M 参数，Adam 状态已经缩小到十几 MB，继续 offload 会保留 CPUAdam、同步和 GPU/CPU 传输开销。训练循环还把物理 batch 8 拆成 8 次 B=1 的视觉语言前向，没有利用大矩阵的批量吞吐。
+
+### 修改
+
+- `ds_config_pi_mem.json` 保留 BF16 与 ZeRO-2，删除 `offload_optimizer`。
+- `train.py` 每个物理 batch 只调用一次 `get_vl_embeddings_batch()`。
+- `internvl3_embedder.py` 新增 `[B,K,V,C,H,W]` 批量预处理、批量视觉 token 注入、批量 tokenizer padding 和一次语言主干前向。
+- `temporal_vision_encoder.py` 为时间注意力增加独立 batch 轴；每个样本使用自己的左填充 mask，禁止跨样本注意力。
+- 单样本服务和 K=1 原 Evo 路径保持不变；模型参数结构不变，旧 checkpoint 兼容。
+
+### 论文约束
+
+批量化保持 MEM 原文的 K=6、1 秒 stride、每 4 层同 patch 因果时间注意力、`e(0)=0` 固定正弦位置编码、上层只保留当前帧以及 K=1 与原图像编码器一致。MINT `evo1-flash` 只用于参考 batch-aware VLM 接口，不替代 π-MEM 时间机制。
+
+### 验证
+
+- 35 项 LoRA、短期记忆、批量时间 mask、完整 embedder 等价和视觉 token 注入测试通过。
+- 批量 temporal 输出与逐样本输出在不同左填充长度下数值一致。
+- 当前 Windows 图形负载占用约 6.4/8.15 GiB GPU 显存，真实 K=6、batch 8 的新路径性能验证暂未执行；不能沿用第 21 节旧串行路径的显存和速度数字作为本节结论。
+
+## 23. batched K=6 单卡反向峰值与完整断点恢复
+
+### 问题
+
+第 22 节完成 batch-aware VLM 后，单张 8 GB GPU 使用无 CPU offload 的 DeepSpeed ZeRO-2 仍在反向阶段 OOM；改成普通 AdamW 后，整块 checkpoint 时间 ViT 层也会在重算 attention 与宽 MLP 时产生重叠峰值。另有两个断点语义问题：`step_final` 曾把字符串 `final` 作为进度写入，普通 checkpoint loader 也没有把已保存的 scheduler state 返回给训练循环。`resume_pretrain` 还错误继承阶段一的 `best_loss`，可能阻止阶段二生成自己的 `step_best`。
+
+### 修改
+
+- 单卡正式入口改为 Accelerate BF16 + CUDA fused AdamW；DeepSpeed 配置继续保留，但只用于以后多卡训练。
+- LoRA 参数仍以 FP32 保存并由 AdamW 更新；适配器矩阵乘法使用 BF16 activation dtype，避免把 `[B,K,N,C]` 激活和 QKV 增量整体扩成 FP32。
+- 时间 ViT 层把 attention residual 与 MLP residual 分成两个独立的 non-reentrant gradient checkpoint，数学顺序和 π-MEM 因果 mask 不变。
+- `step_best`、`step_final` 的 tag 与数值 `global_step` 分离；普通 checkpoint 在同一个模型状态文件中保存 optimizer 和 scheduler。
+- 普通续训恢复模型、optimizer、数值 step、scheduler；`resume_pretrain` 只取阶段一权重并将新任务的 `best_loss` 重置为正无穷。
+- 训练日志增加 CUDA 当前/峰值 allocated 和 reserved 统计，便于长训练发现显存漂移。
+
+### 验证
+
+- 38 项 LoRA、π-MEM、批量/逐样本等价、跨样本 mask 隔离和 BF16 LoRA 梯度测试通过。
+- RTX 5060 Laptop 8 GB 上，真实 64,185 个 K=6 窗口、InternVL3-1B、448×448、物理 batch 8、双塔 Flash-Attn 完成生产入口前向、反向、梯度裁剪和 fused AdamW 更新，未 OOM。
+- 首次短步从阶段一 `step_best` 初始化，完成 step 0 并保存普通 `step_final`；文件含 `module`、199 个非空 optimizer state、数值 `step=1` 和 scheduler `last_epoch=1`。
+- 随后从该 `step_final` 正常续训，日志明确显示 optimizer、step=1、scheduler 全部恢复，完成 step 1 后保存 `step=2`、scheduler `last_epoch=2`；两次训练均 exit code 0。
+- `Evo1_server` 严格载入新 checkpoint，合并 42 个 LoRA 模块，确认 vision=`flash-attn`、language=`flash_attention_2`，以 K=6 和 50 个 flow steps 输出有限的 `[14,24]` 动作；exit code 0。
+
+以上只证明当前训练、保存、恢复和推理路径可运行；完整 16000 步稳定性与 MuJoCo 闭环成功率仍需正式训练后判断。第 22 节的“35 项、GPU 待验证”是当时状态，当前以本节的 38 项和真实生产验证为准。
+
+## 24. 分段 gradient checkpoint 数值等价补充
+
+新增独立回归测试，将相同的 batched π-MEM 小模型分别运行“时间 attention 与 MLP 分段 checkpoint”和“不使用 checkpoint”两条路径。两者的输出、输入图像梯度，以及八个 ViT 层全部参数梯度均在容差内一致。最新完整回归为 `39 passed in 2.99s`；该结果补充第 23 节当时记录的 38 项，不改写已有历史内容。
+
+## 25. 单卡生产路径显存实测补充
+
+从数值 step 2 的普通 checkpoint 再续训一步，optimizer 与 scheduler 均恢复成功。K=6、448×448、物理 batch 8、双塔 Flash-Attn、BF16、fused AdamW 的 step 2 loss 为 `0.8446`；CUDA 峰值 allocated `6366.9 MiB`、reserved `6878.0 MiB`，训练与 `step_final` 覆盖保存均 exit code 0。最终临时 checkpoint 的数值 step 与 scheduler `last_epoch` 均为 3。该实测表明当前 8 GB GPU 有约 1.27 GiB 总显存余量，不需要恢复 CPU optimizer offload；长训练仍应观察日志中的峰值是否发生异常增长。
+
+## 26. warmup 低损失阻止 step_best 落盘
+
+旧逻辑从 step 0 起更新内存中的 `best_loss`，但只有 step 大于 1000 才允许保存。如果 warmup 内出现偶然低值且之后未被打破，训练可能没有任何 `step_best`。现改为只从 `max(1000, warmup_steps)` 开始参与 best 比较；第一个有效比较点可以正常建立并保存 `step_best`。checkpoint 保留策略未改变，仍不自动删除任何 tag。

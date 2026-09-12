@@ -270,7 +270,7 @@ async def handle_request(websocket, model, normalizer, use_state):
     except websockets.exceptions.ConnectionClosed:
         print("Client disconnected.", flush=True)
 
-
+#
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serve an Evo-1 checkpoint over websocket.")
     parser.add_argument(

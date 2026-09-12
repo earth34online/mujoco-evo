@@ -95,9 +95,18 @@ class LoRALinear(nn.Linear):
         base = F.linear(input, self.weight, self.bias)
         if self.lora_merged:
             return base
-        adapter_input = self.lora_dropout(input).to(self.lora_A.dtype)
-        update = F.linear(F.linear(adapter_input, self.lora_A), self.lora_B)
-        return base + update.to(base.dtype) * self.lora_scaling
+        # Keep FP32 master parameters for optimizer accuracy, but execute the
+        # adapter matmuls in the model's activation dtype.  Casting a full
+        # [B*K*N,C] activation and its 3C-wide QKV update to FP32 makes a true
+        # physical batch need hundreds of extra MiB; gradients still flow
+        # through these casts and accumulate on the FP32 master parameters.
+        compute_dtype = base.dtype
+        adapter_input = self.lora_dropout(input).to(compute_dtype)
+        update = F.linear(
+            F.linear(adapter_input, self.lora_A.to(compute_dtype)),
+            self.lora_B.to(compute_dtype),
+        )
+        return base + update * self.lora_scaling
 
 
 class LoRAMultiheadAttention(nn.MultiheadAttention):
@@ -238,9 +247,14 @@ class LoRAMultiheadAttention(nn.MultiheadAttention):
             b_q, b_k, b_v = self.lora_B_in.chunk(3, dim=0)
 
             def low_rank(x, b):
-                adapter_input = self.lora_dropout(x).to(self.lora_A_in.dtype)
-                hidden = F.linear(adapter_input, self.lora_A_in)
-                return F.linear(hidden, b).to(q_proj.dtype) * self.lora_scaling
+                compute_dtype = q_proj.dtype
+                adapter_input = self.lora_dropout(x).to(compute_dtype)
+                hidden = F.linear(
+                    adapter_input, self.lora_A_in.to(compute_dtype)
+                )
+                return F.linear(
+                    hidden, b.to(compute_dtype)
+                ) * self.lora_scaling
 
             q_proj = q_proj + low_rank(query, b_q)
             k_proj = k_proj + low_rank(key, b_k)
@@ -325,9 +339,12 @@ class LoRAMultiheadAttention(nn.MultiheadAttention):
         )
         output = F.linear(attended, self.out_proj.weight, self.out_proj.bias)
         if not self.lora_merged:
-            hidden = F.linear(attended.to(self.lora_A_out.dtype), self.lora_A_out)
-            update = F.linear(hidden, self.lora_B_out)
-            output = output + update.to(output.dtype) * self.lora_scaling
+            compute_dtype = output.dtype
+            hidden = F.linear(
+                attended.to(compute_dtype), self.lora_A_out.to(compute_dtype)
+            )
+            update = F.linear(hidden, self.lora_B_out.to(compute_dtype))
+            output = output + update * self.lora_scaling
 
         if self.batch_first and is_batched:
             output = output.transpose(0, 1)

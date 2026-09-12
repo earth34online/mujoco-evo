@@ -56,7 +56,9 @@ def _causal_temporal_attention(
             weights are reused; this function creates no parameters.
         hidden_states: ``[groups, time, hidden]`` where each group is one
             camera/spatial-patch pair.
-        history_mask: Boolean tensor ``[time]``; false entries are left padding.
+        history_mask: Boolean tensor ``[time]`` or ``[groups,time]``; false
+            entries are left padding.  A per-group mask is used by the batched
+            encoder so samples never share temporal context.
     """
     groups, time, channels = hidden_states.shape
     if time == 1:
@@ -76,23 +78,37 @@ def _causal_temporal_attention(
         ).view(groups, time, attention.num_heads, attention.head_dim).transpose(1, 2)
 
     scores = (q * attention.scale) @ k.transpose(-2, -1)
-    valid = history_mask.to(device=scores.device, dtype=torch.bool)
+    valid = torch.as_tensor(
+        history_mask, device=scores.device, dtype=torch.bool
+    )
+    if valid.ndim == 1:
+        if valid.shape != (time,):
+            raise ValueError(
+                f"Expected history_mask shape {(time,)}, got {tuple(valid.shape)}"
+            )
+        valid = valid.unsqueeze(0).expand(groups, -1)
+    elif valid.shape != (groups, time):
+        raise ValueError(
+            "Expected history_mask shape "
+            f"{(time,)} or {(groups, time)}, got {tuple(valid.shape)}"
+        )
     causal = torch.ones(time, time, device=scores.device, dtype=torch.bool).tril()
-    allowed = causal & valid.unsqueeze(0)
-    scores = scores.masked_fill(~allowed.view(1, 1, time, time), torch.finfo(scores.dtype).min)
+    allowed = causal.view(1, time, time) & valid.unsqueeze(1)
+    scores = scores.masked_fill(
+        ~allowed.unsqueeze(1), torch.finfo(scores.dtype).min
+    )
 
     # Left-padded query rows have no semantic meaning.  Give them finite logits
     # to avoid NaNs, then explicitly zero their outputs below.
     invalid_queries = ~valid
-    if invalid_queries.any():
-        scores[:, :, invalid_queries, :] = 0
+    scores = scores.masked_fill(invalid_queries[:, None, :, None], 0)
 
     weights = torch.softmax(scores.float(), dim=-1).to(dtype=scores.dtype)
     weights = attention.attn_drop(weights)
     output = (weights @ v).transpose(1, 2).reshape(groups, time, channels)
     output = attention.proj(output)
     output = attention.proj_drop(output)
-    output[:, invalid_queries, :] = 0
+    output = output.masked_fill(invalid_queries.unsqueeze(-1), 0)
     return output
 
 
@@ -103,6 +119,7 @@ def _space_time_layer(
     num_frames: int,
     num_views: int,
     history_mask: torch.Tensor,
+    batch_size: int = 1,
     temporal_position: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Run one ViT block with additive spatial and causal temporal attention."""
@@ -110,7 +127,47 @@ def _space_time_layer(
         # Exact checkpoint-compatible image path required by MEM.
         return layer(hidden_states)
 
-    _, num_tokens, channels = hidden_states.shape
+    hidden_states = _space_time_attention_residual(
+        layer,
+        hidden_states,
+        num_frames=num_frames,
+        num_views=num_views,
+        history_mask=history_mask,
+        batch_size=batch_size,
+        temporal_position=temporal_position,
+    )
+    return _space_time_mlp_residual(layer, hidden_states)
+
+
+def _space_time_attention_residual(
+    layer,
+    hidden_states: torch.Tensor,
+    *,
+    num_frames: int,
+    num_views: int,
+    history_mask: torch.Tensor,
+    batch_size: int = 1,
+    temporal_position: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Run only the spatial/temporal attention residual of a π-MEM layer."""
+
+    flat_batch, num_tokens, channels = hidden_states.shape
+    expected_batch = batch_size * num_frames * num_views
+    if flat_batch != expected_batch:
+        raise ValueError(
+            f"Expected {expected_batch} image sequences for B={batch_size}, "
+            f"T={num_frames}, V={num_views}; got {flat_batch}"
+        )
+    history_mask = torch.as_tensor(
+        history_mask, device=hidden_states.device, dtype=torch.bool
+    )
+    if history_mask.ndim == 1 and batch_size == 1:
+        history_mask = history_mask.unsqueeze(0)
+    if history_mask.shape != (batch_size, num_frames):
+        raise ValueError(
+            f"Expected history_mask shape {(batch_size, num_frames)}, "
+            f"got {tuple(history_mask.shape)}"
+        )
     if temporal_position is None:
         temporal_position = fixed_relative_temporal_encoding(
             num_frames,
@@ -123,30 +180,47 @@ def _space_time_layer(
             "Expected temporal_position shape "
             f"{(num_frames, channels)}, got {tuple(temporal_position.shape)}"
         )
-    positioned = hidden_states.view(num_frames, num_views, num_tokens, channels)
-    positioned = positioned + temporal_position[:, None, None, :]
-    positioned_flat = positioned.reshape(num_frames * num_views, num_tokens, channels)
+    positioned = hidden_states.view(
+        batch_size, num_frames, num_views, num_tokens, channels
+    )
+    positioned = positioned + temporal_position[None, :, None, None, :]
+    positioned_flat = positioned.reshape(
+        batch_size * num_frames * num_views, num_tokens, channels
+    )
 
     normalized = layer.norm1(positioned_flat).to(positioned_flat.dtype)
     spatial_output = layer.attn(normalized)
 
-    temporal_input = normalized.view(num_frames, num_views, num_tokens, channels)
-    temporal_input = temporal_input.permute(1, 2, 0, 3).reshape(
-        num_views * num_tokens, num_frames, channels
+    temporal_input = normalized.view(
+        batch_size, num_frames, num_views, num_tokens, channels
     )
+    temporal_input = temporal_input.permute(0, 2, 3, 1, 4).reshape(
+        batch_size * num_views * num_tokens, num_frames, channels
+    )
+    group_history_mask = history_mask[:, None, None, :].expand(
+        batch_size, num_views, num_tokens, num_frames
+    ).reshape(batch_size * num_views * num_tokens, num_frames)
     temporal_output = _causal_temporal_attention(
-        layer.attn, temporal_input, history_mask
+        layer.attn, temporal_input, group_history_mask
     )
-    temporal_output = temporal_output.view(num_views, num_tokens, num_frames, channels)
-    temporal_output = temporal_output.permute(2, 0, 1, 3).reshape_as(spatial_output)
+    temporal_output = temporal_output.view(
+        batch_size, num_views, num_tokens, num_frames, channels
+    )
+    temporal_output = temporal_output.permute(0, 3, 1, 2, 4).reshape_as(
+        spatial_output
+    )
 
     hidden_states = hidden_states + layer.drop_path1(
         (spatial_output + temporal_output) * layer.ls1
     )
-    hidden_states = hidden_states + layer.drop_path2(
+    return hidden_states
+
+
+def _space_time_mlp_residual(layer, hidden_states: torch.Tensor) -> torch.Tensor:
+    """Run the MLP residual separately so it can be checkpointed independently."""
+    return hidden_states + layer.drop_path2(
         layer.mlp(layer.norm2(hidden_states).to(hidden_states.dtype)) * layer.ls2
     )
-    return hidden_states
 
 
 def extract_temporal_feature(
@@ -156,46 +230,61 @@ def extract_temporal_feature(
     num_frames: int,
     num_views: int,
     history_mask: torch.Tensor,
+    batch_size: int = 1,
     temporal_layer_interval: int = 4,
     drop_past_after_layer: int | None = None,
 ) -> torch.Tensor:
-    """Encode ``[time, view]`` images and return current-view image tokens.
+    """Encode ``[batch,time,view]`` images and return current-view tokens.
 
-    ``pixel_values`` must be flattened in time-major order and contain exactly
-    one image tile for every time/view pair.  The result shape is the same as
-    ``chat_model.extract_feature`` applied to the current views.
+    ``pixel_values`` must be flattened in batch-major, then time/view order and
+    contain exactly one image tile for every batch/time/view tuple.  The result
+    shape is the same as ``chat_model.extract_feature`` applied to all current
+    views in the physical batch.
     """
     if temporal_layer_interval < 1:
         raise ValueError("temporal_layer_interval must be at least 1")
     if pixel_values.ndim != 4:
-        raise ValueError(f"Expected pixel_values [T*V,C,H,W], got {tuple(pixel_values.shape)}")
-    if pixel_values.shape[0] != num_frames * num_views:
         raise ValueError(
-            f"Expected {num_frames * num_views} images for T={num_frames}, V={num_views}; "
+            "Expected pixel_values [B*T*V,C,H,W], "
+            f"got {tuple(pixel_values.shape)}"
+        )
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+    expected_images = batch_size * num_frames * num_views
+    if pixel_values.shape[0] != expected_images:
+        raise ValueError(
+            f"Expected {expected_images} images for B={batch_size}, "
+            f"T={num_frames}, V={num_views}; "
             f"got {pixel_values.shape[0]}"
         )
     history_mask = torch.as_tensor(history_mask, device=pixel_values.device, dtype=torch.bool)
-    if history_mask.shape != (num_frames,):
-        raise ValueError(f"Expected history_mask shape {(num_frames,)}, got {tuple(history_mask.shape)}")
-    if not bool(history_mask[-1]):
+    if history_mask.ndim == 1 and batch_size == 1:
+        history_mask = history_mask.unsqueeze(0)
+    if history_mask.shape != (batch_size, num_frames):
+        raise ValueError(
+            f"Expected history_mask shape {(batch_size, num_frames)}, "
+            f"got {tuple(history_mask.shape)}"
+        )
+    if not bool(history_mask[:, -1].all()):
         raise ValueError("The current (last) memory frame must be valid")
 
     # Dataset and online memory use left padding only.  Padded observations are
     # guaranteed not to affect valid queries, so removing them before the ViT
     # is both semantically exact and much cheaper near episode boundaries.
-    if bool((history_mask[:-1] & ~history_mask[1:]).any()):
+    if bool((history_mask[:, :-1] & ~history_mask[:, 1:]).any()):
         raise ValueError("history_mask must contain only a false left-padding prefix")
-    valid_frame_count = int(history_mask.sum().item())
-    if valid_frame_count < num_frames:
+    # Remove only frames that are padding for every sample.  Per-sample prefix
+    # lengths can differ, so removing more would destroy the rectangular batch.
+    first_shared_valid = int(history_mask.any(dim=0).to(torch.int64).argmax().item())
+    if first_shared_valid > 0:
         pixel_values = pixel_values.reshape(
-            num_frames, num_views, *pixel_values.shape[1:]
-        )[-valid_frame_count:].reshape(
-            valid_frame_count * num_views, *pixel_values.shape[1:]
+            batch_size, num_frames, num_views, *pixel_values.shape[1:]
+        )[:, first_shared_valid:].reshape(
+            batch_size * (num_frames - first_shared_valid) * num_views,
+            *pixel_values.shape[1:],
         )
-        num_frames = valid_frame_count
-        history_mask = torch.ones(
-            num_frames, dtype=torch.bool, device=pixel_values.device
-        )
+        num_frames -= first_shared_valid
+        history_mask = history_mask[:, first_shared_valid:]
 
     if num_frames == 1:
         return chat_model.extract_feature(pixel_values)
@@ -243,18 +332,34 @@ def extract_temporal_feature(
         )
         if use_temporal_attention:
             if vision_model.encoder.gradient_checkpointing and vision_model.training:
-                def temporal_forward(states, current_layer=layer):
-                    return _space_time_layer(
+                # Split attention and MLP checkpoints.  Recomputing the whole
+                # π-MEM block at once retains the batched attention temporaries
+                # while materializing the wide ViT MLP, which can exceed 8 GB
+                # at physical batch 8 even though the underlying math fits.
+                def temporal_attention_forward(states, current_layer=layer):
+                    return _space_time_attention_residual(
                         current_layer,
                         states,
                         num_frames=num_frames,
                         num_views=num_views,
                         history_mask=history_mask,
+                        batch_size=batch_size,
                         temporal_position=temporal_position,
                     )
 
                 hidden_states = torch.utils.checkpoint.checkpoint(
-                    temporal_forward, hidden_states, use_reentrant=False
+                    temporal_attention_forward,
+                    hidden_states,
+                    use_reentrant=False,
+                )
+
+                def temporal_mlp_forward(states, current_layer=layer):
+                    return _space_time_mlp_residual(current_layer, states)
+
+                hidden_states = torch.utils.checkpoint.checkpoint(
+                    temporal_mlp_forward,
+                    hidden_states,
+                    use_reentrant=False,
                 )
             else:
                 hidden_states = _space_time_layer(
@@ -263,6 +368,7 @@ def extract_temporal_feature(
                     num_frames=num_frames,
                     num_views=num_views,
                     history_mask=history_mask,
+                    batch_size=batch_size,
                     temporal_position=temporal_position,
                 )
         elif vision_model.encoder.gradient_checkpointing and vision_model.training:
@@ -281,22 +387,28 @@ def extract_temporal_feature(
             and layer_number == drop_past_after_layer
         ):
             hidden_states = hidden_states.reshape(
-                num_frames, num_views, *hidden_states.shape[1:]
-            )[-1]
+                batch_size, num_frames, num_views, *hidden_states.shape[1:]
+            )[:, -1].reshape(
+                batch_size * num_views, *hidden_states.shape[1:]
+            )
             history_dropped = True
 
     if not history_dropped:
         hidden_states = hidden_states.reshape(
-            num_frames, num_views, *hidden_states.shape[1:]
-        )[-1]
+            batch_size, num_frames, num_views, *hidden_states.shape[1:]
+        )[:, -1].reshape(batch_size * num_views, *hidden_states.shape[1:])
     hidden_states = hidden_states[:, 1:, :]
 
     height = width = int(hidden_states.shape[1] ** 0.5)
     if height * width != hidden_states.shape[1]:
         raise ValueError("InternVL patch token count is not square")
-    hidden_states = hidden_states.reshape(num_views, height, width, -1)
+    hidden_states = hidden_states.reshape(
+        batch_size * num_views, height, width, -1
+    )
     hidden_states = chat_model.pixel_shuffle(
         hidden_states, scale_factor=chat_model.downsample_ratio
     )
-    hidden_states = hidden_states.reshape(num_views, -1, hidden_states.shape[-1])
+    hidden_states = hidden_states.reshape(
+        batch_size * num_views, -1, hidden_states.shape[-1]
+    )
     return chat_model.mlp1(hidden_states)

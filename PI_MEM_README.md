@@ -22,6 +22,8 @@ MuJoCo 5 Hz 历史观测
 - 夹爪：0.4/0.6 滞回，连续 2 步确认后切换开合状态。
 - 缓存：窗口索引版本 2；源 parquet、视频或关键 meta 改变时自动失效。
 - 微调：训练入口默认启用 LoRA，`rank=8`、`alpha=16`，目标为时间 ViT 与动作头，并训练目标范围内的偏置、归一化和时间层缩放参数。
+- 批处理：物理 batch 直接执行一次 batched ViT 和一次 batched 语言主干前向，不再把 batch 8 拆成 8 次 B=1 VLM。
+- 优化器：单卡默认使用 CUDA fused AdamW + BF16，不启用 CPU optimizer offload；DeepSpeed ZeRO-2 仅保留为多卡可选路径。
 - 旧 checkpoint 可作为 LoRA 初始化权重加载；要获得可靠的历史策略仍需使用 K=6 数据继续训练。
 
 ## 论文机制与实现位置
@@ -39,9 +41,9 @@ MuJoCo 5 Hz 历史观测
 
 ## 数据与模型流程
 
-数据集按 episode 时间戳从早到晚选出 6 个观测；时间戳不可用时才退回固定步数。episode 开头不足 6 帧的槽位重复最早图像以维持固定 shape，但对应 `history_mask=False`。这些左填充图像会在 resize 和 ViT 前删除，状态 token 也会被掩码。
+数据集按 episode 时间戳从早到晚选出 6 个观测；时间戳不可用时才退回固定步数。episode 开头不足 6 帧的槽位重复最早图像以维持固定 shape，但对应 `history_mask=False`。单样本推理会直接删除左填充帧；批量训练只删除整个 batch 共同无效的前缀，其余样本按各自 `history_mask` 屏蔽，样本之间不会共享时间注意力。状态 token 使用相同历史掩码。
 
-每个有效相机、时刻先执行空间注意力；第 4/8/12/16/20 个 ViT 层再对同相机、同 patch 的历史执行因果时间注意力。第 20 层融合完成后只保留当前帧视觉 token，上层 ViT 继续处理当前帧。语言主干仍执行全部 14 层。当前视觉语言 token 与 6 个状态 token 进入 flow-matching 动作头，产生 14 步动作。
+每个有效相机、时刻先执行空间注意力；第 4/8/12/16/20 个 ViT 层再对同相机、同 patch 的历史执行因果时间注意力。第 20 层融合完成后只保留当前帧视觉 token，上层 ViT 继续处理当前帧。训练时 `[B,K,V,C,H,W]` 一次进入 ViT，之后所有 prompt 一次进入 14 层语言主干；batch 维和时间维始终独立。当前视觉语言 token 与 6 个状态 token 进入 flow-matching 动作头，产生 14 步动作。
 
 时序样本对所有时刻使用同一组随机裁剪、旋转和颜色增强参数，避免增强过程制造不存在的运动。默认保留原始 5 Hz 控制时间轴；只有显式添加 `--compact-static-frames` 才压缩静止帧。
 
@@ -67,12 +69,12 @@ mujoco_pickplace/eval_policy_client.py                  在线闭环客户端
 |---|---|
 | Python / PyTorch | Python 3.10.20；PyTorch 2.12.0.dev + CUDA 12.8 |
 | C++ / Ninja | Conda GCC/G++ 14.3；Ninja 1.13 |
-| DeepSpeed | 0.19.2；ZeRO-2 CPU optimizer offload 可用 |
+| 优化器 | 单卡 CUDA fused AdamW；DeepSpeed 0.19.2 仅作多卡可选 |
 | CUDA 开发库 | `libcurand-dev 10.3.9.90`、`libcufile-dev 1.13.1.3` |
-| 异步 I/O | `libaio 0.3.113`，DeepSpeed 兼容性检查通过 |
-| FlashAttention | 2.8.3.post1；真实 K=6、batch 8 训练入口使用快路径通过 |
+| 异步 I/O | `libaio 0.3.113`，多卡 DeepSpeed 兼容性检查通过 |
+| FlashAttention | 2.8.3.post1；真实 InternVL3-1B、K=6、batch 8 训练与推理均确认使用快路径 |
 
-DeepSpeed JIT 产物由训练入口保存到当前 Python 环境的 `var/torch_extensions`，不依赖用户全局缓存或全局环境变量。FlashAttention 仍保留导入失败时的标准 PyTorch attention 回退，以便环境以后发生变动时给出可运行的降级路径；当前环境实际使用快路径。
+当前只训练约 1.49M 参数，Adam 一、二阶状态仅为十几 MB 量级。单张 8 GB GPU 使用 ZeRO-2 没有第二张卡可分片，反而增加包装器和通信缓冲；真实生产入口测试中曾在反向传播触发 OOM。当前单卡正式路径改用 CUDA fused AdamW，并通过分段 checkpoint 时间注意力与 ViT MLP、以 BF16 执行 LoRA 矩阵乘法来压低峰值；FP32 LoRA 主参数、梯度和 optimizer state 仍保留。`ds_config_pi_mem.json` 不删除，供以后多卡训练使用，其中也不启用 CPU optimizer offload。FlashAttention 的 PyTorch 回退只用于明确报错和环境诊断，不能当作正式训练快路径。正式训练必须先 `conda activate Evo1`，否则可能加载系统旧版 `libstdc++` 并触发 ABI 回退。
 
 ## 1. 安全采集数据
 
@@ -107,16 +109,15 @@ history_mask: [6]
 action: [14, 24]
 ```
 
-## 3. 使用 DeepSpeed 继续训练
+## 3. 单卡继续训练
 
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/Evo-1/Evo_1
-accelerate launch --num_processes 1 --num_machines 1 --dynamo_backend no --mixed_precision bf16 --use_deepspeed \
-  --deepspeed_config_file ds_config_pi_mem.json scripts/train.py \
+accelerate launch --num_processes 1 --num_machines 1 --dynamo_backend no --mixed_precision bf16 scripts/train.py \
   --run_name evo1_pi_mem --action_head flowmatching --use_flash_attn \
   --dataset_config_path dataset/config.yaml --vlm_name OpenGVLab/InternVL3-1B \
-  --use_augmentation --image_size 448 --batch_size 8 --lr 1e-5 --dropout 0.1 --weight_decay 1e-3 \
+  --use_augmentation --image_size 448 --batch_size 8 --lr 1e-5 --dropout 0.1 --weight_decay 1e-3 --fused_adamw \
   --max_steps 16000 --warmup_steps 1000 --log_interval 50 --ckpt_interval 2000 --grad_clip_norm 1.0 \
   --num_layers 8 --num_workers 4 --horizon 14 --per_action_dim 24 --state_dim 24 --use_state \
   --memory_frames 6 --memory_stride_seconds 1.0 --memory_stride_steps 5 --temporal_layer_interval 4 \
@@ -127,6 +128,16 @@ accelerate launch --num_processes 1 --num_machines 1 --dynamo_backend no --mixed
   --resume_path /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best \
   --save_dir /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage2
 ```
+
+启动日志应明确出现以下两行；若 attention backend 不是这两个值，不应把该次运行视为正式快路径：
+
+```text
+Attention backend: vision=flash-attn, language=flash_attention_2
+VLM forward mode=batched: one vision/language forward per physical batch
+Optimizer=AdamW, fused=True
+Prepared optimizer=AcceleratedOptimizer; base optimizer=AdamW; DeepSpeed ZeRO stage=None
+```
+
 ### 路径与恢复方式
 
 LoRA 默认已经开启；命令仍显式写出参数以便审计。当前训练 `1.49M` 参数，其中动作头约 `1.21M`、五个时间 ViT 层约 `0.28M`，语言主干冻结。LoRA-B 从零开始，首次前向与基础模型一致。只有明确需要恢复旧的非 LoRA 训练方式时才添加 `--no-use_lora`。
@@ -141,8 +152,7 @@ LoRA 默认已经开启；命令仍显式写出参数以便审计。当前训练
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/Evo-1/Evo_1
-python scripts/Evo1_server.py \
-  --ckpt-dir /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage2/step_best
+python scripts/Evo1_server.py
 ```
 
 ```bash
