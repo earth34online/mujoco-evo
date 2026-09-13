@@ -651,3 +651,47 @@ RTX 5060 Laptop 8GB 上，`torch 2.12.0.dev + CUDA 12.8 + flash-attn 2.8.3.post1
 ## 26. warmup 低损失阻止 step_best 落盘
 
 旧逻辑从 step 0 起更新内存中的 `best_loss`，但只有 step 大于 1000 才允许保存。如果 warmup 内出现偶然低值且之后未被打破，训练可能没有任何 `step_best`。现改为只从 `max(1000, warmup_steps)` 开始参与 best 比较；第一个有效比较点可以正常建立并保存 `step_best`。checkpoint 保留策略未改变，仍不自动删除任何 tag。
+
+## 27. 云端默认 Accelerate 配置导致单卡 LoRA 误启 DeepSpeed
+
+### 问题
+
+正式命令没有写 `--use_deepspeed`，但云端用户目录中的 Accelerate 默认配置可能仍把 `distributed_type` 设为 DeepSpeed。此时启动日志会出现 `DeepSpeedZeroOptimizer` 和 ZeRO stage 2，单卡无法获得参数分片收益，反而因包装器与通信缓冲在 batch 8 反向阶段 OOM。
+
+### 修改
+
+- 不新增 Accelerate YAML，也不修改只负责数据路径的 `dataset/config.yaml`。
+- `train.py` 在构造 `Accelerator` 前检查启动环境：单 GPU、默认 LoRA 且检测到 DeepSpeed 时，自动清除 DeepSpeed 配置并回到 Accelerate + CUDA fused AdamW。
+- 正式命令前显式写 `ACCELERATE_USE_DEEPSPEED=false` 表达单卡路径；脚本检查负责拦截云端默认 YAML 或旧命令重新注入的 DeepSpeed。
+- 仅为有意诊断保留 `--allow_single_gpu_deepspeed`；正式单卡训练不得使用。
+
+### 验证
+
+- 使用旧式 `--use_deepspeed --deepspeed_config_file ds_config_pi_mem.json` 启动，日志先报告自动回退，随后确认 `AcceleratedOptimizer`、`AdamW`、`DeepSpeed ZeRO stage=None`。
+- InternVL3-1B、双塔 FlashAttention、K=6、448×448、物理 batch 8 完成前向、反向、梯度裁剪、optimizer step 和 `step_final` 保存；峰值 `6355.6 MiB allocated / 6868.0 MiB reserved`，无 OOM。
+- 从该 `step_final` 恢复 optimizer、scheduler 和 `step=1` 后再训练一步，峰值 `6366.9 MiB allocated / 6878.0 MiB reserved`，保存成功。
+- 完整本地回归为 `39 passed`。当前修复无需恢复 CPU optimizer offload，也未降低 batch、K、图像分辨率或模型层数。
+
+## 28. step_best 恢复 MINT 原始判定顺序
+
+第 26 节曾把 `best_loss` 的比较也延迟到 `max(1000, warmup_steps)` 之后。这样在第一个允许保存的区间开始时阈值仍为正无穷，连续遇到更低的 batch loss 会反复覆盖 `step_best`。根据用户要求，现以本节取代第 26 节的当前方案，恢复 MINT 原始语义：所有全局 step 都参与单 batch `best_loss` 比较，只把实际保存限制在 `step > max(1000, warmup_steps)`。训练跨 epoch 时全局 `step` 和 `best_loss` 均不重置，所以只有整个训练开始时跳过一次保存区间，后续 epoch 开头不会再次排除 1000 步。best 指标仍是单 batch loss，没有改成平均 loss。
+
+## 29. 云端 checkpoint 下载后无法启动评估
+
+### 问题
+
+阶段二 checkpoint 的 `config.json` 保存了训练机器上的绝对 VLM 路径 `/mnt/workspace/modelscope_cache/OpenGVLab/InternVL3-1B`。checkpoint 下载到本机后该目录不存在，Transformers 在模型初始化阶段直接报 `Incorrect path_or_model_id`。同时，评估服务原默认 checkpoint 仍指向阶段一，README 未显式指定阶段二目录。
+
+### 修复
+
+- 服务端默认 checkpoint 改为仓库内 `ckpt/evo1_mujoco_pickplace_stage2/step_best`，README 同时显式写出该路径。
+- 服务端启动前检查 `config.json`、`norm_stats.json` 和模型状态文件是否完整。
+- checkpoint 中的绝对路径存在时继续原样使用；若确认是已迁移的 `OpenGVLab/InternVL3-1B` 云缓存路径，则回退为可移植模型 ID。
+- 新增 `--vlm-name`，用于显式指定其他本地模型目录或 Hub ID；未知的失效绝对路径会直接给出可操作错误，不静默猜测。
+
+### 结果
+
+- 阶段二 `step_final` 实际元数据为 `step=16000`、scheduler `last_epoch=16000`，含 199 个 optimizer state；`step_2000` 至 `step_16000`、`step_best` 和 `step_final` 均存在。
+- 默认服务命令成功定位阶段二 `step_best`，严格加载 checkpoint，合并 42 个 LoRA 模块，并保持 CUDA 与双塔 FlashAttention。
+- MuJoCo 客户端按 K=6、stride=5 发送一次真实 WebSocket 请求，服务端返回 finite 的 `[14,24]` 动作并由环境执行一步；客户端与服务端均正常退出验证流程。
+- 完整轻量回归为 `42 passed`。以上确认评估链路可启动与通信，不代表正式多 episode 的任务成功率。

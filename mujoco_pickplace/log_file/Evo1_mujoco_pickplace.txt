@@ -772,3 +772,339 @@
 2026-08-30 11:29:37,845 [INFO] ✅ Total Successful Episodes: 13/20
 2026-08-30 11:29:37,845 [INFO] 📊 Average Steps: 159.35
 2026-08-30 11:29:37,845 [INFO] success_rate=0.650
+2026-09-13 01:50:33,836 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-13 01:50:33,836 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-13 01:50:33,836 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-13 01:50:36,598 [INFO] Platform import failed (likely during shutdown)
+2026-09-13 01:50:36,598 [INFO] Platform import failed (likely during shutdown)
+2026-09-13 01:50:36,598 [INFO] Platform import failed (likely during shutdown)
+2026-09-13 01:50:36,598 [INFO] Platform import failed (likely during shutdown)
+2026-09-13 01:50:36,600 [INFO] Platform import failed (likely during shutdown)
+2026-09-13 01:50:36,600 [INFO] Platform import failed (likely during shutdown)
+2026-09-13 02:01:51,775 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-13 02:02:22,509 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-13 02:02:51,836 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-13 02:03:27,556 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-09-13 02:04:12,325 [INFO] Task 0 | Episode 1: ✅ Success
+2026-09-13 02:04:32,414 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-09-13 02:04:58,096 [INFO] Task 0 | Episode 2: ✅ Success
+2026-09-13 02:05:48,201 [INFO] Task 0 | Episode 2: ✅ Success
+2026-09-13 02:05:51,174 [INFO] Task 0 | Episode 2: ✅ Success
+2026-09-13 02:06:13,436 [INFO] Task 0 | Episode 3: ✅ Success
+2026-09-13 02:07:30,815 [INFO] Task 0 | Episode 4: ✅ Success
+2026-09-13 02:08:49,511 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-09-13 02:08:55,390 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-09-13 02:09:41,437 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-09-13 02:10:31,461 [INFO] Task 0 | Episode 4: ✅ Success
+2026-09-13 02:10:34,295 [INFO] Task 0 | Episode 4: ✅ Success
+2026-09-13 02:11:56,825 [INFO] Task 0 | Episode 6: ❌ Fail
+2026-09-13 02:13:39,793 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-09-13 02:13:42,668 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-09-13 02:14:09,276 [INFO] Task 0 | Episode 7: ❌ Fail
+2026-09-13 02:16:21,923 [INFO] Task 0 | Episode 8: ❌ Fail
+2026-09-13 02:16:37,539 [INFO] Task 0 | Episode 6: ❌ Fail
+2026-09-13 02:16:42,659 [INFO] Task 0 | Episode 6: ❌ Fail
+2026-09-13 02:18:57,970 [INFO] Task 0 | Episode 7: ❌ Fail
+2026-09-13 02:19:20,734 [INFO] Task 0 | Episode 9: ❌ Fail
+2026-09-13 02:19:32,447 [INFO] Task 0 | Episode 7: ❌ Fail
+2026-09-13 02:21:18,277 [INFO] Task 0 | Episode 8: ❌ Fail
+2026-09-13 02:22:15,774 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-09-13 02:22:31,210 [INFO] Task 0 | Episode 8: ❌ Fail
+2026-09-13 02:23:29,019 [INFO] Task 0 | Episode 9: ❌ Fail
+2026-09-13 02:24:52,217 [INFO] Task 0 | Episode 11: ❌ Fail
+2026-09-13 02:25:34,048 [INFO] Task 0 | Episode 9: ❌ Fail
+2026-09-13 02:26:14,870 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-09-13 02:26:57,901 [INFO] Task 0 | Episode 12: ❌ Fail
+2026-09-13 02:28:33,774 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-09-13 02:29:06,961 [INFO] Task 0 | Episode 13: ❌ Fail
+2026-09-13 02:29:14,452 [INFO] Task 0 | Episode 11: ❌ Fail
+2026-09-13 02:31:17,316 [INFO] Task 0 | Episode 14: ❌ Fail
+2026-09-13 02:31:30,098 [INFO] Task 0 | Episode 11: ❌ Fail
+2026-09-13 02:32:05,933 [INFO] Task 0 | Episode 12: ❌ Fail
+2026-09-13 02:33:18,880 [INFO] Task 0 | Episode 15: ❌ Fail
+2026-09-13 02:34:21,404 [INFO] Task 0 | Episode 12: ❌ Fail
+2026-09-13 02:34:36,124 [INFO] Task 0 | Episode 16: ✅ Success
+2026-09-13 02:34:52,953 [INFO] Task 0 | Episode 13: ❌ Fail
+2026-09-13 02:36:42,871 [INFO] Task 0 | Episode 17: ❌ Fail
+2026-09-13 02:37:11,733 [INFO] Task 0 | Episode 13: ❌ Fail
+2026-09-13 02:37:35,828 [INFO] Task 0 | Episode 14: ❌ Fail
+2026-09-13 02:38:41,101 [INFO] Task 0 | Episode 18: ❌ Fail
+2026-09-13 02:39:51,550 [INFO] Task 0 | Episode 14: ❌ Fail
+2026-09-13 02:40:00,479 [INFO] Task 0 | Episode 19: ✅ Success
+2026-09-13 02:40:25,430 [INFO] Task 0 | Episode 15: ❌ Fail
+2026-09-13 02:42:12,057 [INFO] Task 0 | Episode 20: ❌ Fail
+2026-09-13 02:42:36,265 [INFO] Task 0 | Episode 15: ❌ Fail
+2026-09-13 02:43:21,203 [INFO] Task 0 | Episode 16: ❌ Fail
+2026-09-13 02:45:05,848 [INFO] Task 0 | Episode 21: ❌ Fail
+2026-09-13 02:45:11,168 [INFO] Task 0 | Episode 16: ❌ Fail
+2026-09-13 02:45:33,168 [INFO] Task 0 | Episode 17: ❌ Fail
+2026-09-13 02:47:46,665 [INFO] Task 0 | Episode 18: ❌ Fail
+2026-09-13 02:48:05,615 [INFO] Task 0 | Episode 22: ❌ Fail
+2026-09-13 02:48:15,184 [INFO] Task 0 | Episode 17: ❌ Fail
+2026-09-13 02:49:03,033 [INFO] Task 0 | Episode 19: ✅ Success
+2026-09-13 02:50:48,799 [INFO] Task 0 | Episode 18: ❌ Fail
+2026-09-13 02:51:04,420 [INFO] Task 0 | Episode 23: ❌ Fail
+2026-09-13 02:51:50,394 [INFO] Task 0 | Episode 20: ❌ Fail
+2026-09-13 02:51:59,996 [INFO] Task 0 | Episode 19: ✅ Success
+2026-09-13 02:54:02,865 [INFO] Task 0 | Episode 24: ❌ Fail
+2026-09-13 02:54:12,899 [INFO] Task 0 | Episode 20: ❌ Fail
+2026-09-13 02:54:33,957 [INFO] Task 0 | Episode 21: ❌ Fail
+2026-09-13 02:56:46,319 [INFO] Task 0 | Episode 22: ❌ Fail
+2026-09-13 02:57:01,820 [INFO] Task 0 | Episode 25: ❌ Fail
+2026-09-13 02:57:08,992 [INFO] Task 0 | Episode 21: ❌ Fail
+2026-09-13 02:58:55,355 [INFO] Task 0 | Episode 23: ❌ Fail
+2026-09-13 02:58:58,871 [INFO] Task 0 | Episode 22: ✅ Success
+2026-09-13 02:59:55,843 [INFO] Task 0 | Episode 26: ❌ Fail
+2026-09-13 03:01:04,769 [INFO] Task 0 | Episode 24: ❌ Fail
+2026-09-13 03:01:57,563 [INFO] Task 0 | Episode 23: ❌ Fail
+2026-09-13 03:02:49,671 [INFO] Task 0 | Episode 27: ❌ Fail
+2026-09-13 03:03:11,610 [INFO] Task 0 | Episode 25: ❌ Fail
+2026-09-13 03:04:48,719 [INFO] Task 0 | Episode 24: ❌ Fail
+2026-09-13 03:05:19,217 [INFO] Task 0 | Episode 26: ❌ Fail
+2026-09-13 03:05:38,372 [INFO] Task 0 | Episode 28: ❌ Fail
+2026-09-13 03:07:27,005 [INFO] Task 0 | Episode 27: ❌ Fail
+2026-09-13 03:07:41,720 [INFO] Task 0 | Episode 25: ❌ Fail
+2026-09-13 03:08:34,557 [INFO] Task 0 | Episode 29: ❌ Fail
+2026-09-13 03:09:31,674 [INFO] Task 0 | Episode 28: ❌ Fail
+2026-09-13 03:10:32,623 [INFO] Task 0 | Episode 26: ❌ Fail
+2026-09-13 03:11:21,338 [INFO] Task 0 | Episode 30: ❌ Fail
+2026-09-13 03:11:39,293 [INFO] Task 0 | Episode 29: ❌ Fail
+2026-09-13 03:13:27,450 [INFO] Task 0 | Episode 27: ❌ Fail
+2026-09-13 03:13:43,909 [INFO] Task 0 | Episode 30: ❌ Fail
+2026-09-13 03:14:03,131 [INFO] Task 0 | Episode 31: ❌ Fail
+2026-09-13 03:14:59,593 [INFO] Task 0 | Episode 31: ✅ Success
+2026-09-13 03:15:49,745 [INFO] Task 0 | Episode 28: ❌ Fail
+2026-09-13 03:16:42,468 [INFO] Task 0 | Episode 32: ❌ Fail
+2026-09-13 03:17:02,129 [INFO] Task 0 | Episode 32: ❌ Fail
+2026-09-13 03:18:36,783 [INFO] Task 0 | Episode 29: ❌ Fail
+2026-09-13 03:19:10,425 [INFO] Task 0 | Episode 33: ❌ Fail
+2026-09-13 03:19:30,554 [INFO] Task 0 | Episode 33: ❌ Fail
+2026-09-13 03:21:18,534 [INFO] Task 0 | Episode 34: ❌ Fail
+2026-09-13 03:21:30,054 [INFO] Task 0 | Episode 30: ❌ Fail
+2026-09-13 03:22:22,268 [INFO] Task 0 | Episode 34: ❌ Fail
+2026-09-13 03:23:19,275 [INFO] Task 0 | Episode 31: ✅ Success
+2026-09-13 03:23:33,652 [INFO] Task 0 | Episode 35: ❌ Fail
+2026-09-13 03:24:33,048 [INFO] Task 0 | Episode 35: ❌ Fail
+2026-09-13 03:26:16,098 [INFO] Task 0 | Episode 32: ❌ Fail
+2026-09-13 03:26:30,374 [INFO] Task 0 | Episode 36: ❌ Fail
+2026-09-13 03:26:41,150 [INFO] Task 0 | Episode 36: ❌ Fail
+2026-09-13 03:28:49,342 [INFO] Task 0 | Episode 37: ❌ Fail
+2026-09-13 03:29:11,854 [INFO] Task 0 | Episode 33: ❌ Fail
+2026-09-13 03:29:32,062 [INFO] Task 0 | Episode 37: ❌ Fail
+2026-09-13 03:30:56,990 [INFO] Task 0 | Episode 38: ❌ Fail
+2026-09-13 03:32:09,906 [INFO] Task 0 | Episode 34: ❌ Fail
+2026-09-13 03:32:31,053 [INFO] Task 0 | Episode 38: ❌ Fail
+2026-09-13 03:33:03,250 [INFO] Task 0 | Episode 39: ❌ Fail
+2026-09-13 03:34:55,295 [INFO] Task 0 | Episode 35: ❌ Fail
+2026-09-13 03:35:28,527 [INFO] Task 0 | Episode 40: ❌ Fail
+2026-09-13 03:35:28,547 [INFO] Task 0 | Episode 39: ❌ Fail
+2026-09-13 03:37:10,273 [INFO] Task 0 | Episode 36: ❌ Fail
+2026-09-13 03:38:00,475 [INFO] Task 0 | Episode 40: ❌ Fail
+2026-09-13 03:38:22,598 [INFO] Task 0 | Episode 41: ❌ Fail
+2026-09-13 03:40:06,670 [INFO] Task 0 | Episode 37: ❌ Fail
+2026-09-13 03:40:24,329 [INFO] Task 0 | Episode 41: ❌ Fail
+2026-09-13 03:40:45,294 [INFO] Task 0 | Episode 42: ❌ Fail
+2026-09-13 03:42:06,514 [INFO] Task 0 | Episode 43: ✅ Success
+2026-09-13 03:42:58,173 [INFO] Task 0 | Episode 38: ❌ Fail
+2026-09-13 03:43:09,847 [INFO] Task 0 | Episode 42: ❌ Fail
+2026-09-13 03:44:11,797 [INFO] Task 0 | Episode 44: ❌ Fail
+2026-09-13 03:44:53,051 [INFO] Task 0 | Episode 43: ✅ Success
+2026-09-13 03:45:21,416 [INFO] Task 0 | Episode 45: ✅ Success
+2026-09-13 03:45:46,522 [INFO] Task 0 | Episode 39: ❌ Fail
+2026-09-13 03:46:30,294 [INFO] Task 0 | Episode 46: ✅ Success
+2026-09-13 03:47:32,844 [INFO] Task 0 | Episode 44: ❌ Fail
+2026-09-13 03:48:32,133 [INFO] Task 0 | Episode 40: ❌ Fail
+2026-09-13 03:49:02,069 [INFO] Task 0 | Episode 45: ✅ Success
+2026-09-13 03:49:25,874 [INFO] Task 0 | Episode 47: ❌ Fail
+2026-09-13 03:51:04,671 [INFO] Task 0 | Episode 41: ❌ Fail
+2026-09-13 03:51:16,722 [INFO] Task 0 | Episode 46: ❌ Fail
+2026-09-13 03:52:17,103 [INFO] Task 0 | Episode 48: ❌ Fail
+2026-09-13 03:53:15,525 [INFO] Task 0 | Episode 42: ❌ Fail
+2026-09-13 03:54:12,765 [INFO] Task 0 | Episode 47: ❌ Fail
+2026-09-13 03:54:33,159 [INFO] Task 0 | Episode 43: ✅ Success
+2026-09-13 03:55:11,197 [INFO] Task 0 | Episode 49: ❌ Fail
+2026-09-13 03:56:39,975 [INFO] Task 0 | Episode 44: ❌ Fail
+2026-09-13 03:57:06,166 [INFO] Task 0 | Episode 48: ❌ Fail
+2026-09-13 03:57:37,483 [INFO] Task 0 | Episode 45: ✅ Success
+2026-09-13 03:58:04,486 [INFO] Task 0 | Episode 50: ❌ Fail
+2026-09-13 03:59:45,766 [INFO] Task 0 | Episode 46: ❌ Fail
+2026-09-13 03:59:56,683 [INFO] Task 0 | Episode 49: ❌ Fail
+2026-09-13 04:00:55,373 [INFO] Task 0 | Episode 51: ❌ Fail
+2026-09-13 04:01:55,970 [INFO] Task 0 | Episode 47: ❌ Fail
+2026-09-13 04:02:58,168 [INFO] Task 0 | Episode 50: ❌ Fail
+2026-09-13 04:03:52,075 [INFO] Task 0 | Episode 52: ❌ Fail
+2026-09-13 04:04:01,677 [INFO] Task 0 | Episode 48: ❌ Fail
+2026-09-13 04:05:25,490 [INFO] Task 0 | Episode 53: ✅ Success
+2026-09-13 04:05:47,082 [INFO] Task 0 | Episode 51: ❌ Fail
+2026-09-13 04:06:09,363 [INFO] Task 0 | Episode 49: ❌ Fail
+2026-09-13 04:08:24,146 [INFO] Task 0 | Episode 54: ❌ Fail
+2026-09-13 04:08:24,934 [INFO] Task 0 | Episode 50: ❌ Fail
+2026-09-13 04:08:45,274 [INFO] Task 0 | Episode 52: ❌ Fail
+2026-09-13 04:10:28,365 [INFO] Task 0 | Episode 53: ✅ Success
+2026-09-13 04:10:34,099 [INFO] Task 0 | Episode 51: ❌ Fail
+2026-09-13 04:11:11,390 [INFO] Task 0 | Episode 55: ❌ Fail
+2026-09-13 04:11:20,696 [INFO] Task 0 | Episode 54: ✅ Success
+2026-09-13 04:12:39,415 [INFO] Task 0 | Episode 52: ❌ Fail
+2026-09-13 04:13:56,485 [INFO] Task 0 | Episode 53: ✅ Success
+2026-09-13 04:14:03,158 [INFO] Task 0 | Episode 56: ❌ Fail
+2026-09-13 04:14:12,887 [INFO] Task 0 | Episode 55: ❌ Fail
+2026-09-13 04:16:04,126 [INFO] Task 0 | Episode 54: ❌ Fail
+2026-09-13 04:16:58,985 [INFO] Task 0 | Episode 57: ❌ Fail
+2026-09-13 04:17:10,114 [INFO] Task 0 | Episode 56: ❌ Fail
+2026-09-13 04:18:10,019 [INFO] Task 0 | Episode 55: ❌ Fail
+2026-09-13 04:19:52,854 [INFO] Task 0 | Episode 58: ❌ Fail
+2026-09-13 04:20:08,050 [INFO] Task 0 | Episode 57: ❌ Fail
+2026-09-13 04:20:18,838 [INFO] Task 0 | Episode 56: ❌ Fail
+2026-09-13 04:22:28,186 [INFO] Task 0 | Episode 57: ❌ Fail
+2026-09-13 04:22:44,450 [INFO] Task 0 | Episode 59: ❌ Fail
+2026-09-13 04:22:57,505 [INFO] Task 0 | Episode 58: ❌ Fail
+2026-09-13 04:24:36,613 [INFO] Task 0 | Episode 58: ❌ Fail
+2026-09-13 04:25:31,782 [INFO] Task 0 | Episode 60: ❌ Fail
+2026-09-13 04:25:44,920 [INFO] Task 0 | Episode 59: ❌ Fail
+2026-09-13 04:26:40,911 [INFO] Task 0 | Episode 59: ❌ Fail
+2026-09-13 04:28:28,639 [INFO] Task 0 | Episode 61: ❌ Fail
+2026-09-13 04:28:40,345 [INFO] Task 0 | Episode 60: ❌ Fail
+2026-09-13 04:28:44,292 [INFO] Task 0 | Episode 60: ❌ Fail
+2026-09-13 04:30:53,944 [INFO] Task 0 | Episode 61: ❌ Fail
+2026-09-13 04:31:17,714 [INFO] Task 0 | Episode 62: ❌ Fail
+2026-09-13 04:31:30,337 [INFO] Task 0 | Episode 61: ❌ Fail
+2026-09-13 04:32:43,204 [INFO] Task 0 | Episode 63: ✅ Success
+2026-09-13 04:33:00,136 [INFO] Task 0 | Episode 62: ❌ Fail
+2026-09-13 04:34:20,492 [INFO] Task 0 | Episode 62: ❌ Fail
+2026-09-13 04:35:10,147 [INFO] Task 0 | Episode 63: ❌ Fail
+2026-09-13 04:35:40,254 [INFO] Task 0 | Episode 64: ❌ Fail
+2026-09-13 04:37:15,221 [INFO] Task 0 | Episode 65: ✅ Success
+2026-09-13 04:37:15,930 [INFO] Task 0 | Episode 63: ❌ Fail
+2026-09-13 04:37:19,955 [INFO] Task 0 | Episode 64: ❌ Fail
+2026-09-13 04:39:32,554 [INFO] Task 0 | Episode 65: ❌ Fail
+2026-09-13 04:40:17,712 [INFO] Task 0 | Episode 66: ❌ Fail
+2026-09-13 04:40:17,744 [INFO] Task 0 | Episode 64: ❌ Fail
+2026-09-13 04:41:44,494 [INFO] Task 0 | Episode 66: ❌ Fail
+2026-09-13 04:43:21,417 [INFO] Task 0 | Episode 67: ❌ Fail
+2026-09-13 04:43:21,817 [INFO] Task 0 | Episode 65: ❌ Fail
+2026-09-13 04:43:50,216 [INFO] Task 0 | Episode 67: ❌ Fail
+2026-09-13 04:46:02,602 [INFO] Task 0 | Episode 68: ❌ Fail
+2026-09-13 04:46:17,928 [INFO] Task 0 | Episode 68: ❌ Fail
+2026-09-13 04:46:21,045 [INFO] Task 0 | Episode 66: ❌ Fail
+2026-09-13 04:48:19,137 [INFO] Task 0 | Episode 69: ❌ Fail
+2026-09-13 04:49:20,398 [INFO] Task 0 | Episode 69: ❌ Fail
+2026-09-13 04:49:23,517 [INFO] Task 0 | Episode 67: ❌ Fail
+2026-09-13 04:50:31,378 [INFO] Task 0 | Episode 70: ❌ Fail
+2026-09-13 04:50:34,944 [INFO] Task 0 | Episode 70: ✅ Success
+2026-09-13 04:52:18,911 [INFO] Task 0 | Episode 68: ❌ Fail
+2026-09-13 04:52:40,874 [INFO] Task 0 | Episode 71: ❌ Fail
+2026-09-13 04:53:31,039 [INFO] Task 0 | Episode 71: ❌ Fail
+2026-09-13 04:54:48,705 [INFO] Task 0 | Episode 72: ❌ Fail
+2026-09-13 04:55:13,762 [INFO] Task 0 | Episode 69: ❌ Fail
+2026-09-13 04:56:25,017 [INFO] Task 0 | Episode 72: ❌ Fail
+2026-09-13 04:56:55,360 [INFO] Task 0 | Episode 73: ❌ Fail
+2026-09-13 04:58:07,959 [INFO] Task 0 | Episode 70: ❌ Fail
+2026-09-13 04:59:05,361 [INFO] Task 0 | Episode 74: ❌ Fail
+2026-09-13 04:59:13,294 [INFO] Task 0 | Episode 73: ❌ Fail
+2026-09-13 05:01:02,549 [INFO] Task 0 | Episode 71: ❌ Fail
+2026-09-13 05:01:15,496 [INFO] Task 0 | Episode 75: ❌ Fail
+2026-09-13 05:02:04,798 [INFO] Task 0 | Episode 74: ❌ Fail
+2026-09-13 05:03:21,455 [INFO] Task 0 | Episode 76: ❌ Fail
+2026-09-13 05:03:40,358 [INFO] Task 0 | Episode 72: ❌ Fail
+2026-09-13 05:04:49,256 [INFO] Task 0 | Episode 77: ✅ Success
+2026-09-13 05:05:00,864 [INFO] Task 0 | Episode 75: ❌ Fail
+2026-09-13 05:06:09,249 [INFO] Task 0 | Episode 78: ✅ Success
+2026-09-13 05:06:36,239 [INFO] Task 0 | Episode 73: ❌ Fail
+2026-09-13 05:07:56,348 [INFO] Task 0 | Episode 76: ❌ Fail
+2026-09-13 05:08:21,828 [INFO] Task 0 | Episode 79: ❌ Fail
+2026-09-13 05:09:09,494 [INFO] Task 0 | Episode 74: ❌ Fail
+2026-09-13 05:09:55,643 [INFO] Task 0 | Episode 77: ✅ Success
+2026-09-13 05:11:21,768 [INFO] Task 0 | Episode 75: ❌ Fail
+2026-09-13 05:11:25,552 [INFO] Task 0 | Episode 80: ❌ Fail
+2026-09-13 05:11:47,694 [INFO] Task 0 | Episode 78: ✅ Success
+2026-09-13 05:13:31,438 [INFO] Task 0 | Episode 76: ❌ Fail
+2026-09-13 05:14:24,361 [INFO] Task 0 | Episode 81: ❌ Fail
+2026-09-13 05:14:42,155 [INFO] Task 0 | Episode 79: ❌ Fail
+2026-09-13 05:14:58,617 [INFO] Task 0 | Episode 77: ✅ Success
+2026-09-13 05:17:11,787 [INFO] Task 0 | Episode 78: ❌ Fail
+2026-09-13 05:17:15,968 [INFO] Task 0 | Episode 82: ❌ Fail
+2026-09-13 05:17:27,752 [INFO] Task 0 | Episode 80: ❌ Fail
+2026-09-13 05:19:18,679 [INFO] Task 0 | Episode 79: ❌ Fail
+2026-09-13 05:20:16,944 [INFO] Task 0 | Episode 83: ❌ Fail
+2026-09-13 05:20:21,979 [INFO] Task 0 | Episode 81: ❌ Fail
+2026-09-13 05:21:32,136 [INFO] Task 0 | Episode 80: ❌ Fail
+2026-09-13 05:23:06,318 [INFO] Task 0 | Episode 84: ❌ Fail
+2026-09-13 05:23:26,525 [INFO] Task 0 | Episode 82: ❌ Fail
+2026-09-13 05:23:59,188 [INFO] Task 0 | Episode 81: ❌ Fail
+2026-09-13 05:25:11,172 [INFO] Task 0 | Episode 85: ❌ Fail
+2026-09-13 05:26:17,424 [INFO] Task 0 | Episode 83: ❌ Fail
+2026-09-13 05:26:54,958 [INFO] Task 0 | Episode 82: ❌ Fail
+2026-09-13 05:27:17,764 [INFO] Task 0 | Episode 86: ❌ Fail
+2026-09-13 05:29:10,987 [INFO] Task 0 | Episode 84: ❌ Fail
+2026-09-13 05:29:28,832 [INFO] Task 0 | Episode 87: ❌ Fail
+2026-09-13 05:29:46,349 [INFO] Task 0 | Episode 83: ❌ Fail
+2026-09-13 05:31:41,663 [INFO] Task 0 | Episode 88: ❌ Fail
+2026-09-13 05:32:04,371 [INFO] Task 0 | Episode 85: ❌ Fail
+2026-09-13 05:32:38,001 [INFO] Task 0 | Episode 84: ❌ Fail
+2026-09-13 05:33:50,009 [INFO] Task 0 | Episode 89: ❌ Fail
+2026-09-13 05:34:52,338 [INFO] Task 0 | Episode 86: ❌ Fail
+2026-09-13 05:35:25,807 [INFO] Task 0 | Episode 85: ❌ Fail
+2026-09-13 05:35:59,865 [INFO] Task 0 | Episode 90: ❌ Fail
+2026-09-13 05:37:48,174 [INFO] Task 0 | Episode 87: ❌ Fail
+2026-09-13 05:38:08,775 [INFO] Task 0 | Episode 91: ❌ Fail
+2026-09-13 05:38:17,551 [INFO] Task 0 | Episode 86: ❌ Fail
+2026-09-13 05:40:15,517 [INFO] Task 0 | Episode 92: ❌ Fail
+2026-09-13 05:40:34,376 [INFO] Task 0 | Episode 88: ❌ Fail
+2026-09-13 05:41:05,273 [INFO] Task 0 | Episode 87: ❌ Fail
+2026-09-13 05:42:24,033 [INFO] Task 0 | Episode 93: ❌ Fail
+2026-09-13 05:43:24,046 [INFO] Task 0 | Episode 89: ❌ Fail
+2026-09-13 05:43:49,735 [INFO] Task 0 | Episode 88: ❌ Fail
+2026-09-13 05:44:35,096 [INFO] Task 0 | Episode 94: ❌ Fail
+2026-09-13 05:46:11,792 [INFO] Task 0 | Episode 90: ❌ Fail
+2026-09-13 05:46:14,331 [INFO] Task 0 | Episode 89: ❌ Fail
+2026-09-13 05:47:13,173 [INFO] Task 0 | Episode 95: ❌ Fail
+2026-09-13 05:48:26,419 [INFO] Task 0 | Episode 90: ❌ Fail
+2026-09-13 05:49:12,984 [INFO] Task 0 | Episode 91: ❌ Fail
+2026-09-13 05:50:08,392 [INFO] Task 0 | Episode 96: ❌ Fail
+2026-09-13 05:50:31,880 [INFO] Task 0 | Episode 91: ❌ Fail
+2026-09-13 05:51:56,022 [INFO] Task 0 | Episode 92: ❌ Fail
+2026-09-13 05:52:45,138 [INFO] Task 0 | Episode 97: ❌ Fail
+2026-09-13 05:52:45,303 [INFO] Task 0 | Episode 92: ❌ Fail
+2026-09-13 05:54:01,759 [INFO] Task 0 | Episode 93: ❌ Fail
+2026-09-13 05:55:20,039 [INFO] Task 0 | Episode 98: ❌ Fail
+2026-09-13 05:55:46,947 [INFO] Task 0 | Episode 93: ❌ Fail
+2026-09-13 05:56:46,338 [INFO] Task 0 | Episode 94: ❌ Fail
+2026-09-13 05:57:55,259 [INFO] Task 0 | Episode 99: ❌ Fail
+2026-09-13 05:57:57,750 [INFO] Task 0 | Episode 94: ❌ Fail
+2026-09-13 05:59:39,170 [INFO] Task 0 | Episode 95: ❌ Fail
+2026-09-13 06:00:04,994 [INFO] Task 0 | Episode 95: ❌ Fail
+2026-09-13 06:00:51,594 [INFO] Task 0 | Episode 100: ❌ Fail
+2026-09-13 06:00:51,594 [INFO] ========= Task 1 Summary: 11/100 Successful =========
+2026-09-13 06:00:51,594 [INFO] 
+========= Overall Task Summary =========
+2026-09-13 06:00:51,594 [INFO] ✅ Total Successful Episodes: 11/100
+2026-09-13 06:00:51,594 [INFO] 📊 Average Steps: 190.85
+2026-09-13 06:00:51,599 [INFO] success_rate=0.110
+2026-09-13 06:01:42,703 [INFO] Task 0 | Episode 96: ❌ Fail
+2026-09-13 06:01:45,174 [INFO] Task 0 | Episode 96: ❌ Fail
+2026-09-13 06:03:09,991 [INFO] Task 0 | Episode 97: ❌ Fail
+2026-09-13 06:03:10,276 [INFO] Task 0 | Episode 97: ❌ Fail
+2026-09-13 06:04:28,596 [INFO] Task 0 | Episode 98: ❌ Fail
+2026-09-13 06:04:31,411 [INFO] Task 0 | Episode 98: ❌ Fail
+2026-09-13 06:05:46,237 [INFO] Task 0 | Episode 99: ❌ Fail
+2026-09-13 06:05:52,797 [INFO] Task 0 | Episode 99: ❌ Fail
+2026-09-13 06:07:05,391 [INFO] Task 0 | Episode 100: ❌ Fail
+2026-09-13 06:07:05,391 [INFO] ========= Task 1 Summary: 9/100 Successful =========
+2026-09-13 06:07:05,391 [INFO] 
+========= Overall Task Summary =========
+2026-09-13 06:07:05,391 [INFO] ✅ Total Successful Episodes: 9/100
+2026-09-13 06:07:05,391 [INFO] 📊 Average Steps: 192.08
+2026-09-13 06:07:05,391 [INFO] success_rate=0.090
+2026-09-13 06:07:14,756 [INFO] Task 0 | Episode 100: ❌ Fail
+2026-09-13 06:07:14,756 [INFO] ========= Task 1 Summary: 14/100 Successful =========
+2026-09-13 06:07:14,756 [INFO] 
+========= Overall Task Summary =========
+2026-09-13 06:07:14,756 [INFO] ✅ Total Successful Episodes: 14/100
+2026-09-13 06:07:14,756 [INFO] 📊 Average Steps: 188.04
+2026-09-13 06:07:14,756 [INFO] success_rate=0.140

@@ -23,6 +23,21 @@ from torch.optim import AdamW
 
 import warnings
 
+# 单卡 LoRA 只训练约 1.49M 参数。此时 ZeRO-2 无法跨 GPU 分片，却会保留
+# DeepSpeed 包装器和通信缓冲，8 GB 显卡反而更容易 OOM。兼容用户沿用旧命令：
+# 若 accelerate 仍带有 --use_deepspeed，则在构造 Accelerator 前自动回到
+# 普通单卡路径。全量微调和显式要求保留 DeepSpeed 的诊断运行不受影响。
+_single_gpu_deepspeed_disabled = False
+if (
+    os.environ.get("ACCELERATE_USE_DEEPSPEED", "").lower() == "true"
+    and int(os.environ.get("WORLD_SIZE", "1")) <= 1
+    and "--no-use_lora" not in sys.argv
+    and "--allow_single_gpu_deepspeed" not in sys.argv
+):
+    os.environ["ACCELERATE_USE_DEEPSPEED"] = "false"
+    os.environ.pop("DEEPSPEED_CONFIG_FILE", None)
+    _single_gpu_deepspeed_disabled = True
+
 accelerator = Accelerator()
 wandb = None
 swanlab = None
@@ -504,6 +519,12 @@ def train(config):
     # === Set logging ===
     save_dir = get_with_warning(config, "save_dir", "checkpoints")
     log_path = setup_logging(save_dir)
+    if _single_gpu_deepspeed_disabled and accelerator.is_main_process:
+        logging.warning(
+            "Detected single-GPU LoRA training launched with DeepSpeed; "
+            "automatically using the lower-memory Accelerate + fused AdamW path. "
+            "Pass --allow_single_gpu_deepspeed only for an intentional diagnostic."
+        )
     
     # === WandB and Swanlab ===
     init_wandb(config, accelerator)
@@ -812,10 +833,9 @@ def train(config):
             # === Save best checkpoint ===
             loss_value = loss.item()
             if accelerator.is_main_process:
-                # Do not let an unsaved warmup loss poison the best threshold.
-                # The first eligible step must establish step_best even when an
-                # accidental early loss was numerically lower.
-                is_best = step >= best_start_step and loss_value < best_loss
+                # Follow the original MINT logic: warmup steps establish the
+                # global best threshold, but do not write step_best yet.
+                is_best = loss_value < best_loss
                 if is_best:
                     best_loss = loss_value
                 is_best_tensor = torch.tensor(int(is_best), device=accelerator.device)
@@ -825,7 +845,7 @@ def train(config):
             if accelerator.distributed_type != DistributedType.NO:
                 torch.distributed.broadcast(is_best_tensor, src=0)
             
-            if is_best_tensor.item() == 1:
+            if is_best_tensor.item() == 1 and step > best_start_step:
                 accelerator.print("start to save best checkpoint")
                 save_checkpoint(
                     save_dir,
@@ -968,6 +988,15 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Use CUDA fused AdamW on the single-GPU LoRA path (default: enabled).",
+    )
+    parser.add_argument(
+        "--allow_single_gpu_deepspeed",
+        action="store_true",
+        help=(
+            "Keep DeepSpeed on a one-GPU LoRA run. This is intended only for "
+            "diagnostics because ZeRO-2 cannot shard across one GPU and may use "
+            "more memory than fused AdamW."
+        ),
     )
 
 

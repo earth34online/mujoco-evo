@@ -11,10 +11,18 @@ import numpy as np
 import json
 import torch
 from PIL import Image
+from pathlib import Path
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from scripts.Evo1 import EVO1
 from model.lora import merge_lora_weights
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_CKPT_DIR = (
+    REPO_ROOT / "ckpt" / "evo1_mujoco_pickplace_stage2" / "step_best"
+)
+DEFAULT_VLM_REPO_ID = "OpenGVLab/InternVL3-1B"
 
 
 class Normalizer:
@@ -98,9 +106,53 @@ class Normalizer:
         return (action + 1.0) / 2.0 * (action_max - action_min + 1e-8) + action_min
 
 
-def load_model_and_normalizer(ckpt_dir):
-    config = json.load(open(os.path.join(ckpt_dir, "config.json")))
-    stats = json.load(open(os.path.join(ckpt_dir, "norm_stats.json")))
+def _resolve_vlm_name(configured_name, override=None):
+    if override:
+        return override
+
+    configured_name = configured_name or DEFAULT_VLM_REPO_ID
+    if not os.path.isabs(configured_name) or os.path.exists(configured_name):
+        return configured_name
+
+    # Training checkpoints may be moved back from a cloud instance.  An
+    # absolute ModelScope cache path is machine-specific, while the model ID is
+    # portable and can resolve from the local Hugging Face cache.
+    normalized = configured_name.replace("\\", "/").rstrip("/")
+    if normalized.endswith("/OpenGVLab/InternVL3-1B"):
+        print(
+            "Checkpoint VLM path does not exist on this machine; falling back "
+            f"to {DEFAULT_VLM_REPO_ID}.",
+            flush=True,
+        )
+        return DEFAULT_VLM_REPO_ID
+
+    raise FileNotFoundError(
+        f"Checkpoint VLM path does not exist: {configured_name}. "
+        "Pass --vlm-name with a valid local model directory or Hub model ID."
+    )
+
+
+def load_model_and_normalizer(ckpt_dir, vlm_name=None):
+    ckpt_dir = os.path.abspath(os.path.expanduser(ckpt_dir))
+    required_files = (
+        "config.json",
+        "norm_stats.json",
+        "mp_rank_00_model_states.pt",
+    )
+    missing_files = [
+        name for name in required_files
+        if not os.path.isfile(os.path.join(ckpt_dir, name))
+    ]
+    if missing_files:
+        raise FileNotFoundError(
+            f"Checkpoint directory {ckpt_dir} is missing: {missing_files}"
+        )
+
+    with open(os.path.join(ckpt_dir, "config.json"), "r") as config_file:
+        config = json.load(config_file)
+    with open(os.path.join(ckpt_dir, "norm_stats.json"), "r") as stats_file:
+        stats = json.load(stats_file)
+    config["vlm_name"] = _resolve_vlm_name(config.get("vlm_name"), vlm_name)
     use_state = bool(config.get("use_state", True))
     if not use_state:
         raise ValueError(
@@ -275,7 +327,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serve an Evo-1 checkpoint over websocket.")
     parser.add_argument(
         "--ckpt-dir",
-        default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best",
+        default=str(DEFAULT_CKPT_DIR),
+    )
+    parser.add_argument(
+        "--vlm-name",
+        default=None,
+        help=(
+            "Override the VLM directory or Hub ID stored in config.json. "
+            "Useful after moving a cloud checkpoint to another machine."
+        ),
     )
     parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
@@ -283,7 +343,9 @@ if __name__ == "__main__":
     port = args.port
     
     print("Loading EVO_1 model...")
-    model, normalizer, use_state = load_model_and_normalizer(ckpt_dir)
+    model, normalizer, use_state = load_model_and_normalizer(
+        ckpt_dir, vlm_name=args.vlm_name
+    )
     
     async def main():
         print(f"EVO_1 server running at ws://0.0.0.0:{port}")
