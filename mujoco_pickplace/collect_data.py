@@ -11,14 +11,16 @@ from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "cache" / "mujoco_pickplace"
-NUM_EPISODES = 500
+NUM_EPISODES = 250
 MAX_ATTEMPTS = 20000
-MAX_STEPS = 200
+MAX_STEPS = 250
 MIN_LEN = 20
 MAX_ACTION_REVERSALS = 4
 MAX_EEF_REVERSALS = 8
 MAX_ACTION_JUMP = 0.020
 MAX_EEF_STEP = 0.025
+RECOVERY_EEF_REVERSAL_ALLOWANCE = 4
+RECOVERY_ACTION_JUMP_LIMIT = 0.025
 POST_SUCCESS_STEPS = 24
 
 
@@ -32,16 +34,82 @@ def _reversal_count(vectors, motion_epsilon=1e-5):
     return int(np.sum(valid & (dots < -motion_epsilon ** 2)))
 
 
-def trajectory_quality(states, actions, joint_targets, had_two_pad_contact):
+def _phase_entry_count(phases, target):
+    return sum(
+        left != target and right == target
+        for left, right in zip(phases[:-1], phases[1:])
+    )
+
+
+def trajectory_quality(
+    states,
+    actions,
+    phases,
+    joint_targets,
+    had_two_pad_contact,
+):
+    phases = list(phases)
     eef_delta = np.diff(states[:, :3], axis=0)
     action_delta = np.diff(actions[:, :3], axis=0)
+    recovery_count = _phase_entry_count(phases, "recover")
+
+    lift_indices = np.flatnonzero(np.asarray(phases) == "lift")
+    successful_close_index = None
+    if len(lift_indices):
+        close_before_lift = np.flatnonzero(
+            (np.asarray(phases) == "close")
+            & (np.arange(len(phases)) < int(lift_indices[0]))
+        )
+        if len(close_before_lift):
+            successful_close_index = int(close_before_lift[-1])
+            while (
+                successful_close_index > 0
+                and phases[successful_close_index - 1] == "close"
+            ):
+                successful_close_index -= 1
+
+    successful_close_xy_error = np.inf
+    successful_close_z_above = np.inf
+    if successful_close_index is not None:
+        grasp_state = states[successful_close_index]
+        hand = grasp_state[:3]
+        cube = grasp_state[3:6]
+        target_xy = np.array(
+            [cube[0] + PickPlaceEnv.GRASP_X_BIAS, cube[1]],
+            dtype=np.float64,
+        )
+        successful_close_xy_error = float(
+            np.linalg.norm(hand[:2] - target_xy)
+        )
+        successful_close_z_above = float(
+            hand[2]
+            - (
+                PickPlaceEnv.CUBE_SUPPORT_Z
+                + PickPlaceEnv.EXPERT_GRASP_OFFSET
+            )
+        )
+
+    allowed_eef_reversals = (
+        MAX_EEF_REVERSALS
+        + recovery_count * RECOVERY_EEF_REVERSAL_ALLOWANCE
+    )
+    allowed_action_jump = (
+        RECOVERY_ACTION_JUMP_LIMIT
+        if recovery_count
+        else MAX_ACTION_JUMP
+    )
     metrics = {
         "two_pad_contact": bool(had_two_pad_contact),
+        "recovery_count": int(recovery_count),
+        "successful_close_xy_error": successful_close_xy_error,
+        "successful_close_z_above": successful_close_z_above,
         "action_reversals": _reversal_count(actions[:, :3]),
         "eef_reversals": _reversal_count(eef_delta),
+        "allowed_eef_reversals": int(allowed_eef_reversals),
         "max_action_jump": float(
             np.max(np.linalg.norm(action_delta, axis=1))
         ) if len(action_delta) else 0.0,
+        "allowed_action_jump": float(allowed_action_jump),
         "max_eef_step": float(
             np.max(np.linalg.norm(eef_delta, axis=1))
         ) if len(eef_delta) else 0.0,
@@ -53,9 +121,15 @@ def trajectory_quality(states, actions, joint_targets, had_two_pad_contact):
     accepted = (
         len(states) >= MIN_LEN
         and had_two_pad_contact
+        and successful_close_xy_error <= PickPlaceEnv.GRASP_CLOSE_XY_TOL + 1e-8
+        and successful_close_z_above >= -PickPlaceEnv.GRASP_CLOSE_Z_LOWER_TOL - 1e-8
+        and successful_close_z_above <= PickPlaceEnv.GRASP_CLOSE_Z_TOL + 1e-8
         and metrics["action_reversals"] <= MAX_ACTION_REVERSALS
-        and metrics["eef_reversals"] <= MAX_EEF_REVERSALS
-        and metrics["max_action_jump"] <= MAX_ACTION_JUMP
+        # A real retry necessarily adds down/up/down direction changes and a
+        # phase-boundary command change.  Account only for recorded recoveries;
+        # the strict direct-trajectory limits remain unchanged.
+        and metrics["eef_reversals"] <= allowed_eef_reversals
+        and metrics["max_action_jump"] <= allowed_action_jump
         and metrics["max_eef_step"] <= MAX_EEF_STEP
         and metrics["max_joint_target_delta"] <= PickPlaceEnv.MAX_JOINT_TARGET_DELTA + 1e-8
     )
@@ -149,6 +223,7 @@ def collect_attempt(env, seed, max_steps):
     accepted, quality = trajectory_quality(
         arrays["states"],
         arrays["actions"],
+        trajectory["phases"],
         arrays["joint_targets"],
         had_two_pad_contact,
     )
@@ -219,7 +294,8 @@ def build_argument_parser():
 
 
 def parse_args(argv=None):
-    return build_argument_parser().parse_args(argv)
+    parser = build_argument_parser()
+    return parser.parse_args(argv)
 
 
 def main(argv=None):
@@ -259,6 +335,11 @@ def main(argv=None):
         args.dataset_dir,
         fps=1.0 / action_period,
         image_size=args.image_size,
+        collection_config={
+            "randomize_task": bool(args.randomize_task),
+            "randomization_scale": float(args.randomization_scale),
+            "compact_static_frames": bool(args.compact_static_frames),
+        },
     )
     saved = 0
     rejected = 0
@@ -310,8 +391,7 @@ def main(argv=None):
         env.renderer.close()
 
     print(
-        f"Collected {saved} episodes; "
-        f"dataset={args.dataset_dir.resolve()}",
+        f"Collected {saved} episodes; dataset={args.dataset_dir.resolve()}",
         flush=True,
     )
     if saved < args.num_episodes:

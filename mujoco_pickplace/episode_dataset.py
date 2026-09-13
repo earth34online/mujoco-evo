@@ -83,12 +83,20 @@ def merge_feature_stats(rows, key):
 
 class EpisodeDatasetWriter:
 
-    def __init__(self, root, fps=5.0, chunk_size=1000, image_size=448):
+    def __init__(
+        self,
+        root,
+        fps=5.0,
+        chunk_size=1000,
+        image_size=448,
+        collection_config=None,
+    ):
         self.root = Path(root)
         self.meta_dir = self.root / "meta"
         self.fps = float(fps)
         self.chunk_size = int(chunk_size)
         self.image_size = int(image_size)
+        self.collection_config = dict(collection_config or {})
         self.root.mkdir(parents=True, exist_ok=True)
         self.meta_dir.mkdir(parents=True, exist_ok=True)
         self.dataset_path = self.meta_dir / "dataset.json"
@@ -106,6 +114,16 @@ class EpisodeDatasetWriter:
                 raise ValueError(f"{self.root} contains a different dataset format")
             if metadata.get("format_version") != FORMAT_VERSION:
                 raise ValueError(f"Unsupported dataset version in {self.root}")
+            if metadata.get("source_policy_version") != "precision-grasp-recovery-v2":
+                raise ValueError(
+                    f"{self.root} was collected by an older expert policy; "
+                    "use --overwrite before collecting precision-grasp data"
+                )
+            if metadata.get("collection_config", {}) != self.collection_config:
+                raise ValueError(
+                    f"{self.root} collection_config does not match this run; "
+                    "use --overwrite or keep collection settings identical"
+                )
         else:
             now = _utc_now()
             metadata = {
@@ -127,7 +145,11 @@ class EpisodeDatasetWriter:
                 "chunk_size": self.chunk_size,
                 "total_episodes": 0,
                 "total_frames": 0,
-                "source_policy": "stateful contact-aware scripted expert",
+                "source_policy": (
+                    "stateful contact-aware precision-grasp scripted expert"
+                ),
+                "source_policy_version": "precision-grasp-recovery-v2",
+                "collection_config": self.collection_config,
                 "layout": {
                     "data": "data/chunk-{chunk_index:03d}/episode_{episode_index:06d}.parquet",
                     "video": "videos/chunk-{chunk_index:03d}/observation.images.{camera}/episode_{episode_index:06d}.mp4",

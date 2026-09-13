@@ -25,6 +25,44 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
+def build_training_augmentation(image_size, preserve_spatial_calibration=False):
+    """Build augmentation while preserving metric image/action alignment.
+
+    The MINT defaults include small crops and rotations.  Those transforms are
+    suitable only when the corresponding Cartesian labels are transformed as
+    well.  A fixed calibrated camera therefore keeps geometry unchanged and
+    uses photometric augmentation only.
+    """
+    steps = []
+    if not preserve_spatial_calibration:
+        steps.extend([
+            T.RandomResizedCrop(
+                image_size,
+                scale=(0.95, 1.0),
+                interpolation=InterpolationMode.BICUBIC,
+            ),
+            T.RandomRotation(
+                degrees=(-5, 5),
+                interpolation=InterpolationMode.BICUBIC,
+            ),
+        ])
+    else:
+        steps.append(T.Resize(
+            (image_size, image_size),
+            interpolation=InterpolationMode.BICUBIC,
+        ))
+    steps.extend([
+        T.ColorJitter(
+            brightness=0.3,
+            contrast=0.4,
+            saturation=0.5,
+            hue=0.08,
+        ),
+        T.ToTensor(),
+    ])
+    return T.Compose(steps)
+
+
 def select_history_indices(
     timestamps,
     current_index: int,
@@ -266,6 +304,9 @@ class LeRobotDataset(Dataset):
         self.max_samples_per_file = max_samples_per_file
         self.binarize_gripper = binarize_gripper
         self.use_augmentation = use_augmentation
+        self.preserve_spatial_calibration = bool(
+            self.config.get("preserve_spatial_calibration", False)
+        )
         self.memory_frames = int(memory_frames)
         self.memory_stride_steps = int(memory_stride_steps)
         self.memory_stride_seconds = memory_stride_seconds
@@ -311,12 +352,10 @@ class LeRobotDataset(Dataset):
             T.ToTensor()
         ])
 
-        self.aug_transform = T.Compose([
-            T.RandomResizedCrop(self.image_size, scale=(0.95, 1.0), interpolation=InterpolationMode.BICUBIC),
-            T.RandomRotation(degrees=(-5, 5), interpolation=InterpolationMode.BICUBIC), 
-            T.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5, hue=0.08),
-            T.ToTensor()
-        ])
+        self.aug_transform = build_training_augmentation(
+            self.image_size,
+            preserve_spatial_calibration=self.preserve_spatial_calibration,
+        )
 
     def _overwrite_horizon_cache(self, expected_name: str):
         """Clear the generated cache for the current action horizon.

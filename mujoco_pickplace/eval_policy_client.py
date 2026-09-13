@@ -18,7 +18,7 @@ from pick_place_env import PickPlaceEnv
 SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
 NUM_EPISODES = 100
-MAX_STEPS = 200
+MAX_STEPS = 250
 MODEL_ACTION_HORIZON = 14
 DEFAULT_EXECUTION_HORIZON = 4
 ACTIVE_ACTION_MASK = [1, 1, 1, 0, 0, 0, 1] + [0] * 17
@@ -30,6 +30,13 @@ VIDEO_FPS = 20
 FRAMES_PER_STEP = 4
 MEMORY_FRAMES = 6
 MEMORY_STRIDE_STEPS = 5
+PRECISION_REPLAN_Z = (
+    PickPlaceEnv.CUBE_SUPPORT_Z
+    + PickPlaceEnv.EXPERT_GRASP_OFFSET
+    + 0.050
+)
+GRASP_CONFIRM_FINGER_QPOS = 0.010
+GRASP_CONFIRM_STEPS = 2
 
 CKPT_NAME = "Evo1_mujoco_pickplace"
 LOG_FILE = f"./log_file/{CKPT_NAME}.txt"
@@ -81,6 +88,80 @@ class GripperCommandFilter:
             self.command = requested
             self.candidate_steps = 0
         return self.command
+
+
+class PrecisionExecutionController:
+    """Replan grasp-sensitive actions without simulator privileged state.
+
+    The controller only reads the policy-visible 8-D proprioception.  It keeps
+    the normal action-chunk horizon for free-space motion and, once contact is
+    supported by finger position, for transport/place.  Before that point it
+    replans every step near the grasp plane or while a close command is active,
+    so π-MEM receives the newest visual/proprioceptive recovery evidence.
+    """
+
+    def __init__(
+        self,
+        precision_z=PRECISION_REPLAN_Z,
+        grasp_finger_qpos=GRASP_CONFIRM_FINGER_QPOS,
+        confirm_steps=GRASP_CONFIRM_STEPS,
+    ):
+        if confirm_steps < 1:
+            raise ValueError("confirm_steps must be at least 1")
+        self.precision_z = float(precision_z)
+        self.grasp_finger_qpos = float(grasp_finger_qpos)
+        self.confirm_steps = int(confirm_steps)
+        self.contact_steps = 0
+        self.grasp_confirmed = False
+
+    @staticmethod
+    def _validate_robot_state(robot_state):
+        robot_state = np.asarray(robot_state, dtype=np.float32)
+        if robot_state.shape != (8,):
+            raise ValueError(
+                f"Expected 8-D robot_state, got {robot_state.shape}"
+            )
+        if not np.isfinite(robot_state).all():
+            raise ValueError("robot_state contains NaN or Inf")
+        return robot_state
+
+    def observe(self, robot_state, gripper_command):
+        robot_state = self._validate_robot_state(robot_state)
+        fingers = float(np.mean(robot_state[6:8]))
+        contact_candidate = (
+            float(gripper_command) < 0.5
+            and fingers >= self.grasp_finger_qpos
+        )
+        if contact_candidate:
+            self.contact_steps += 1
+            if self.contact_steps >= self.confirm_steps:
+                self.grasp_confirmed = True
+        else:
+            self.contact_steps = 0
+
+    def execution_horizon(
+        self,
+        action_chunk,
+        requested_horizon,
+        robot_state,
+        gripper_filter,
+        enabled=True,
+    ):
+        if not enabled or self.grasp_confirmed:
+            return int(requested_horizon)
+        robot_state = self._validate_robot_state(robot_state)
+        prefix = np.asarray(action_chunk, dtype=np.float32)[:requested_horizon]
+        if prefix.ndim != 2 or prefix.shape[1] < 7:
+            raise ValueError("action_chunk must have shape [horizon, >=7]")
+
+        near_grasp_plane = float(robot_state[2]) <= self.precision_z
+        close_imminent = bool(
+            np.any(prefix[:, 6] <= gripper_filter.close_threshold)
+        )
+        close_active = gripper_filter.command < 0.5
+        if near_grasp_plane or close_imminent or close_active:
+            return 1
+        return int(requested_horizon)
 
 
 def configure_logging():
@@ -165,7 +246,7 @@ def obs_to_payload(history, memory_frames=MEMORY_FRAMES, stride_steps=MEMORY_STR
     }
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Evaluate Evo-1 policy in the MuJoCo Panda7 pick-place env.")
     parser.add_argument("--server-url", default=SERVER_URL)
     parser.add_argument("--num-episodes", type=int, default=NUM_EPISODES)
@@ -200,6 +281,15 @@ def parse_args():
             "gripper command changes (default: 2; use 1 to disable debounce)."
         ),
     )
+    parser.add_argument(
+        "--precision-replan",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Replan every control step near or during the first grasp until "
+            "finger proprioception confirms contact (default: enabled)."
+        ),
+    )
     parser.add_argument("--render", action="store_true", help="Show the front view.")
     parser.add_argument("--video-dir", default=str(DEFAULT_VIDEO_DIR))
     parser.add_argument(
@@ -223,7 +313,7 @@ def parse_args():
         default=10000,
         help="First evaluation seed; keep it disjoint from collection seeds.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.horizon < 1:
         parser.error("--horizon must be at least 1")
     if args.horizon > MODEL_ACTION_HORIZON:
@@ -278,7 +368,13 @@ async def main():
 
     log.info(f"\n========= Start task{TASK_ID}: {PROMPT} =========")
 
-    async with websockets.connect(args.server_url, max_size=100_000_000) as ws:
+    async with websockets.connect(
+        args.server_url,
+        max_size=100_000_000,
+        # Real-model inference blocks the server event loop long enough for
+        # the default keepalive timeout to close an otherwise healthy request.
+        ping_timeout=None,
+    ) as ws:
         for ep in range(args.num_episodes):
             print(f"\n===== Task {TASK_ID - 1} | Episode {ep + 1} =====", flush=True)
             print(PROMPT, flush=True)
@@ -299,6 +395,7 @@ async def main():
             gripper_filter = GripperCommandFilter(
                 required_steps=args.gripper_debounce_steps
             )
+            precision_controller = PrecisionExecutionController()
             executed_steps = 0
             step = 0
             frames = [obs["image_front"].copy()]
@@ -346,7 +443,19 @@ async def main():
                             f"Requested --horizon {args.horizon}, but server returned "
                             f"only {action_chunk.shape[0]} actions"
                         )
-                    for action_index in range(args.horizon):
+                    execution_horizon = precision_controller.execution_horizon(
+                        action_chunk,
+                        requested_horizon=args.horizon,
+                        robot_state=obs["robot_state"],
+                        gripper_filter=gripper_filter,
+                        enabled=args.precision_replan,
+                    )
+                    print(
+                        f"[Step {step}] execute horizon={execution_horizon} "
+                        f"(grasp_confirmed={precision_controller.grasp_confirmed})",
+                        flush=True,
+                    )
+                    for action_index in range(execution_horizon):
                         action = np.zeros(7, dtype=np.float32)
                         available = min(7, action_chunk.shape[1])
                         action[:available] = action_chunk[action_index, :available]
@@ -357,6 +466,9 @@ async def main():
                         frames_in, obs, done = env.step_video(
                             action,
                             frames_per_step=FRAMES_PER_STEP,
+                        )
+                        precision_controller.observe(
+                            obs["robot_state"], action[6]
                         )
                         observation_history.append(snapshot_observation(obs))
                         for k in range(len(frames_in["front"])):

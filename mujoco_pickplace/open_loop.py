@@ -25,6 +25,7 @@ EXPECTED_GRIPPER = {
     "approach": 1.0,
     "descend": 1.0,
     "close": 0.0,
+    "recover": 1.0,
     "lift": 0.0,
     "transfer": 0.0,
     "lower": 0.0,

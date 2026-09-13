@@ -20,6 +20,10 @@ MAX_VIEWS = 3
 ACTIVE_ACTION_MASK = [True, True, True, False, False, False, True]
 ACTION_HORIZON = 14
 IMAGE_SIZE = 448
+PRECISION_POLICY_VERSION = "precision-grasp-recovery-v2"
+MAX_SUCCESSFUL_CLOSE_XY_ERROR = 0.006
+MIN_SUCCESSFUL_CLOSE_Z_ABOVE = -0.012
+MAX_SUCCESSFUL_CLOSE_Z_ABOVE = 0.001
 
 REQUIRED_META_FILES = (
     "dataset.json",
@@ -83,7 +87,7 @@ def _check_vector_column(series, expected_dim, name, parquet_path):
             )
 
 
-def check_raw_dataset(dataset_dir):
+def check_raw_dataset(dataset_dir, require_precision_grasp=False):
     dataset_dir = dataset_dir.resolve()
     meta_dir = dataset_dir / "meta"
 
@@ -107,6 +111,28 @@ def check_raw_dataset(dataset_dir):
     expected_episodes = int(dataset_info["total_episodes"])
     expected_frames = int(dataset_info["total_frames"])
     expected_fps = float(dataset_info["fps"])
+
+    collection_config = dataset_info.get("collection_config", {})
+    if require_precision_grasp:
+        if dataset_info.get("source_policy_version") != PRECISION_POLICY_VERSION:
+            raise AssertionError(
+                "Dataset was not collected by the precision-grasp recovery "
+                f"expert ({PRECISION_POLICY_VERSION})"
+            )
+        if collection_config.get("randomize_task") is not True:
+            raise AssertionError(
+                "Precision dataset must keep randomized cube/goal positions"
+            )
+        if not np.isclose(
+            float(collection_config.get("randomization_scale", np.nan)), 1.0
+        ):
+            raise AssertionError(
+                "Precision dataset must use the full randomization range (1.0)"
+            )
+        if collection_config.get("compact_static_frames") is not False:
+            raise AssertionError(
+                "π-MEM precision dataset must keep the dense, uncompacted timeline"
+            )
 
     if expected_episodes != len(episodes):
         raise AssertionError(
@@ -137,11 +163,58 @@ def check_raw_dataset(dataset_dir):
     total_frames = 0
     video_files = set()
     required_columns = set(REQUIRED_PARQUET_COLUMNS)
+    initial_cube_positions = []
+    initial_goal_positions = []
 
     for position, episode in enumerate(episodes, start=1):
         episode_index = int(episode["episode_index"])
         expected_length = int(episode["length"])
         parquet_path = dataset_dir / episode["data_path"]
+
+        if require_precision_grasp:
+            quality = episode.get("quality", {})
+            required_quality = {
+                "successful_close_xy_error",
+                "successful_close_z_above",
+                "initial_cube_xy",
+                "initial_goal_xy",
+                "randomize_task",
+                "randomization_scale",
+            }
+            missing_quality = sorted(required_quality - set(quality))
+            if missing_quality:
+                raise AssertionError(
+                    f"Episode {episode_index} is missing precision quality fields: "
+                    f"{missing_quality}"
+                )
+            if quality["randomize_task"] is not True:
+                raise AssertionError(
+                    f"Episode {episode_index} was not collected with randomization"
+                )
+            if not np.isclose(float(quality["randomization_scale"]), 1.0):
+                raise AssertionError(
+                    f"Episode {episode_index} did not use randomization_scale=1.0"
+                )
+            if float(quality["successful_close_xy_error"]) > (
+                MAX_SUCCESSFUL_CLOSE_XY_ERROR + 1e-8
+            ):
+                raise AssertionError(
+                    f"Episode {episode_index} closed too far from cube XY"
+                )
+            if float(quality["successful_close_z_above"]) > (
+                MAX_SUCCESSFUL_CLOSE_Z_ABOVE + 1e-8
+            ):
+                raise AssertionError(
+                    f"Episode {episode_index} closed above the precision grasp plane"
+                )
+            if float(quality["successful_close_z_above"]) < (
+                MIN_SUCCESSFUL_CLOSE_Z_ABOVE - 1e-8
+            ):
+                raise AssertionError(
+                    f"Episode {episode_index} closed below the precision grasp band"
+                )
+            initial_cube_positions.append(quality["initial_cube_xy"])
+            initial_goal_positions.append(quality["initial_goal_xy"])
 
         _require_file(parquet_path, f"episode {episode_index} parquet")
         for camera, relative_path in episode.get("video_paths", {}).items():
@@ -208,6 +281,14 @@ def check_raw_dataset(dataset_dir):
         raise AssertionError(
             f"Validated {total_frames} frames, dataset.json reports {expected_frames}"
         )
+
+    if require_precision_grasp:
+        if len(episodes) > 1:
+            if len(np.unique(np.asarray(initial_cube_positions), axis=0)) < 2:
+                raise AssertionError("Cube positions are fixed across the dataset")
+            if len(np.unique(np.asarray(initial_goal_positions), axis=0)) < 2:
+                raise AssertionError("Goal positions are fixed across the dataset")
+        print("  precision grasp/randomization checks passed", flush=True)
 
     for feature_name, expected_dim in (
         ("observation.state", state_dim),
@@ -358,12 +439,23 @@ def parse_args():
         action="store_true",
         help="Fail instead of skipping when Evo interface dependencies are unavailable.",
     )
+    parser.add_argument(
+        "--require-precision-grasp",
+        action="store_true",
+        help=(
+            "Require the precision-grasp expert version, full randomization, "
+            "dense π-MEM timeline, and grasp tolerances."
+        ),
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    dataset_info = check_raw_dataset(args.dataset_dir)
+    dataset_info = check_raw_dataset(
+        args.dataset_dir,
+        require_precision_grasp=args.require_precision_grasp,
+    )
 
     if args.raw_only:
         print("[SKIP] Evo interface check disabled by --raw-only")

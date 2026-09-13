@@ -20,24 +20,25 @@ python collect_data.py
 
 只有通过质量门槛、两个夹爪接触垫都成功接触的 episode 才会保存。
 采集默认清除目标数据集并从 episode 0 重写；只有需要保留已有数据并继续编号时才显式添加 `--append`。
+正式默认保持 `randomize_task=True`、`randomization_scale=1.0`，cube 与 goal 均按 seed 在完整范围内随机采样。每条通过质量门槛的成功 episode 都会立即保存，不设恢复 episode 比例，也不会为了等待恢复轨迹而丢弃直接成功样本。专家偶发夹取失败后的安全恢复可以自然出现在数据中，但不是采集要求。默认不压缩静止帧，以保留 π-MEM 所需的稠密 5 Hz 因果时间线。
 
 ## 2. 检查数据加载
 
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/mujoco_pickplace
-python check_dataset.py
+python check_dataset.py --require-evo --require-precision-grasp
 ```
 
-原始单帧工程预期输出：
+当前 π-MEM 工程预期输出：
 
 ```text
-dataset length: ...
-images torch.Size([3, 3, 224, 224])
-state torch.Size([24])
+Evo dataset length: ...
+images torch.Size([6, 3, 3, 448, 448])
+state torch.Size([6, 24])
+history_mask torch.Size([6])
 action torch.Size([14, 24])
-state_mask sum: 8
-action_mask sum: 56
+action_mask torch.Size([14, 24])
 ```
 
 ## 3. 使用 Evo-1 训练
@@ -85,6 +86,8 @@ cd /home/user/mujoco+evo/mujoco_pickplace
 MUJOCO_GL=egl python eval_policy_client.py
 ```
 
+默认仍评估随机 cube/goal，并在首次抓稳前于抓取敏感区逐步重新规划；每一步新观测都会进入原有 K=6/stride=5 历史。确认持物后恢复 horizon=4，搬运和放置逻辑不变。默认最多 250 个控制步。
+
 常用参数：
 
 ```text
@@ -92,7 +95,7 @@ MUJOCO_GL=egl python eval_policy_client.py
 --num-episodes      episode 数量
 --max-steps         最大控制步数
 --horizon           每次执行的动作视野
+--precision-replan  抓取确认前启用逐步重规划（默认开启）
 --render            显示渲染窗口
---save-video        保存视频
 --video-dir         视频目录
 ```

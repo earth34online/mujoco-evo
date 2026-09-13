@@ -14,7 +14,6 @@ coverage.xml
 htmlcov/
 .ipynb_checkpoints/
 
-# 本地测试、证明结果与测试依赖，不上传仓库
 /tests/
 
 # Python package/build outputs

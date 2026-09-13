@@ -43,16 +43,26 @@ class PickPlaceEnv:
     MAX_DPOS = 0.012
     FINGER_TRAVEL = 0.04
     RED_NAIL_Z = 0.125
+    # The principal fingertip pad centre is about 102.9 mm below the MuJoCo
+    # hand body origin.  Descend to a 112 mm hand-to-cube offset so the pads
+    # close around the cube body instead of merely catching its top edge.
+    EXPERT_GRASP_OFFSET = 0.112
     GRASP_OFFSET = RED_NAIL_Z
     GRASP_X_BIAS = 0.006
     PLACE_Z = 0.195
     SAFE_Z = 0.280
-    GRASP_CLOSE_TOL = 0.014
-    GRASP_GEOM_XY_TOL = 0.006
-    GRASP_GEOM_Z_TOL = 0.004
-    GRASP_CLOSE_XY_TOL = GRASP_CLOSE_TOL
-    GRASP_CLOSE_Z_TOL = GRASP_GEOM_Z_TOL
-    GRASP_GEOM_FINGER_OPEN_MAX = 0.039
+    # The previous 14 mm XY gate taught the policy to close while visibly
+    # off-centre.  Physical random-seed sweeps verify reliable two-pad contact
+    # only after the error is below 6 mm.
+    GRASP_CLOSE_XY_TOL = 0.006
+    # A signed upper tolerance: the hand may be slightly below the nominal
+    # grasp plane, but it must not start closing several millimetres above it.
+    GRASP_CLOSE_Z_TOL = 0.001
+    # MuJoCo joint tracking settles about 10--12 mm below the commanded hand
+    # target at contact, which centres the 102.9 mm-offset fingertip pads on
+    # the cube.  Bound that useful deeper direction without reopening the
+    # shallow (+Z) side of the gate.
+    GRASP_CLOSE_Z_LOWER_TOL = 0.012
     GRASP_HOLD_FORCE_KP = 55.0
     GRASP_HOLD_FORCE_KD = 1.8
     GRASP_HOLD_MAX_FORCE = 4.0
@@ -76,6 +86,11 @@ class PickPlaceEnv:
     EXPERT_TRANSFER_X_ALIGN_TOL = 0.020
     EXPERT_LOWER_XY_TOL = 0.006
     EXPERT_LOWER_Z_TOL = 0.010
+    EXPERT_APPROACH_XY_TOL = 0.006
+    EXPERT_APPROACH_Z_TOL = 0.008
+    EXPERT_CLOSE_MAX_STEPS = 14
+    EXPERT_RECOVERY_Z_TOL = 0.008
+    EXPERT_RECOVERY_FINGER_OPEN_MIN = 0.035
 
     def __init__(
         self,
@@ -404,7 +419,6 @@ class PickPlaceEnv:
             if (
                 self.attached
                 or self._has_two_sided_grasp_contact()
-                or self._has_geometric_grasp()
             ):
                 self.attached = True
                 self.release_counter = 0
@@ -438,17 +452,6 @@ class PickPlaceEnv:
             self.data.qpos[self.model.joint(name).qposadr[0]]
             for name in self.finger_joints
         ], dtype=np.float64)
-
-    def _has_geometric_grasp(self):
-        if self.gripper >= 0.5:
-            return False
-        if float(np.mean(self._finger_qpos())) > self.GRASP_GEOM_FINGER_OPEN_MAX:
-            return False
-        cube = self.data.body("cube").xpos.copy()
-        desired_cube = self.data.body("hand").xpos - self.grasp_hold_offset
-        xy_ok = np.linalg.norm(cube[:2] - desired_cube[:2]) < self.GRASP_GEOM_XY_TOL
-        z_ok = abs(cube[2] - desired_cube[2]) < self.GRASP_GEOM_Z_TOL
-        return bool(xy_ok and z_ok)
 
     def _has_two_sided_grasp_contact(self):
         cube_id = self.model.geom("cube_geom").id
@@ -534,61 +537,13 @@ class PickPlaceEnv:
         return bool(self.success_counter >= self.SUCCESS_DWELL_STEPS)
 
 
-def scripted_expert(obs):
-    state = obs["state"]
-    hand = state[0:3]
-    cube = state[3:6]
-    goal = state[6:9]
-    gripper = state[9]
-
-    safe_z = PickPlaceEnv.SAFE_Z
-    grasp_z = cube[2] + PickPlaceEnv.GRASP_OFFSET
-    place_z = PickPlaceEnv.PLACE_Z
-    xy_tol = 0.025
-    grasp_pose = np.array([cube[0] + PickPlaceEnv.GRASP_X_BIAS, cube[1], grasp_z], dtype=np.float32)
-    place_pose = np.array([goal[0] + PickPlaceEnv.GRASP_X_BIAS, goal[1], place_z], dtype=np.float32)
-
-    cube_xy = cube[:2]
-    goal_xy = goal[:2]
-    hand_xy = hand[:2]
-    grasp_xy = grasp_pose[:2]
-    place_xy = place_pose[:2]
-
-    close_tol = 0.012
-
-    if gripper > 0.5:
-        if np.linalg.norm(hand - grasp_pose) > close_tol:
-            if np.linalg.norm(hand_xy - grasp_xy) > xy_tol:
-                target = np.array([cube[0] + PickPlaceEnv.GRASP_X_BIAS, cube[1], safe_z], dtype=np.float32)
-            else:
-                target = grasp_pose
-            grip_cmd = 1.0
-        else:
-            target = hand.copy()
-            grip_cmd = 0.0
-    else:
-        if hand[2] < safe_z - 0.010:
-            target = np.array([hand[0], hand[1], safe_z], dtype=np.float32)
-            grip_cmd = 0.0
-        elif np.linalg.norm(hand_xy - place_xy) > xy_tol:
-            target = np.array([goal[0] + PickPlaceEnv.GRASP_X_BIAS, goal[1], safe_z], dtype=np.float32)
-            grip_cmd = 0.0
-        elif hand[2] > place_z + 0.010:
-            target = place_pose
-            grip_cmd = 0.0
-        else:
-            target = hand.copy()
-            grip_cmd = 1.0
-
-    dpos = np.clip(target - hand, -0.012, 0.012)
-    return np.r_[dpos, 0.0, 0.0, 0.0, grip_cmd].astype(np.float32)
-
 class ScriptedExpertPolicy:
 
     def __init__(self, env):
         self.env = env
         self.phase = "approach"
         self.phase_steps = 0
+        self.recovery_count = 0
 
     def _set_phase(self, phase):
         if phase != self.phase:
@@ -619,7 +574,7 @@ class ScriptedExpertPolicy:
         safe_z = self.env.SAFE_Z
         grasp_z = (
             self.env.CUBE_SUPPORT_Z
-            + self.env.GRASP_OFFSET
+            + self.env.EXPERT_GRASP_OFFSET
         )
         place_z = self.env.PLACE_Z
         hand_cube_xy = np.array([cube[0] + self.env.GRASP_X_BIAS, cube[1]])
@@ -627,7 +582,12 @@ class ScriptedExpertPolicy:
 
         if self.phase == "approach":
             target = np.array([hand_cube_xy[0], hand_cube_xy[1], safe_z])
-            if np.linalg.norm(hand - target) < 0.014:
+            approach_xy_error = np.linalg.norm(hand[:2] - target[:2])
+            approach_z_error = abs(float(hand[2] - safe_z))
+            if (
+                approach_xy_error <= self.env.EXPERT_APPROACH_XY_TOL
+                and approach_z_error <= self.env.EXPERT_APPROACH_Z_TOL
+            ):
                 self._set_phase("descend")
                 target = np.array([hand_cube_xy[0], hand_cube_xy[1], grasp_z])
             return self._move(target, 1.0)
@@ -639,10 +599,16 @@ class ScriptedExpertPolicy:
             grasp_pose_ready = (
                 xy_error <= self.env.GRASP_CLOSE_XY_TOL
                 and
+                z_above_target >= -self.env.GRASP_CLOSE_Z_LOWER_TOL
+                and
                 z_above_target <= self.env.GRASP_CLOSE_Z_TOL)
 
-            action = self._move_before_attachment(
-                target, 0.0 if grasp_pose_ready else 1.0)
+            if z_above_target < -self.env.GRASP_CLOSE_Z_LOWER_TOL:
+                # Correct a dynamics overshoot while the fingers are open.
+                action = self._move(target, 1.0)
+            else:
+                action = self._move_before_attachment(
+                    target, 0.0 if grasp_pose_ready else 1.0)
             if 0.0 < z_above_target < 0.020:
                 action[2] = max(float(action[2]), -0.003)
 
@@ -660,15 +626,46 @@ class ScriptedExpertPolicy:
                 self._set_phase("lift")
                 return self._move(np.array([hand[0], hand[1], safe_z], dtype=np.float64), 0.0)
 
-            if self.phase_steps > 14:
-                self._set_phase("approach")
-
-                return self._move(np.array([hand[0], hand[1], safe_z], dtype=np.float64), 1.0)
+            if self.phase_steps > self.env.EXPERT_CLOSE_MAX_STEPS:
+                # A failed close is useful π-MEM supervision only when the
+                # expert performs an observable, safe recovery before trying
+                # again.  Open while lifting vertically, then reacquire the
+                # live cube position from a safe height.
+                self.recovery_count += 1
+                self._set_phase("recover")
+                return self._move(
+                    np.array([hand[0], hand[1], safe_z], dtype=np.float64),
+                    1.0,
+                )
 
             action = self._move_before_attachment(grasp_target, 0.0)
             if 0.0 < z_above_grasp < 0.020:
                 action[2] = max(float(action[2]), -0.003)
             return action
+
+        if self.phase == "recover":
+            # Do not sweep sideways near the table after a miss.  First open
+            # and retreat vertically; only then use the newly observed cube XY
+            # in the normal approach phase.
+            target = np.array([hand[0], hand[1], safe_z], dtype=np.float64)
+            fingers_open = (
+                float(np.mean(self.env._finger_qpos()))
+                >= self.env.EXPERT_RECOVERY_FINGER_OPEN_MIN
+            )
+            if (
+                hand[2] >= safe_z - self.env.EXPERT_RECOVERY_Z_TOL
+                and fingers_open
+            ):
+                self._set_phase("approach")
+                target = np.array(
+                    [
+                        cube[0] + self.env.GRASP_X_BIAS,
+                        cube[1],
+                        safe_z,
+                    ],
+                    dtype=np.float64,
+                )
+            return self._move(target, 1.0)
 
         if self.phase == "lift":
             target = np.array([hand[0], hand[1], safe_z])
