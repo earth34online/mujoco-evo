@@ -20,10 +20,20 @@ MAX_VIEWS = 3
 ACTIVE_ACTION_MASK = [True, True, True, False, False, False, True]
 ACTION_HORIZON = 14
 IMAGE_SIZE = 448
-PRECISION_POLICY_VERSION = "precision-grasp-recovery-v2"
+LEGACY_PRECISION_POLICY_VERSION = "precision-grasp-recovery-v2"
+STRICT_PRECISION_POLICY_VERSION = "precision-grasp-stable-v3"
+PRECISION_POLICY_VERSIONS = {
+    LEGACY_PRECISION_POLICY_VERSION,
+    STRICT_PRECISION_POLICY_VERSION,
+}
 MAX_SUCCESSFUL_CLOSE_XY_ERROR = 0.006
 MIN_SUCCESSFUL_CLOSE_Z_ABOVE = -0.012
 MAX_SUCCESSFUL_CLOSE_Z_ABOVE = 0.001
+MAX_PREGRASP_CUBE_DISPLACEMENT = 0.004
+MAX_PREGRASP_CUBE_TILT_DEG = 3.0
+MAX_ATTACH_CUBE_TILT_DEG = 3.0
+MAX_HELD_CUBE_TILT_DEG = 8.0
+MAX_ATTACH_CUBE_ANGULAR_SPEED = 0.15
 
 REQUIRED_META_FILES = (
     "dataset.json",
@@ -87,7 +97,11 @@ def _check_vector_column(series, expected_dim, name, parquet_path):
             )
 
 
-def check_raw_dataset(dataset_dir, require_precision_grasp=False):
+def check_raw_dataset(
+    dataset_dir,
+    require_precision_grasp=False,
+    require_strict_grasp_quality=False,
+):
     dataset_dir = dataset_dir.resolve()
     meta_dir = dataset_dir / "meta"
 
@@ -113,11 +127,20 @@ def check_raw_dataset(dataset_dir, require_precision_grasp=False):
     expected_fps = float(dataset_info["fps"])
 
     collection_config = dataset_info.get("collection_config", {})
-    if require_precision_grasp:
-        if dataset_info.get("source_policy_version") != PRECISION_POLICY_VERSION:
+    source_policy_version = dataset_info.get("source_policy_version")
+    if require_precision_grasp or require_strict_grasp_quality:
+        if source_policy_version not in PRECISION_POLICY_VERSIONS:
             raise AssertionError(
                 "Dataset was not collected by the precision-grasp recovery "
-                f"expert ({PRECISION_POLICY_VERSION})"
+                f"expert ({sorted(PRECISION_POLICY_VERSIONS)})"
+            )
+        if (
+            require_strict_grasp_quality
+            and source_policy_version != STRICT_PRECISION_POLICY_VERSION
+        ):
+            raise AssertionError(
+                "Dataset predates contact-time stable-grasp validation; expected "
+                f"{STRICT_PRECISION_POLICY_VERSION}, got {source_policy_version}"
             )
         if collection_config.get("randomize_task") is not True:
             raise AssertionError(
@@ -171,7 +194,7 @@ def check_raw_dataset(dataset_dir, require_precision_grasp=False):
         expected_length = int(episode["length"])
         parquet_path = dataset_dir / episode["data_path"]
 
-        if require_precision_grasp:
+        if require_precision_grasp or require_strict_grasp_quality:
             quality = episode.get("quality", {})
             required_quality = {
                 "successful_close_xy_error",
@@ -215,6 +238,70 @@ def check_raw_dataset(dataset_dir, require_precision_grasp=False):
                 )
             initial_cube_positions.append(quality["initial_cube_xy"])
             initial_goal_positions.append(quality["initial_goal_xy"])
+
+            if source_policy_version == STRICT_PRECISION_POLICY_VERSION:
+                strict_quality = {
+                    "quality_schema_version",
+                    "first_attachment_has_two_pad_contact",
+                    "two_pad_contact_steps",
+                    "attachment_lost_before_release",
+                    "attachment_xy_error",
+                    "attachment_z_above",
+                    "attachment_cube_tilt_deg",
+                    "attachment_cube_angular_speed",
+                    "pregrasp_cube_displacement",
+                    "pregrasp_cube_tilt_deg",
+                    "held_cube_tilt_deg",
+                }
+                missing_strict = sorted(strict_quality - set(quality))
+                if missing_strict:
+                    raise AssertionError(
+                        f"Episode {episode_index} is missing strict grasp fields: "
+                        f"{missing_strict}"
+                    )
+                if int(quality["quality_schema_version"]) < 3:
+                    raise AssertionError(
+                        f"Episode {episode_index} uses an obsolete quality schema"
+                    )
+                strict_checks = {
+                    "first_attachment_has_two_pad_contact": bool(
+                        quality["first_attachment_has_two_pad_contact"]
+                    ),
+                    "two_pad_contact_steps": int(quality["two_pad_contact_steps"]) >= 2,
+                    "attachment_retained": not bool(
+                        quality["attachment_lost_before_release"]
+                    ),
+                    "attachment_xy_error": float(quality["attachment_xy_error"])
+                    <= MAX_SUCCESSFUL_CLOSE_XY_ERROR + 1e-8,
+                    "attachment_z_lower": float(quality["attachment_z_above"])
+                    >= MIN_SUCCESSFUL_CLOSE_Z_ABOVE - 1e-8,
+                    "attachment_z_upper": float(quality["attachment_z_above"])
+                    <= MAX_SUCCESSFUL_CLOSE_Z_ABOVE + 1e-8,
+                    "pregrasp_cube_displacement": float(
+                        quality["pregrasp_cube_displacement"]
+                    )
+                    <= MAX_PREGRASP_CUBE_DISPLACEMENT + 1e-8,
+                    "pregrasp_cube_tilt": float(quality["pregrasp_cube_tilt_deg"])
+                    <= MAX_PREGRASP_CUBE_TILT_DEG + 1e-8,
+                    "attachment_cube_tilt": float(
+                        quality["attachment_cube_tilt_deg"]
+                    )
+                    <= MAX_ATTACH_CUBE_TILT_DEG + 1e-8,
+                    "held_cube_tilt": float(quality["held_cube_tilt_deg"])
+                    <= MAX_HELD_CUBE_TILT_DEG + 1e-8,
+                    "attachment_cube_angular_speed": float(
+                        quality["attachment_cube_angular_speed"]
+                    )
+                    <= MAX_ATTACH_CUBE_ANGULAR_SPEED + 1e-8,
+                }
+                failed_strict = [
+                    name for name, passed in strict_checks.items() if not passed
+                ]
+                if failed_strict:
+                    raise AssertionError(
+                        f"Episode {episode_index} failed strict grasp checks: "
+                        f"{failed_strict}"
+                    )
 
         _require_file(parquet_path, f"episode {episode_index} parquet")
         for camera, relative_path in episode.get("video_paths", {}).items():
@@ -282,13 +369,23 @@ def check_raw_dataset(dataset_dir, require_precision_grasp=False):
             f"Validated {total_frames} frames, dataset.json reports {expected_frames}"
         )
 
-    if require_precision_grasp:
+    if require_precision_grasp or require_strict_grasp_quality:
         if len(episodes) > 1:
             if len(np.unique(np.asarray(initial_cube_positions), axis=0)) < 2:
                 raise AssertionError("Cube positions are fixed across the dataset")
             if len(np.unique(np.asarray(initial_goal_positions), axis=0)) < 2:
                 raise AssertionError("Goal positions are fixed across the dataset")
-        print("  precision grasp/randomization checks passed", flush=True)
+        if source_policy_version == STRICT_PRECISION_POLICY_VERSION:
+            print(
+                "  strict contact-time grasp/randomization checks passed",
+                flush=True,
+            )
+        else:
+            print(
+                "  legacy precision checks passed; contact-time tilt/displacement "
+                "quality is unavailable",
+                flush=True,
+            )
 
     for feature_name, expected_dim in (
         ("observation.state", state_dim),
@@ -332,6 +429,7 @@ def check_evo_interface(
     memory_frames,
     memory_stride_steps,
     memory_stride_seconds,
+    training_cache_dir=None,
 ):
     missing = _missing_evo_dependencies()
     if missing:
@@ -377,6 +475,7 @@ def check_evo_interface(
         memory_frames=memory_frames,
         memory_stride_steps=memory_stride_steps,
         memory_stride_seconds=memory_stride_seconds,
+        cache_dir=training_cache_dir,
     )
     if len(dataset) <= 0:
         raise AssertionError("Evo LeRobotDataset did not produce any samples")
@@ -430,6 +529,12 @@ def parse_args():
     parser.add_argument("--memory-stride-steps", type=int, default=5)
     parser.add_argument("--memory-stride-seconds", type=float, default=1.0)
     parser.add_argument(
+        "--training-cache-dir",
+        type=Path,
+        default=None,
+        help="Optional derived-window cache path for an isolated interface check.",
+    )
+    parser.add_argument(
         "--raw-only",
         action="store_true",
         help="Check metadata, parquet files, and video paths without loading Evo.",
@@ -447,6 +552,14 @@ def parse_args():
             "dense π-MEM timeline, and grasp tolerances."
         ),
     )
+    parser.add_argument(
+        "--require-strict-grasp-quality",
+        action="store_true",
+        help=(
+            "Require stable-grasp-v3 contact-time displacement, tilt, contact, "
+            "and attachment-persistence evidence."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -455,6 +568,7 @@ def main():
     dataset_info = check_raw_dataset(
         args.dataset_dir,
         require_precision_grasp=args.require_precision_grasp,
+        require_strict_grasp_quality=args.require_strict_grasp_quality,
     )
 
     if args.raw_only:
@@ -478,6 +592,7 @@ def main():
         memory_frames=args.memory_frames,
         memory_stride_steps=args.memory_stride_steps,
         memory_stride_seconds=args.memory_stride_seconds,
+        training_cache_dir=args.training_cache_dir,
     )
 
 

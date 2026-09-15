@@ -7,11 +7,10 @@ from torch import amp
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import time
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 from Evo1 import EVO1
-from accelerate import Accelerator 
 import logging
 from datetime import datetime
 import argparse
@@ -23,10 +22,7 @@ from torch.optim import AdamW
 
 import warnings
 
-# 单卡 LoRA 只训练约 1.49M 参数。此时 ZeRO-2 无法跨 GPU 分片，却会保留
-# DeepSpeed 包装器和通信缓冲，8 GB 显卡反而更容易 OOM。兼容用户沿用旧命令：
-# 若 accelerate 仍带有 --use_deepspeed，则在构造 Accelerator 前自动回到
-# 普通单卡路径。全量微调和显式要求保留 DeepSpeed 的诊断运行不受影响。
+
 _single_gpu_deepspeed_disabled = False
 if (
     os.environ.get("ACCELERATE_USE_DEEPSPEED", "").lower() == "true"
@@ -90,6 +86,7 @@ def custom_collate_fn(batch):
     image_masks = torch.stack([item["image_mask"] for item in batch], dim=0)
     state_mask = torch.stack([item["state_mask"] for item in batch], dim=0)
     history_mask = torch.stack([item["history_mask"] for item in batch], dim=0)
+    memory_events = [item["memory_event"] for item in batch]
     embodiment_ids = torch.stack([item["embodiment_id"] for item in batch], dim=0)
 
     return {
@@ -100,6 +97,7 @@ def custom_collate_fn(batch):
         "action_mask": action_mask,
         "state_mask": state_mask,
         "history_mask": history_mask,
+        "memory_events": memory_events,
         "image_masks": image_masks,
         "embodiment_ids": embodiment_ids
     }
@@ -208,10 +206,30 @@ def prepare_dataloader(dataset, config: dict) -> DataLoader:
     batch_size = get_with_warning(config, "batch_size", 8)
     num_workers = get_with_warning(config, "num_workers", 8)
 
+    sampler = None
+    if get_with_warning(config, "memory_event_sampling", True):
+        if not hasattr(dataset, "memory_event_sampling_weights"):
+            raise TypeError(
+                "memory_event_sampling requires a dataset with event-window metadata"
+            )
+        weights, event_counts = dataset.memory_event_sampling_weights()
+        sampler = WeightedRandomSampler(
+            weights=weights,
+            num_samples=len(weights),
+            replacement=True,
+        )
+        if accelerator is None or accelerator.is_main_process:
+            logging.info(
+                "π-MEM adaptive event sampler enabled (inverse-square-root, no "
+                "fixed recovery quota): %s",
+                event_counts,
+            )
+
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=sampler is None,
+        sampler=sampler,
         num_workers=num_workers,
         pin_memory=True,
         persistent_workers=False,
@@ -519,11 +537,27 @@ def train(config):
     # === Set logging ===
     save_dir = get_with_warning(config, "save_dir", "checkpoints")
     log_path = setup_logging(save_dir)
+    if accelerator.is_main_process:
+        logging.info(
+            "Accelerate runtime: distributed_type=%s, num_processes=%s, "
+            "process_index=%s, local_process_index=%s, "
+            "torch_distributed_initialized=%s, LOCAL_RANK=%s, WORLD_SIZE=%s",
+            accelerator.distributed_type,
+            accelerator.num_processes,
+            accelerator.process_index,
+            accelerator.local_process_index,
+            torch.distributed.is_initialized(),
+            os.environ.get("LOCAL_RANK"),
+            os.environ.get("WORLD_SIZE"),
+        )
     if _single_gpu_deepspeed_disabled and accelerator.is_main_process:
         logging.warning(
             "Detected single-GPU LoRA training launched with DeepSpeed; "
-            "automatically using the lower-memory Accelerate + fused AdamW path. "
-            "Pass --allow_single_gpu_deepspeed only for an intentional diagnostic."
+            "disabled DeepSpeed model wrapping/ZeRO inside the worker. The outer "
+            "launcher may already have initialized a one-rank distributed/NCCL "
+            "process group; use direct `python scripts/train.py` to remove that "
+            "launcher overhead. Pass --allow_single_gpu_deepspeed only for an "
+            "intentional diagnostic."
         )
     
     # === WandB and Swanlab ===
@@ -731,6 +765,7 @@ def train(config):
             state_mask = batch["state_mask"]
             history_masks = batch["history_mask"]
             embodiment_ids = batch["embodiment_ids"]
+            memory_events = batch["memory_events"]
             # Encode the complete physical batch in one vision-language pass.
             # The π-MEM encoder keeps batch and time as independent axes, so
             # causal temporal attention never mixes different samples.
@@ -818,17 +853,6 @@ def train(config):
                     accelerator,
                     config,
                 )
-                if accelerator.is_main_process and torch.cuda.is_available():
-                    mib = 1024 ** 2
-                    logging.info(
-                        "[Step %s] CUDA allocated=%.1f MiB, reserved=%.1f MiB, "
-                        "peak_allocated=%.1f MiB, peak_reserved=%.1f MiB",
-                        step,
-                        torch.cuda.memory_allocated() / mib,
-                        torch.cuda.memory_reserved() / mib,
-                        torch.cuda.max_memory_allocated() / mib,
-                        torch.cuda.max_memory_reserved() / mib,
-                    )
    
             # === Save best checkpoint ===
             loss_value = loss.item()
@@ -975,6 +999,15 @@ if __name__ == "__main__":
     parser.add_argument("--no-overwrite_horizon_cache", dest="overwrite_horizon_cache",
                         action="store_false",
                         help="Reuse the existing generated horizon cache.")
+    parser.add_argument(
+        "--memory_event_sampling",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Adaptively emphasize natural grasp-alignment and post-failure "
+            "correction windows without imposing a fixed data-collection ratio."
+        ),
+    )
 
     # Training
     parser.add_argument("--lr", type=float, default=1e-5)

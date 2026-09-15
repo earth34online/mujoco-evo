@@ -11,6 +11,7 @@ import pandas as pd
 
 FORMAT_NAME = "mujoco-evo-episodes"
 FORMAT_VERSION = "1.0"
+SOURCE_POLICY_VERSION = "precision-grasp-stable-v3"
 STATE_NAMES = [
     "eef_x", "eef_y", "eef_z",
     "eef_axis_angle_x", "eef_axis_angle_y", "eef_axis_angle_z",
@@ -114,10 +115,10 @@ class EpisodeDatasetWriter:
                 raise ValueError(f"{self.root} contains a different dataset format")
             if metadata.get("format_version") != FORMAT_VERSION:
                 raise ValueError(f"Unsupported dataset version in {self.root}")
-            if metadata.get("source_policy_version") != "precision-grasp-recovery-v2":
+            if metadata.get("source_policy_version") != SOURCE_POLICY_VERSION:
                 raise ValueError(
-                    f"{self.root} was collected by an older expert policy; "
-                    "use --overwrite before collecting precision-grasp data"
+                    f"{self.root} was collected by a different expert policy; "
+                    "do not mix it with strict stable-grasp episodes"
                 )
             if metadata.get("collection_config", {}) != self.collection_config:
                 raise ValueError(
@@ -148,7 +149,7 @@ class EpisodeDatasetWriter:
                 "source_policy": (
                     "stateful contact-aware precision-grasp scripted expert"
                 ),
-                "source_policy_version": "precision-grasp-recovery-v2",
+                "source_policy_version": SOURCE_POLICY_VERSION,
                 "collection_config": self.collection_config,
                 "layout": {
                     "data": "data/chunk-{chunk_index:03d}/episode_{episode_index:06d}.parquet",

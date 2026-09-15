@@ -20,10 +20,10 @@ MuJoCo 5 Hz 历史观测
 - 输入：`images [B,6,3,3,448,448]`、`state [B,6,24]`、`history_mask [B,6]`。
 - 输出：`14 × 24` 动作；自由空间与已确认抓稳后的在线默认执行前 4 步，首次抓取确认前在抓取平面附近逐步重新规划。
 - 夹爪：0.4/0.6 滞回，连续 2 步确认后切换开合状态。
-- 缓存：窗口索引版本 2；源 parquet、视频或关键 meta 改变时自动失效。
+- 缓存：窗口索引版本 3；除源 parquet、视频和关键 meta 指纹外，还保存每个窗口的短期记忆事件标签。
 - 微调：训练入口默认启用 LoRA，`rank=8`、`alpha=16`，目标为时间 ViT 与动作头，并训练目标范围内的偏置、归一化和时间层缩放参数。
 - 批处理：物理 batch 直接执行一次 batched ViT 和一次 batched 语言主干前向，不再把 batch 8 拆成 8 次 B=1 VLM。
-- 优化器：单卡训练脚本会把云端默认配置误启的 DeepSpeed 自动切回 CUDA fused AdamW + BF16；DeepSpeed ZeRO-2 仅保留为多卡可选路径。
+- 优化器：正式单卡 LoRA 直接用一个 Python 进程启动 Accelerate + CUDA fused AdamW + BF16；DeepSpeed ZeRO-2 仅保留为多卡可选路径。worker 内的自动回退只能关闭 ZeRO，不能撤销外层 launcher 已建立的 NCCL 进程组。
 - 旧 checkpoint 可作为 LoRA 初始化权重加载；要获得可靠的历史策略仍需使用 K=6 数据继续训练。
 
 ## 论文机制与实现位置
@@ -46,6 +46,8 @@ MuJoCo 5 Hz 历史观测
 每个有效相机、时刻先执行空间注意力；第 4/8/12/16/20 个 ViT 层再对同相机、同 patch 的历史执行因果时间注意力。第 20 层融合完成后只保留当前帧视觉 token，上层 ViT 继续处理当前帧。训练时 `[B,K,V,C,H,W]` 一次进入 ViT，之后所有 prompt 一次进入 14 层语言主干；batch 维和时间维始终独立。当前视觉语言 token 与 6 个状态 token 进入 flow-matching 动作头，产生 14 步动作。
 
 时序样本对所有时刻使用同一组增强参数，避免增强过程制造不存在的运动。MuJoCo 固定相机的笛卡尔动作标签与像素几何绑定，因此 `dataset/config.yaml` 默认设置 `preserve_spatial_calibration: true`：保留同步颜色增强，但禁用未同步变换动作标签的随机裁剪和旋转。默认保留原始 5 Hz 控制时间轴；只有显式添加 `--compact-static-frames` 才压缩静止帧。
+
+为了落实论文中“失败仍留在短期记忆里，再监督修正动作”的微调方式，数据窗口会按模型真正收到的 6 个历史索引分类。只有所采样历史里实际包含 `recover`，且当前仍处在恢复后的 `recover/approach/descend/close`，才标为 `post_failure_correction`；采样间隔中出现但没有进入模型输入的恢复帧不会误标。训练默认按各事件在现有数据中的实际频次做逆平方根加权，不规定恢复 episode 数量或固定失败比例，也不要求为了凑比例而延长采集。当前旧 v2 数据中共有 39,819 个窗口，其中 1,638 个是这类可见失败后的纠正窗口；自适应采样把其期望训练占比从约 4.1% 提升到约 12.8%，同时保留普通任务和首次抓取对齐窗口。
 
 ## 仓库结构
 
@@ -74,7 +76,7 @@ mujoco_pickplace/eval_policy_client.py                  在线闭环客户端
 | 异步 I/O | `libaio 0.3.113`，多卡 DeepSpeed 兼容性检查通过 |
 | FlashAttention | 2.8.3.post1；真实 InternVL3-1B、K=6、batch 8 训练与推理均确认使用快路径 |
 
-当前只训练约 1.49M 参数，Adam 一、二阶状态仅为十几 MB 量级。单张 8 GB GPU 使用 ZeRO-2 没有第二张卡可分片，反而增加包装器和通信缓冲；真实生产入口测试中曾在反向传播触发 OOM。当前单卡正式路径改用 CUDA fused AdamW，并通过分段 checkpoint 时间注意力与 ViT MLP、以 BF16 执行 LoRA 矩阵乘法来压低峰值；FP32 LoRA 主参数、梯度和 optimizer state 仍保留。训练脚本会在 `Accelerator` 初始化前识别单卡 LoRA，并把云端默认 Accelerate 配置误启的 DeepSpeed 自动切回 fused AdamW，不需要新增或修改 YAML。`ds_config_pi_mem.json` 不删除，供以后多卡训练使用，其中也不启用 CPU optimizer offload。FlashAttention 的 PyTorch 回退只用于明确报错和环境诊断，不能当作正式训练快路径。正式训练必须先 `conda activate Evo1`，否则可能加载系统旧版 `libstdc++` 并触发 ABI 回退。
+当前只训练约 1.49M 参数，Adam 一、二阶状态仅为十几 MB 量级。单张 8 GB GPU 使用 ZeRO-2 没有第二张卡可分片，反而增加包装器和通信缓冲；真实生产入口测试中曾在反向传播触发 OOM。当前单卡正式路径改用 CUDA fused AdamW，并通过分段 checkpoint 时间注意力与 ViT MLP、以 BF16 执行 LoRA 矩阵乘法来压低峰值；FP32 LoRA 主参数、梯度和 optimizer state 仍保留。正式命令直接运行 `python scripts/train.py`，从源头避免 `accelerate launch -> deepspeed_launcher -> torch.distributed/NCCL`。训练脚本在 `Accelerator` 初始化前关闭单卡 LoRA 的 DeepSpeed wrapping 仍作为旧命令兼容保护，但 worker 已经无法撤销外层 launcher 创建的单 rank 进程组，因此不能以日志中的 `ZeRO stage=None` 单独证明 launcher 已移除。`ds_config_pi_mem.json` 不删除，供以后多卡训练使用，其中也不启用 CPU optimizer offload。FlashAttention 的 PyTorch 回退只用于明确报错和环境诊断，不能当作正式训练快路径。正式训练必须先 `conda activate Evo1`，否则可能加载系统旧版 `libstdc++` 并触发 ABI 回退。
 
 ## 1. 安全采集数据
 
@@ -83,8 +85,6 @@ conda activate mujoco
 cd /home/user/mujoco+evo/mujoco_pickplace
 python collect_data.py
 ```
-
-正式默认始终使用随机 cube/goal 和完整随机范围：`--randomize-task --randomization-scale 1.0`。采集器只保存真实双侧指垫接触且通过质量门槛的成功轨迹，并立即接受每条合格轨迹；不设恢复 episode 比例，也不会为了等待恢复轨迹而拒绝直接成功样本。专家偶发夹取失败后的安全恢复可以自然保留在逐步、稠密、同步的 5 Hz 图像/状态/动作时间线中，但不是采集要求。
 
 只有需要保留现有数据并继续编号时，才显式添加：
 
@@ -97,7 +97,7 @@ python collect_data.py --append
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo
-python mujoco_pickplace/check_dataset.py --require-evo --require-precision-grasp
+python mujoco_pickplace/check_dataset.py --require-evo --require-strict-grasp-quality
 ```
 
 预期关键形状：
@@ -109,38 +109,38 @@ history_mask: [6]
 action: [14, 24]
 ```
 
-## 3. 单卡继续训练
+## 3. 训练
 
 ```bash
 conda activate Evo1
 cd /home/user/mujoco+evo/Evo-1/Evo_1
-ACCELERATE_USE_DEEPSPEED=false accelerate launch --num_processes 1 --num_machines 1 --dynamo_backend no --mixed_precision bf16 scripts/train.py \
+export CUDA_VISIBLE_DEVICES=0
+export ACCELERATE_USE_DEEPSPEED=false
+export ACCELERATE_MIXED_PRECISION=bf16
+python scripts/train.py \
   --run_name evo1_pi_mem --action_head flowmatching --use_flash_attn \
   --dataset_config_path dataset/config.yaml --vlm_name OpenGVLab/InternVL3-1B \
-  --use_augmentation --image_size 448 --batch_size 8 --lr 1e-5 --dropout 0.1 --weight_decay 1e-3 --fused_adamw \
-  --max_steps 16000 --warmup_steps 1000 --log_interval 50 --ckpt_interval 2000 --grad_clip_norm 1.0 \
+  --use_augmentation --image_size 448 --batch_size 6 --lr 1e-5 --dropout 0.1 --weight_decay 1e-3 --fused_adamw \
+  --max_steps 24000 --warmup_steps 1500 --log_interval 20 --ckpt_interval 2000 --grad_clip_norm 1.0 \
   --num_layers 8 --num_workers 4 --horizon 14 --per_action_dim 24 --state_dim 24 --use_state \
   --memory_frames 6 --memory_stride_seconds 1.0 --memory_stride_steps 5 --temporal_layer_interval 4 \
   --temporal_drop_past_after_layer 20 \
   --gradient_checkpointing --compact_masked_views --finetune_temporal_vision --finetune_action_head \
   --use_lora --lora_rank 8 --lora_alpha 16 --lora_dropout 0 --lora_targets vision,action \
   --lora_train_bias_norm --disable_wandb --disable_swanlab --resume --resume_pretrain \
-  --resume_path /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best \
+  --resume_path /home/user/mujoco+evo/ckpt/archive/evo1_mujoco_pickplace_stage1_random_stepbest \
   --save_dir /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage2
 ```
 
-启动日志应明确出现以下两行；若 attention backend 不是这两个值，不应把该次运行视为正式快路径：
+数据路径只由 `dataset/config.yaml` 决定；训练从已验收的随机任务阶段一 `step_best` 归档初始化，并写入阶段二目录。
 
 ```text
 Attention backend: vision=flash-attn, language=flash_attention_2
 VLM forward mode=batched: one vision/language forward per physical batch
+Accelerate runtime: distributed_type=DistributedType.NO, num_processes=1, ... torch_distributed_initialized=False, LOCAL_RANK=None, WORLD_SIZE=None
 Optimizer=AdamW, fused=True
 Prepared optimizer=AcceleratedOptimizer; base optimizer=AdamW; DeepSpeed ZeRO stage=None
 ```
-
-不要在正式单卡命令中加入 `--use_deepspeed`、`--deepspeed_config_file` 或 `--allow_single_gpu_deepspeed`。即使云端用户目录里的 Accelerate 默认 YAML 曾设置为 DeepSpeed，当前训练脚本也会在单卡 LoRA 下自动切回 fused AdamW；启动日志必须以 `DeepSpeed ZeRO stage=None` 为准。
-
-RTX 5060 Laptop 8 GB 实测：上述路径在 K=6、448×448、物理 batch 8 下完成前向、反向、梯度裁剪、optimizer step、保存和断点续训；峰值为 `6366.9 MiB allocated / 6878.0 MiB reserved`。旧命令即使显式误带 DeepSpeed，也已验证会自动切回同一路径并完成训练，因此当前不需要恢复 CPU optimizer offload。
 
 `step_best` 沿用 MINT 原始判定：从全局 step 0 起用单 batch loss 更新内存中的 `best_loss`，但只有 `step > max(1000, warmup_steps)` 且再次刷新全局最低 loss 时才写入。`step` 不会在 dataloader 开始新 epoch 时清零，因此第二个及后续 epoch 不会再次跳过开头 1000 步。前 1000 步只是不保存，其 loss 仍参与 best 阈值比较。
 
@@ -150,7 +150,7 @@ LoRA 默认已经开启；命令仍显式写出参数以便审计。当前训练
 
 `lora_targets=vision,action` 不微调语言主干。如果以后确实需要语言适配，可显式改为 `vision,language,action`，但会增加反向计算和显存。`--fp32_temporal_parameters` 只服务 `--no-use_lora` 的原权重微调路径；LoRA 参数自身已保持 FP32，所以默认 LoRA 命令不再需要该参数。
 
-如果是 π-MEM 训练意外中断后继续，保留 `--resume` 和 `--resume_path /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage2/step_8000`，删除 `--resume_pretrain`，并继续使用同一个 `--save_dir`。此时 `--max_steps` 表示最终全局步数，而不是再训练多少步。
+如果是 π-MEM 训练意外中断后继续，保留 `--resume` 和 `--resume_path /home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage2/step_best`(此处才有checkpoints)，删除 `--resume_pretrain`，并继续使用同一个 `--save_dir`。此时 `--max_steps` 表示最终全局步数，而不是再训练多少步。
 
 
 ## 4. 推理与评估
@@ -167,10 +167,7 @@ python scripts/Evo1_server.py \
 ```bash
 conda activate mujoco
 cd /home/user/mujoco+evo/mujoco_pickplace
-MUJOCO_GL=egl python eval_policy_client.py \
-  --num-episodes 100 --max-steps 250 --start-seed 10000 \
-  --memory-frames 6 --memory-stride-steps 5 --horizon 4 \
-  --gripper-debounce-steps 2 --precision-replan
+MUJOCO_GL=egl python eval_policy_client.py
 ```
 
-客户端用 base64 JPEG 发送 `[K,V]` 图像并只发送真实相机；服务端仍兼容旧单帧 payload。K=1 严格走原单帧视觉路径。`--precision-replan` 仅使用策略可见的 8 维本体状态：首次抓稳前在抓取区每个控制步都请求包含最新观测的 K=6 历史，空夹不会被判成持物；确认持物后恢复正常 horizon=4，因此不改动已经正常的搬运和放置执行。K>1 使用旧 checkpoint 只能证明结构可运行，不能代替 K=6 历史数据训练。
+客户端用 base64 JPEG 发送 `[K,V]` 图像并只发送真实相机；服务端仍兼容旧单帧 payload。K=1 严格走原单帧视觉路径。K>1 使用旧 checkpoint 只能证明结构可运行，不能代替 K=6 历史数据训练。

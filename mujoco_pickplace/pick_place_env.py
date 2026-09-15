@@ -48,7 +48,11 @@ class PickPlaceEnv:
     # close around the cube body instead of merely catching its top edge.
     EXPERT_GRASP_OFFSET = 0.112
     GRASP_OFFSET = RED_NAIL_Z
-    GRASP_X_BIAS = 0.006
+    # The hand/pad geometry needs a small +X offset, but 6 mm makes the open
+    # fingers push and chase the cube during descent on a large fraction of
+    # randomized starts.  A physical 80-seed sweep found that 3 mm preserves
+    # two-pad closure while removing the pre-grasp toppling mode.
+    GRASP_X_BIAS = 0.003
     PLACE_Z = 0.195
     SAFE_Z = 0.280
     # The previous 14 mm XY gate taught the policy to close while visibly
@@ -91,6 +95,10 @@ class PickPlaceEnv:
     EXPERT_CLOSE_MAX_STEPS = 14
     EXPERT_RECOVERY_Z_TOL = 0.008
     EXPERT_RECOVERY_FINGER_OPEN_MIN = 0.035
+    # Keep the final open-finger descent quasi-static.  This changes only the
+    # speed near grasp acquisition; the phase sequence and grasp depth remain
+    # unchanged for LoRA compatibility.
+    EXPERT_DESCENT_MAX_DZ = 0.006
 
     def __init__(
         self,
@@ -453,6 +461,12 @@ class PickPlaceEnv:
             for name in self.finger_joints
         ], dtype=np.float64)
 
+    def cube_tilt_degrees(self):
+        """Return the cube local-Z tilt from world-Z for quality diagnostics."""
+        rotation = self.data.xmat[self.cube_body_id].reshape(3, 3)
+        cosine = float(np.clip(rotation[2, 2], -1.0, 1.0))
+        return float(np.degrees(np.arccos(cosine)))
+
     def _has_two_sided_grasp_contact(self):
         cube_id = self.model.geom("cube_geom").id
         contacted = set()
@@ -565,6 +579,11 @@ class ScriptedExpertPolicy:
     def _move_before_attachment(self, target, gripper):
         action = self._move(target, gripper)
         action[2] = min(float(action[2]), 0.0)
+        if self.phase == "descend":
+            action[2] = max(
+                float(action[2]),
+                -self.env.EXPERT_DESCENT_MAX_DZ,
+            )
         return action
 
     def __call__(self, obs):

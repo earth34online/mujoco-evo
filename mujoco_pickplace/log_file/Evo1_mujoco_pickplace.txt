@@ -1121,3 +1121,44 @@
 2026-09-13 15:57:39,767 [INFO] ✅ Total Successful Episodes: 0/1
 2026-09-13 15:57:39,767 [INFO] 📊 Average Steps: 1.00
 2026-09-13 15:57:39,767 [INFO] success_rate=0.000
+2026-09-14 18:35:30,472 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-14 18:35:37,649 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-14 18:35:46,834 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-14 18:38:48,420 [INFO] Task 0 | Episode 1: ✅ Success
+2026-09-14 18:41:04,337 [INFO] Task 0 | Episode 2: ✅ Success
+2026-09-14 18:41:56,488 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-09-14 18:41:59,423 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-09-14 18:44:32,690 [INFO] Task 0 | Episode 2: ✅ Success
+2026-09-14 18:44:45,610 [INFO] Task 0 | Episode 2: ✅ Success
+2026-09-14 18:46:48,575 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-09-14 18:50:13,753 [INFO] Task 0 | Episode 4: ❌ Fail
+2026-09-14 18:51:47,610 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-09-14 18:51:54,022 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-09-14 18:54:07,717 [INFO] Task 0 | Episode 4: ✅ Success
+2026-09-14 18:54:46,495 [INFO] Task 0 | Episode 5: ✅ Success
+2026-09-14 18:55:17,554 [INFO] Task 0 | Episode 4: ❌ Fail
+2026-09-14 18:58:04,541 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-09-14 18:59:20,435 [INFO] Task 0 | Episode 5: ❌ Fail
+2026-09-14 19:02:22,085 [INFO] Task 0 | Episode 6: ❌ Fail
+2026-09-14 19:04:14,699 [INFO] Task 0 | Episode 6: ❌ Fail
+2026-09-14 19:08:39,801 [INFO] Task 0 | Episode 6: ❌ Fail
+2026-09-14 19:08:56,262 [INFO] Task 0 | Episode 7: ❌ Fail
+2026-09-14 19:09:54,646 [INFO] Task 0 | Episode 7: ❌ Fail
+2026-09-14 19:13:11,522 [INFO] Task 0 | Episode 7: ❌ Fail
+2026-09-14 19:18:09,842 [INFO] Task 0 | Episode 8: ❌ Fail
+2026-09-14 19:20:19,400 [INFO] Task 0 | Episode 8: ❌ Fail
+2026-09-14 19:24:59,890 [INFO] Task 0 | Episode 8: ❌ Fail
+2026-09-14 19:26:16,795 [INFO] Task 0 | Episode 9: ❌ Fail
+2026-09-14 19:26:34,592 [INFO] Task 0 | Episode 9: ❌ Fail
+2026-09-14 19:29:31,842 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-09-14 19:30:46,897 [INFO] Task 0 | Episode 10: ❌ Fail
+2026-09-14 19:35:08,780 [INFO] Task 0 | Episode 9: ❌ Fail
+2026-09-14 19:37:12,020 [INFO] Platform import failed (likely during shutdown)
+2026-09-14 19:37:12,021 [INFO] Platform import failed (likely during shutdown)
+2026-09-14 19:37:12,350 [INFO] Platform import failed (likely during shutdown)
+2026-09-14 19:37:12,350 [INFO] Platform import failed (likely during shutdown)
+2026-09-14 19:37:13,903 [INFO] Platform import failed (likely during shutdown)
+2026-09-14 19:37:13,903 [INFO] Platform import failed (likely during shutdown)

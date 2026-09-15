@@ -20,9 +20,15 @@ from collections.abc import Iterable
 import multiprocessing as mp
 import logging
 import pickle
+from collections import Counter
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+MEMORY_EVENT_ROUTINE = "routine"
+MEMORY_EVENT_GRASP_ALIGNMENT = "grasp_alignment"
+MEMORY_EVENT_POST_FAILURE_CORRECTION = "post_failure_correction"
+GRASP_PHASES = {"approach", "descend", "close"}
+CORRECTION_PHASES = {"recover", "approach", "descend", "close"}
 
 
 def build_training_augmentation(image_size, preserve_spatial_calibration=False):
@@ -109,6 +115,48 @@ def select_history_indices(
         valid.append(bool(is_valid))
     valid[-1] = True
     return indices, valid
+
+
+def classify_memory_event(phases, history_indices, current_index):
+    """Label windows whose current action can use visible short-term history.
+
+    A correction window is not defined by a requested dataset quota.  It is
+    detected from the expert state sequence: a recovery must already be inside
+    the sampled history and the current target must still be part of the retry.
+    This mirrors the pi-MEM intervention setup where the failed attempt remains
+    in short-term memory while the corrected strategy is supervised.
+    """
+    if not phases:
+        return MEMORY_EVENT_ROUTINE
+    if current_index < 0 or current_index >= len(phases):
+        raise IndexError(f"current_index {current_index} is outside phase history")
+    current_phase = str(phases[current_index])
+    visible_phases = {
+        str(phases[int(index)])
+        for index in history_indices
+        if 0 <= int(index) <= current_index
+    }
+    if current_phase in CORRECTION_PHASES and "recover" in visible_phases:
+        return MEMORY_EVENT_POST_FAILURE_CORRECTION
+    if current_phase in GRASP_PHASES:
+        return MEMORY_EVENT_GRASP_ALIGNMENT
+    return MEMORY_EVENT_ROUTINE
+
+
+def adaptive_memory_event_weights(events):
+    """Return inverse-square-root frequency weights without a fixed class quota."""
+    events = [str(event) for event in events]
+    if not events:
+        raise ValueError("events cannot be empty")
+    counts = Counter(events)
+    largest_class = max(counts.values())
+    class_weights = {
+        event: float(np.sqrt(largest_class / count))
+        for event, count in counts.items()
+    }
+    weights = np.asarray([class_weights[event] for event in events], dtype=np.float64)
+    weights /= float(np.mean(weights))
+    return weights, dict(counts)
 
 def compute_lerobot_normalization_stats_from_minmax(jsonl_path):
     state_mins, state_maxs = [], []
@@ -199,23 +247,21 @@ def _process_parquet_file_worker(args):
             padding_rows = pd.concat([last_row] * padding_count, ignore_index=True)
             df = pd.concat([df, padding_rows], ignore_index=True)
 
+        source_phases = (
+            source_df["expert.phase"].astype(str).tolist()
+            if "expert.phase" in source_df
+            else []
+        )
         episode_files = []
+        episode_events = []
         for i in range(sample_count):
             start_idx = i
             end_idx = i + action_horizon
-            
+
       
             cache_subdir = cache_dir / arm_name / dataset_name / parquet_path.parent.name / parquet_path.stem
             cache_filename = f"{start_idx}_{end_idx}.pkl"
             cache_filepath = cache_subdir / cache_filename
-            
-            
-            if cache_filepath.exists():
-                episode_files.append(str(cache_filepath))
-                continue
-            
-            logging.info(f"build {cache_filename}")
-            sub_df = df.iloc[i: i + action_horizon]
             history_indices, history_valid = select_history_indices(
                 source_timestamps,
                 current_index=i,
@@ -223,7 +269,24 @@ def _process_parquet_file_worker(args):
                 memory_stride_steps=memory_stride_steps,
                 memory_stride_seconds=memory_stride_seconds,
             )
+
+            if cache_filepath.exists():
+                episode_files.append(str(cache_filepath))
+                episode_events.append(
+                    classify_memory_event(source_phases, history_indices, i)
+                    if source_phases
+                    else MEMORY_EVENT_ROUTINE
+                )
+                continue
+
+            logging.info(f"build {cache_filename}")
+            sub_df = df.iloc[i: i + action_horizon]
             history_df = source_df.iloc[history_indices]
+            memory_event = (
+                classify_memory_event(source_phases, history_indices, i)
+                if source_phases
+                else MEMORY_EVENT_ROUTINE
+            )
             video_paths = {}
             base_video_path = dataset_path / "videos" / parquet_path.parent.name
 
@@ -255,6 +318,7 @@ def _process_parquet_file_worker(args):
                 "video_paths": video_paths,
                 "timestamps": source_timestamps[history_indices].tolist(),
                 "history_mask": history_valid,
+                "memory_event": memory_event,
             }
             
             cache_subdir.mkdir(parents=True, exist_ok=True)
@@ -262,12 +326,13 @@ def _process_parquet_file_worker(args):
                 pickle.dump(episode, f)
             
             episode_files.append(str(cache_filepath))
-        return episode_files, None 
+            episode_events.append(memory_event)
+        return episode_files, episode_events, None
         
     except Exception as e:
         error_msg = f"Error processing file {parquet_path}: {str(e)}"
         logging.error(error_msg)
-        return [], error_msg
+        return [], [], error_msg
 
 class LeRobotDataset(Dataset):
     def __init__(
@@ -317,7 +382,7 @@ class LeRobotDataset(Dataset):
 
         cache_name = (
             f"horizon_{action_horizon}_mem_{self.memory_frames}_"
-            f"stride_{self.memory_stride_steps}"
+            f"stride_{self.memory_stride_steps}_events_v1"
         )
         if self.memory_stride_seconds is not None:
             seconds_tag = str(float(self.memory_stride_seconds)).replace(".", "p")
@@ -335,6 +400,7 @@ class LeRobotDataset(Dataset):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         self.data = []  
+        self.memory_events = []
         self.arm2stats_dict = {}
         self.action_horizon = action_horizon
         self.video_backend = video_backend
@@ -485,9 +551,10 @@ class LeRobotDataset(Dataset):
         with open(temporary_index, "w", encoding="utf-8") as index_file:
             json.dump(
                 {
-                    "version": 2,
+                    "version": 3,
                     "source_signature": self.source_signature,
                     "files": relative_files,
+                    "memory_events": self.memory_events,
                 },
                 index_file,
                 ensure_ascii=False,
@@ -502,27 +569,26 @@ class LeRobotDataset(Dataset):
                 with open(index_path, "r", encoding="utf-8") as index_file:
                     index_data = json.load(index_file)
                 version = index_data.get("version")
-                if version not in (1, 2):
+                if version != 3:
                     raise ValueError("unsupported cache index version")
                 relative_files = index_data["files"]
                 self.data = [self.cache_dir / value for value in relative_files]
+                self.memory_events = [
+                    str(value) for value in index_data["memory_events"]
+                ]
                 if not self.data:
                     raise ValueError("cache index is empty")
+                if len(self.memory_events) != len(self.data):
+                    raise ValueError("cache index memory-event count does not match files")
                 missing_files = [path for path in self.data if not path.is_file()]
                 if missing_files:
                     raise ValueError(
                         f"cache index references {len(missing_files)} missing files"
                     )
                 if (
-                    version == 2
-                    and index_data.get("source_signature") != self.source_signature
+                    index_data.get("source_signature") != self.source_signature
                 ):
                     raise ValueError("source dataset fingerprint changed")
-                if version == 1:
-                    # The existing cache was already validated against the full
-                    # dataset by check_dataset.py.  Stamp it once so subsequent
-                    # source changes are detected without an unconditional rebuild.
-                    self._write_cache_index()
                 print(
                     f"Loaded {len(self.data)} cached windows from {index_path}"
                 )
@@ -532,6 +598,7 @@ class LeRobotDataset(Dataset):
                 self._overwrite_horizon_cache(self.cache_name)
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
                 self.data = []
+                self.memory_events = []
         elif any(self.cache_dir.rglob("*.pkl")):
             logging.warning(
                 "Rebuilding unindexed derived cache under %s", self.cache_dir
@@ -583,11 +650,12 @@ class LeRobotDataset(Dataset):
             
             total_episodes = 0
             with tqdm(total=len(parquet_process_units), desc="Processing Parquet files to cache") as pbar:
-                for episode_files, error in pool.imap_unordered(_process_parquet_file_worker, parquet_process_units):
+                for episode_files, episode_events, error in pool.imap_unordered(_process_parquet_file_worker, parquet_process_units):
                     if error:
                         logging.error(error)
                     else:
                         self.data.extend(episode_files)  
+                        self.memory_events.extend(episode_events)
                         total_episodes += len(episode_files)
                     
                     pbar.set_postfix({
@@ -598,6 +666,10 @@ class LeRobotDataset(Dataset):
         
         print(f"Data processing completed, total {len(self.data)} files generated")
         self._write_cache_index()
+
+    def memory_event_sampling_weights(self):
+        weights, counts = adaptive_memory_event_weights(self.memory_events)
+        return torch.as_tensor(weights, dtype=torch.double), counts
 
 
     def _pad_tensor(
@@ -808,6 +880,7 @@ class LeRobotDataset(Dataset):
             "state": state_padded.to(dtype=torch.bfloat16),
             "state_mask": state_mask,
             "history_mask": torch.tensor(item["history_mask"], dtype=torch.bool),
+            "memory_event": item.get("memory_event", MEMORY_EVENT_ROUTINE),
             "action": action_padded.to(dtype=torch.bfloat16),
             "action_mask": action_mask,
             "embodiment_id": torch.tensor(embodiment_id, dtype=torch.long)

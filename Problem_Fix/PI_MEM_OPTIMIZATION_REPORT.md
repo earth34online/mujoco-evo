@@ -695,3 +695,52 @@ RTX 5060 Laptop 8GB 上，`torch 2.12.0.dev + CUDA 12.8 + flash-attn 2.8.3.post1
 - 默认服务命令成功定位阶段二 `step_best`，严格加载 checkpoint，合并 42 个 LoRA 模块，并保持 CUDA 与双塔 FlashAttention。
 - MuJoCo 客户端按 K=6、stride=5 发送一次真实 WebSocket 请求，服务端返回 finite 的 `[14,24]` 动作并由环境执行一步；客户端与服务端均正常退出验证流程。
 - 完整轻量回归为 `42 passed`。以上确认评估链路可启动与通信，不代表正式多 episode 的任务成功率。
+
+## 30. 初次夹取专家轨迹严格门禁
+
+### 问题定位
+
+本轮问题发生在开始夹取，不是放置。旧专家控制器的 80-seed sweep 虽有 76 次最终成功，但其中 34 次在首次附着时 cube 倾角超过 10°，附着倾角 p95 为 86.98°。逐步回放显示，张开的指尖在最后下降阶段先撞到 cube，控制器继续追逐被推出去的 cube；旧采集门禁只检查阶段入口目标与最终任务成功，所以这类“最终放进目标但初抓已把 cube 推歪”的视频可以通过。
+
+### 修改
+
+- 将专家 XY 补偿从 6 mm 收敛到 3 mm，只修正初次夹取的系统偏差。
+- 只对张指状态的最后下降段施加每控制步 6 mm 的最大 Z 位移，避免低控制频率下跨步撞击；运输、放置和 action 定义均不变。
+- `precision-grasp-stable-v3` 在实际首次附着时要求双指垫真实接触至少连续 2 步，并检查预抓取 cube 位移/倾角、附着倾角/角速度、持物最大倾角与释放前持续附着。
+- 每条合格 episode 立即接受，不规定失败恢复 episode 的比例，也不为等待某类轨迹拖慢采集。
+- v3 数据不能追加进旧 v2 目录；检查器提供 `--require-strict-grasp-quality`，防止训练时把旧数据误称为严格数据。旧数据没有删除或覆盖。
+
+### 验证
+
+修改后的 80-seed sweep 成功 78 次，首次附着倾角超过 10°为 0，附着倾角 p95/最大为 0.377°/0.398°，预抓取 cube 位移 p95/最大为 0.850/1.709 mm，持物倾角 p95/最大为 6.21°/6.55°，未发生持物后掉落。`tests/_smoke/strict_dataset` 的 3 个小规模 episode 全部通过严格采集与 Evo K=6 数据接口检查，共 410 帧。另有反例测试确认两个不连续的瞬时双垫接触不能凑够门禁要求；最终完整 `unittest` 为 42 项通过。这些数据证明专家轨迹门禁与采集入口可用，不替代正式规模数据采集。
+
+## 31. π-MEM 可见失败历史与纠错微调
+
+### 论文机制与原实现缺口
+
+π-MEM 的短期记忆不只是把 K 帧送进时间注意力；其纠错实验保留策略失败尝试作为短期历史，并用后续人类修正动作继续微调，使模型能在同一段可见历史中改变策略。旧工程已经有 K=6 因果时间视觉融合，但训练窗口一律均匀采样，没有识别“模型输入中实际包含失败且当前正在修正”的监督片段。稀少的自然恢复窗口因此容易被大量 routine 窗口淹没；仅有时序结构不能保证论文所说的错误后修正能力被训练出来。
+
+### 修改
+
+- 缓存索引升至版本 3，并对模型实际采样到的 K 个历史索引分类。只有历史索引中出现 `recover`，且当前为恢复后的 `recover/approach/descend/close`，才标记 `post_failure_correction`。
+- 不读取未来 phase，不把“仅发生在 stride 采样间隙、模型没有看到”的恢复误标为纠错，避免标签泄漏或虚假短期记忆。
+- 训练默认按当前数据的真实事件频次使用逆平方根权重构造 `WeightedRandomSampler`；它提高稀有纠错窗口的训练可见度，但不规定采集比例、不复制固定数量的失败 episode，也不删除普通任务/首次抓取对齐数据。
+- 可用 `--no-memory_event_sampling` 做消融；日志输出事件计数和权重，便于审计短期记忆是否真的进入训练。
+
+旧 v2 数据中可形成 39,819 个有效窗口：`grasp_alignment=15,786`、`routine=22,395`、`post_failure_correction=1,638`。原始纠错窗口约占 4.1%，自适应采样后的期望占比约 12.8%；12.8% 是数据分布计算结果，不是硬编码目标或采集配额。本轮没有增加与 π-MEM 短期记忆无关的其他论文结构。
+
+### 验收边界
+
+旧 `stage2/step_best` 尚未用上述事件采样与严格 v3 数据训练，因此旧视频中的定位失败或夹错后停滞不会因代码修改自动消失。验收客户端新增逐决策/逐动作 JSONL：同时记录 raw 模型动作、实际 applied action、末端和 cube 状态、双垫接触、附着、推理时延与连续停滞步数。停滞检测只做观测和证据定位，不把 MuJoCo 真值输入策略，也不硬编码恢复动作。只有新 checkpoint 在同 seed 闭环评估中更快改变 raw action 并重新接近/夹取，才能声称复现论文的纠错效果。
+
+## 32. 单卡 LoRA 直接 Python 启动更正
+
+第 27 节的 worker 内保护仍有效，但其“回到普通 Accelerate 即代表移除 DeepSpeed launcher”的含义不完整，本节作为当前更正。本机 Accelerate 1.14.0 当前没有默认配置文件，所以不能把本机旧日志归因于当前默认 YAML；历史命令显式传入 `--use_deepspeed` 已足以解释旧路径。
+
+对照探针表明：直接运行 Python 时为 `DistributedType.NO`、`num_processes=1`、无 `LOCAL_RANK/WORLD_SIZE` 且 `torch.distributed` 未初始化；显式 `accelerate launch --use_deepspeed` 时，即使 `train.py` 在 worker 内把 `ACCELERATE_USE_DEEPSPEED` 设回 false，仍为 `DistributedType.MULTI_GPU`、`LOCAL_RANK=0`、`WORLD_SIZE=1` 且 distributed/NCCL 已初始化。也就是说，`DeepSpeed ZeRO stage=None` 只证明没有模型 ZeRO 包装，不能证明外层 distributed launcher 已退出。
+
+因此当前单张 8 GB GPU 的 LoRA 正式路径改为：先激活 `Evo1` 环境，设置 `CUDA_VISIBLE_DEVICES=0`、`ACCELERATE_USE_DEEPSPEED=false`、`ACCELERATE_MIXED_PRECISION=bf16`，然后直接执行 `python scripts/train.py ...`。上游 `accelerate launch` 和仓库 DeepSpeed 配置继续保留给真正多卡或全参数训练，不删除。训练日志新增 distributed type、process 数、rank 环境变量和 `torch.distributed` 初始化状态；正式单进程必须同时显示 `DistributedType.NO`、`num_processes=1` 与 `torch_distributed_initialized=False`。
+
+去掉 launcher 只能回收额外进程组/通信上下文开销，不能把 K=6、448×448、物理 batch 8 从约 8 GB 边缘负载变成稳定有余量的配置。历史相同负载的 PyTorch 峰值约为 6.2 GiB allocated、6.7–7.0 GiB reserved，整个进程可达约 7.5–7.8 GiB；后续若仍在 temporal QKV 重算时 OOM，应先报告实测并减小物理 batch，不能通过缩短 K=6 记忆来掩盖显存问题。
+
+直接 Python 的一小步启动验证由 `dataset/config.yaml` 读取原项目数据目录，保持视觉/语言双塔 FlashAttention、batch 1 和语言主干冻结，并以非零学习率完成前向、反向和 fused AdamW 更新；loss 为 0.3114，CUDA 峰值 2021.0 MiB allocated / 2060.0 MiB reserved。验证日志仅作为测试产物保存在 `tests/`，正式训练命令不读取或写入 `tests/`。旧 checkpoint 的 1 episode/64-step 小评估也完成 CUDA 服务和 K=6 WebSocket 闭环。两项只证明训练和评估可以调起，不代表重新训练后的策略效果。

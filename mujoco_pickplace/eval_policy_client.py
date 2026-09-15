@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from collections import deque
@@ -176,6 +177,13 @@ def configure_logging():
     )
 
 
+def append_diagnostic(path, record):
+    if path is None:
+        return
+    with Path(path).open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def encode_rgb_jpeg(image, quality=90):
     image = np.asarray(image, dtype=np.uint8)
     with io.BytesIO() as buffer:
@@ -293,6 +301,15 @@ def parse_args(argv=None):
     parser.add_argument("--render", action="store_true", help="Show the front view.")
     parser.add_argument("--video-dir", default=str(DEFAULT_VIDEO_DIR))
     parser.add_argument(
+        "--diagnostics-jsonl",
+        default=None,
+        help=(
+            "Optional per-decision/per-action diagnostics. It records model "
+            "actions and simulator-only audit evidence but never feeds privileged "
+            "state back to the policy."
+        ),
+    )
+    parser.add_argument(
         "--randomize-task",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -310,8 +327,8 @@ def parse_args(argv=None):
     parser.add_argument(
         "--start-seed",
         type=int,
-        default=10000,
-        help="First evaluation seed; keep it disjoint from collection seeds.",
+        default=None,
+        help="Optional first evaluation seed; omitted means a random seed per run.",
     )
     args = parser.parse_args(argv)
     if args.horizon < 1:
@@ -365,6 +382,19 @@ async def main():
     success_count, total_steps = 0, 0
     render_enabled = args.render
     video_root = Path(args.video_dir)
+    diagnostics_path = (
+        Path(args.diagnostics_jsonl) if args.diagnostics_jsonl else None
+    )
+    if diagnostics_path is not None:
+        diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+        diagnostics_path.write_text("", encoding="utf-8")
+
+    start_seed = args.start_seed
+    if start_seed is None:
+        start_seed = int(
+            np.random.SeedSequence().generate_state(1, dtype=np.uint32)[0]
+        )
+        log.info("Random evaluation start seed: %s", start_seed)
 
     log.info(f"\n========= Start task{TASK_ID}: {PROMPT} =========")
 
@@ -379,7 +409,7 @@ async def main():
             print(f"\n===== Task {TASK_ID - 1} | Episode {ep + 1} =====", flush=True)
             print(PROMPT, flush=True)
 
-            episode_seed = args.start_seed + ep
+            episode_seed = start_seed + ep
             obs = env.reset(seed=episode_seed)
             observation_history = deque(
                 [snapshot_observation(obs)],
@@ -401,6 +431,8 @@ async def main():
             frames = [obs["image_front"].copy()]
             video_path = video_root / TASK_NAME / f"episode_{ep + 1:03d}.mp4"
             render_enabled = maybe_show(frames[0], render_enabled)
+            stall_run = 0
+            max_stall_run = 0
 
             try:
                 while executed_steps < args.max_steps:
@@ -412,9 +444,11 @@ async def main():
                     flow_seed = episode_seed * 10000 + executed_steps
                     payload["flow_seed"] = int(flow_seed)
                     print(f"[Step {step}] Send observation", flush=True)
+                    inference_started = time.perf_counter()
                     await ws.send(json.dumps(payload))
 
                     result = await ws.recv()
+                    inference_seconds = time.perf_counter() - inference_started
                     try:
                         action_chunk = np.asarray(json.loads(result), dtype=np.float32)
                         if (
@@ -455,10 +489,35 @@ async def main():
                         f"(grasp_confirmed={precision_controller.grasp_confirmed})",
                         flush=True,
                     )
+                    append_diagnostic(
+                        diagnostics_path,
+                        {
+                            "kind": "decision",
+                            "episode": ep + 1,
+                            "seed": episode_seed,
+                            "decision_step": step,
+                            "executed_steps": executed_steps,
+                            "flow_seed": flow_seed,
+                            "inference_seconds": inference_seconds,
+                            "history_mask": payload["history_mask"],
+                            "execution_horizon": execution_horizon,
+                            "grasp_confirmed": precision_controller.grasp_confirmed,
+                            "robot_state": np.asarray(
+                                obs["robot_state"], dtype=float
+                            ).tolist(),
+                            "action_chunk_first7": action_chunk[:, :7].astype(float).tolist(),
+                            "translation_norms": np.linalg.norm(
+                                action_chunk[:, :3], axis=1
+                            ).astype(float).tolist(),
+                            "gripper_scores": action_chunk[:, 6].astype(float).tolist(),
+                        },
+                    )
                     for action_index in range(execution_horizon):
+                        hand_before = env.data.body("hand").xpos.copy()
                         action = np.zeros(7, dtype=np.float32)
                         available = min(7, action_chunk.shape[1])
                         action[:available] = action_chunk[action_index, :available]
+                        raw_action = action.copy()
                         print(action[:7])
                         action[6] = gripper_filter.update(action[6])
                         print(f"gripper action", action[6])
@@ -476,6 +535,62 @@ async def main():
 
                         executed_steps += 1
                         step += 1
+                        hand_after = env.data.body("hand").xpos.copy()
+                        cube_after = env.data.body("cube").xpos.copy()
+                        hand_motion = float(np.linalg.norm(hand_after - hand_before))
+                        cube_target_xy = np.array(
+                            [cube_after[0] + env.GRASP_X_BIAS, cube_after[1]],
+                            dtype=np.float64,
+                        )
+                        near_failed_grasp = bool(
+                            not env.attached
+                            and action[6] < 0.5
+                            and hand_after[2] <= PRECISION_REPLAN_Z
+                            and np.linalg.norm(hand_after[:2] - cube_target_xy) <= 0.040
+                        )
+                        stalled_now = bool(
+                            near_failed_grasp
+                            and hand_motion <= 4e-4
+                            and np.linalg.norm(raw_action[:3]) <= 1e-3
+                        )
+                        stall_run = stall_run + 1 if stalled_now else 0
+                        max_stall_run = max(max_stall_run, stall_run)
+                        if stall_run == 8:
+                            print(
+                                "[diagnostic] model has remained at an unconfirmed "
+                                "grasp for 8 control steps",
+                                flush=True,
+                            )
+                        append_diagnostic(
+                            diagnostics_path,
+                            {
+                                "kind": "action",
+                                "episode": ep + 1,
+                                "seed": episode_seed,
+                                "step": step,
+                                "chunk_action_index": action_index,
+                                "raw_action": raw_action.astype(float).tolist(),
+                                "applied_action": action.astype(float).tolist(),
+                                "hand_position": hand_after.astype(float).tolist(),
+                                "cube_position": cube_after.astype(float).tolist(),
+                                "finger_qpos": np.asarray(
+                                    obs["robot_state"][6:8], dtype=float
+                                ).tolist(),
+                                "hand_motion": hand_motion,
+                                "raw_translation_norm": float(
+                                    np.linalg.norm(raw_action[:3])
+                                ),
+                                "actual_two_pad_contact": bool(
+                                    env._has_two_sided_grasp_contact()
+                                ),
+                                "simulator_attached": bool(env.attached),
+                                "proprioceptive_grasp_confirmed": bool(
+                                    precision_controller.grasp_confirmed
+                                ),
+                                "near_failed_grasp": near_failed_grasp,
+                                "stall_run": stall_run,
+                            },
+                        )
                         render_enabled = maybe_show(frames[-1], render_enabled)
                         reward = 1.0 if done else 0.0
                         print(f"[Step {step}] reward={reward:.2f}, done={done}", flush=True)
@@ -487,6 +602,22 @@ async def main():
                         break
             finally:
                 save_video(frames, video_path)
+
+            append_diagnostic(
+                diagnostics_path,
+                {
+                    "kind": "episode_summary",
+                    "episode": ep + 1,
+                    "seed": episode_seed,
+                    "success": bool(done),
+                    "executed_steps": executed_steps,
+                    "max_unconfirmed_grasp_stall_steps": max_stall_run,
+                    "final_simulator_attached": bool(env.attached),
+                    "final_proprioceptive_grasp_confirmed": bool(
+                        precision_controller.grasp_confirmed
+                    ),
+                },
+            )
 
             success_count += int(done)
             total_steps += executed_steps
