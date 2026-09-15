@@ -15,7 +15,7 @@ MuJoCo 拾取放置任务
 
 - 数据集根目录：`/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace`
 - 训练通过 `accelerate launch` 启动 `Evo-1/Evo_1/scripts/train.py`。
-- 训练入口默认启用 LoRA；π-MEM 正式参数和关闭 LoRA 的兼容方式见 `PI_MEM_README.md`。
+- 训练入口默认启用 LoRA，但实际上本task并不需要启动LoRA；π-MEM 正式参数和关闭 LoRA 的兼容方式见 `PI_MEM_README.md`。
 - 服务端默认 checkpoint：`/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1/step_best`
 - 评估客户端把视频保存到 `mujoco_pickplace/outputs/eval_videos/<时间戳>/task1/`。
 
@@ -44,8 +44,6 @@ python collect_data.py
 /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
 ```
 
-旧的 npz 采集与转换脚本已经移除。
-
 ## 2. 检查 Evo-1 数据加载
 
 ```bash
@@ -66,7 +64,7 @@ action mask sum: 56
 
 ## 3. 使用 Evo-1 训练
 
-先按照上游 Evo-1 方式配置一次 Accelerate/DeepSpeed：
+先按照上游 Evo-1 (详见 Evo-1 文件夹内README.md)方式配置一次 Accelerate/DeepSpeed：
 
 ```bash
 conda activate Evo1

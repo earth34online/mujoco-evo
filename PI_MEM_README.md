@@ -1,7 +1,5 @@
 # π-MEM K=6 短期记忆
 
-本文件是仓库中唯一的 π-MEM 实现说明。论文 PDF 与逐页中文解读仅保存在本地 `paper/` 目录；该目录已由 `.gitignore` 排除，不随源码上传。
-
 ```text
 MuJoCo 5 Hz 历史观测
 -> K=6 图像、状态与历史掩码
@@ -47,7 +45,7 @@ MuJoCo 5 Hz 历史观测
 
 时序样本对所有时刻使用同一组增强参数，避免增强过程制造不存在的运动。MuJoCo 固定相机的笛卡尔动作标签与像素几何绑定，因此 `dataset/config.yaml` 默认设置 `preserve_spatial_calibration: true`：保留同步颜色增强，但禁用未同步变换动作标签的随机裁剪和旋转。默认保留原始 5 Hz 控制时间轴；只有显式添加 `--compact-static-frames` 才压缩静止帧。
 
-为了落实论文中“失败仍留在短期记忆里，再监督修正动作”的微调方式，数据窗口会按模型真正收到的 6 个历史索引分类。只有所采样历史里实际包含 `recover`，且当前仍处在恢复后的 `recover/approach/descend/close`，才标为 `post_failure_correction`；采样间隔中出现但没有进入模型输入的恢复帧不会误标。训练默认按各事件在现有数据中的实际频次做逆平方根加权，不规定恢复 episode 数量或固定失败比例，也不要求为了凑比例而延长采集。当前旧 v2 数据中共有 39,819 个窗口，其中 1,638 个是这类可见失败后的纠正窗口；自适应采样把其期望训练占比从约 4.1% 提升到约 12.8%，同时保留普通任务和首次抓取对齐窗口。
+数据窗口会按模型真正收到的 6 个历史索引分类，只有所采样历史里实际包含 `recover`，且当前仍处在恢复后的 `recover/approach/descend/close`，才标为 `post_failure_correction`；采样间隔中出现但没有进入模型输入的恢复帧不会误标。训练默认按各事件在现有数据中的实际频次做逆平方根加权，不规定恢复 episode 数量或固定失败比例，也不要求为了凑比例而延长采集。
 
 ## 仓库结构
 
@@ -76,7 +74,7 @@ mujoco_pickplace/eval_policy_client.py                  在线闭环客户端
 | 异步 I/O | `libaio 0.3.113`，多卡 DeepSpeed 兼容性检查通过 |
 | FlashAttention | 2.8.3.post1；真实 InternVL3-1B、K=6、batch 8 训练与推理均确认使用快路径 |
 
-当前只训练约 1.49M 参数，Adam 一、二阶状态仅为十几 MB 量级。单张 8 GB GPU 使用 ZeRO-2 没有第二张卡可分片，反而增加包装器和通信缓冲；真实生产入口测试中曾在反向传播触发 OOM。当前单卡正式路径改用 CUDA fused AdamW，并通过分段 checkpoint 时间注意力与 ViT MLP、以 BF16 执行 LoRA 矩阵乘法来压低峰值；FP32 LoRA 主参数、梯度和 optimizer state 仍保留。正式命令直接运行 `python scripts/train.py`，从源头避免 `accelerate launch -> deepspeed_launcher -> torch.distributed/NCCL`。训练脚本在 `Accelerator` 初始化前关闭单卡 LoRA 的 DeepSpeed wrapping 仍作为旧命令兼容保护，但 worker 已经无法撤销外层 launcher 创建的单 rank 进程组，因此不能以日志中的 `ZeRO stage=None` 单独证明 launcher 已移除。`ds_config_pi_mem.json` 不删除，供以后多卡训练使用，其中也不启用 CPU optimizer offload。FlashAttention 的 PyTorch 回退只用于明确报错和环境诊断，不能当作正式训练快路径。正式训练必须先 `conda activate Evo1`，否则可能加载系统旧版 `libstdc++` 并触发 ABI 回退。
+Adam 一、二阶状态仅为十几 MB 量级，单张 8 GB GPU 使用 ZeRO-2 没有第二张卡可分片，反而增加包装器和通信缓冲。当前单卡正式路径用 CUDA fused AdamW，并通过分段 checkpoint 时间注意力与 ViT MLP、以 BF16 执行 LoRA 矩阵乘法来压低峰值；FP32 LoRA 主参数、梯度和 optimizer state 仍保留。正式命令直接运行 `python scripts/train.py`，从源头避免 `accelerate launch -> deepspeed_launcher -> torch.distributed/NCCL`。训练脚本在 `Accelerator` 初始化前关闭单卡 LoRA 的 DeepSpeed wrapping 仍作为旧命令兼容保护，但 worker 已经无法撤销外层 launcher 创建的单 rank 进程组，因此不能以日志中的 `ZeRO stage=None` 单独证明 launcher 已移除。`ds_config_pi_mem.json` 不删除，供以后多卡训练使用，其中也不启用 CPU optimizer offload。FlashAttention 的 PyTorch 回退只用于明确报错和环境诊断，不能当作正式训练快路径。
 
 ## 1. 安全采集数据
 
@@ -142,7 +140,7 @@ Optimizer=AdamW, fused=True
 Prepared optimizer=AcceleratedOptimizer; base optimizer=AdamW; DeepSpeed ZeRO stage=None
 ```
 
-`step_best` 沿用 MINT 原始判定：从全局 step 0 起用单 batch loss 更新内存中的 `best_loss`，但只有 `step > max(1000, warmup_steps)` 且再次刷新全局最低 loss 时才写入。`step` 不会在 dataloader 开始新 epoch 时清零，因此第二个及后续 epoch 不会再次跳过开头 1000 步。前 1000 步只是不保存，其 loss 仍参与 best 阈值比较。
+`step_best` 沿用 MINT 原始判定：从全局 step 0 起用单 batch loss 更新内存中的 `best_loss`，但只有 `step > max(1000, warmup_steps)` 且再次刷新全局最低 loss 时才写入。
 
 ### 路径与恢复方式
 
