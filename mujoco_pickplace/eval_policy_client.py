@@ -98,8 +98,9 @@ class PrecisionExecutionController:
 
     The controller only reads the policy-visible 8-D proprioception.  It keeps
     the normal action-chunk horizon for free-space motion and replans every
-    step near the grasp plane or when a close command is imminent, so π-MEM
-    receives the newest visual/proprioceptive recovery evidence.
+    step near the grasp plane.  A gripper transition is executed at its
+    predicted position in the chunk, then ends that chunk so π-MEM receives a
+    fresh visual/proprioceptive observation of the changed gripper state.
 
     Finger opening is deliberately not treated as grasp confirmation.  A
     corner collision and a stable two-pad grasp can produce nearly identical
@@ -129,20 +130,31 @@ class PrecisionExecutionController:
         gripper_filter,
         enabled=True,
     ):
-        if not enabled:
-            return int(requested_horizon)
         robot_state = self._validate_robot_state(robot_state)
         prefix = np.asarray(action_chunk, dtype=np.float32)[:requested_horizon]
         if prefix.ndim != 2 or prefix.shape[1] < 7:
             raise ValueError("action_chunk must have shape [horizon, >=7]")
 
         near_grasp_plane = float(robot_state[2]) <= self.precision_z
-        close_transition_imminent = bool(
-            gripper_filter.command >= 0.5
-            and np.any(prefix[:, 6] <= gripper_filter.close_threshold)
-        )
-        if near_grasp_plane or close_transition_imminent:
+        if enabled and near_grasp_plane:
             return 1
+
+        # Do not collapse to horizon=1 merely because a later action requests
+        # closing: doing so repeatedly discards the transition before it can
+        # execute.  Run through the first transition and then replan.  The same
+        # boundary makes release debounce meaningful across independent model
+        # observations instead of letting two open scores from one stale chunk
+        # release an object during transport.
+        if gripper_filter.command >= 0.5:
+            transition_indices = np.flatnonzero(
+                prefix[:, 6] <= gripper_filter.close_threshold
+            )
+        else:
+            transition_indices = np.flatnonzero(
+                prefix[:, 6] >= gripper_filter.open_threshold
+            )
+        if transition_indices.size:
+            return int(transition_indices[0]) + 1
         return int(requested_horizon)
 
 
@@ -275,8 +287,9 @@ def parse_args(argv=None):
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Replan every control step near the grasp plane or when closing is "
-            "imminent; no unreliable qpos-based grasp latch (default: enabled)."
+            "Replan every control step near the grasp plane; gripper transition "
+            "boundaries always request a fresh observation and no unreliable "
+            "qpos-based grasp latch is used (default: enabled)."
         ),
     )
     parser.add_argument("--render", action="store_true", help="Show the front view.")

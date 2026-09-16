@@ -160,8 +160,11 @@ def load_model_and_normalizer(ckpt_dir, vlm_name=None):
             "use a checkpoint trained with --use_state."
         )
 
-    config["finetune_vlm"] = False
-    config["finetune_action_head"] = False
+    # Keep checkpoint architecture fields untouched while constructing EVO1.
+    # In LoRA checkpoints ``finetune_vlm`` selects the adapter topology, so
+    # rewriting it for evaluation can make a valid checkpoint fail strict
+    # state-dict loading.  ``eval()`` and ``torch.no_grad()`` already disable
+    # training behavior without changing the model structure.
     # 保持 Evo-1 原始评估精度设置；π-MEM 只改变观测记忆，不减少流匹配求解步数。
     config["num_inference_timesteps"] = 50
     config["device"] = "cuda"

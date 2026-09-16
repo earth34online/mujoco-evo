@@ -188,3 +188,7 @@ MUJOCO_GL=egl python eval_policy_client.py
 ```
 
 客户端正式命令不重复写默认参数：默认就是 `num_episodes=100`、`max_steps=250`、`memory_frames=6`、`memory_stride_steps=5`、`horizon=4`。不传 `--start-seed` 时每次运行随机生成 seed。客户端用 base64 JPEG 发送 `[K,V]` 图像并只发送真实相机；服务端仍兼容旧单帧 payload。K=1 严格走原单帧视觉路径。K>1 使用旧 checkpoint 只能证明结构可运行，不能代替 K=6 历史数据训练。
+
+评估端保留四步滚动执行，但不会跨过夹爪状态跳变：若闭合/打开首次出现在动作块第 `i` 项，会执行到该项后立即用新图像和 proprioception 重规划。这样后续闭合不会因为提前截成一步而被永久推迟；打开防抖的第二次确认也必须来自下一次独立推理，不能由同一个旧动作块里的两个打开值在运输途中直接触发。`--no-precision-replan` 只关闭抓取平面附近的逐步重规划，不关闭这条夹爪安全边界。
+
+服务端构造模型时保持 checkpoint 中的 `finetune_vlm`、`finetune_action_head` 等结构字段原值；评估冻结由 `eval()` 和 `no_grad()` 完成。不要在加载前重写这些字段，因为全视觉 LoRA 是否注入由 `finetune_vlm` 决定，改写会让合法 checkpoint 的 state dict 拓扑不匹配。当前 temporal-only LoRA 的 QKV 与组合输出残差均保留：这是为避免 shared spatial/temporal LoRA 梯度干扰而采用的有意扩展，不是待删除的旧逻辑。
