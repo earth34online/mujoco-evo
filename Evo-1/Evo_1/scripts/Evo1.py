@@ -11,6 +11,7 @@ from model.action_head.flow_matching import FlowmatchingActionHead
 from model.lora import (
     LoRALinear,
     LoRAMultiheadAttention,
+    attach_temporal_attention_lora,
     inject_lora_linear_layers,
     is_lora_parameter,
 )
@@ -27,12 +28,19 @@ class EVO1(nn.Module):
         self.temporal_drop_past_after_layer = config.get(
             "temporal_drop_past_after_layer", 20
         )
+        # Checkpoints created before the Appendix-C composition fix did not
+        # store an architecture marker and must keep their original additive
+        # math at evaluation.  New training explicitly writes "composed".
+        self.pi_mem_attention_mode = str(
+            config.get("pi_mem_attention_mode", "legacy_additive")
+        )
         self.embedder = InternVL3Embedder(
             model_name=vlm_name,
             image_size=int(config.get("image_size", 448)),
             device=self._device,
             temporal_layer_interval=self.temporal_layer_interval,
             temporal_drop_past_after_layer=self.temporal_drop_past_after_layer,
+            pi_mem_attention_mode=self.pi_mem_attention_mode,
             use_flash_attn=bool(config.get("use_flash_attn", True)),
             gradient_checkpointing=bool(config.get("gradient_checkpointing", True)),
             compact_masked_views=bool(
@@ -105,6 +113,9 @@ class EVO1(nn.Module):
         if not targets:
             raise ValueError("use_lora=true 时 lora_targets 不能为空")
         self.lora_targets = targets
+        self.separate_temporal_lora = bool(
+            self.config.get("separate_temporal_lora", False)
+        )
 
         if "vision" in targets:
             vision_model = self.embedder.model.vision_model
@@ -130,19 +141,29 @@ class EVO1(nn.Module):
                         and layer_number > int(drop_after)
                     ):
                         continue
-                    names.extend(
-                        inject_lora_linear_layers(
+                    prefix = (
+                        "embedder.model.vision_model.encoder.layers."
+                        f"{layer_index}.attn"
+                    )
+                    if self.separate_temporal_lora:
+                        names.extend(
+                            attach_temporal_attention_lora(
+                                layer.attn,
+                                rank=rank,
+                                alpha=alpha,
+                                dropout=dropout,
+                                prefix=prefix,
+                            )
+                        )
+                    else:
+                        names.extend(inject_lora_linear_layers(
                             layer.attn,
                             rank=rank,
                             alpha=alpha,
                             dropout=dropout,
-                            prefix=(
-                                "embedder.model.vision_model.encoder.layers."
-                                f"{layer_index}.attn"
-                            ),
+                            prefix=prefix,
                             include_multihead_attention=False,
-                        )
-                    )
+                        ))
             self.lora_module_names.extend(names)
 
         if "language" in targets:
@@ -178,6 +199,7 @@ class EVO1(nn.Module):
         self.config["lora_rank"] = rank
         self.config["lora_alpha"] = alpha
         self.config["lora_dropout"] = dropout
+        self.config["separate_temporal_lora"] = self.separate_temporal_lora
 
     @staticmethod
     def _enable_adapter_biases(module: nn.Module) -> int:
@@ -228,7 +250,7 @@ class EVO1(nn.Module):
             if self.config.get("finetune_vlm", False):
                 trainable += self._enable_adapter_biases(vision_model)
                 trainable += self._enable_norm_parameters(vision_model)
-            else:
+            elif not self.separate_temporal_lora:
                 drop_after = self.temporal_drop_past_after_layer
                 for layer_index, layer in enumerate(vision_model.encoder.layers):
                     layer_number = layer_index + 1
@@ -247,6 +269,10 @@ class EVO1(nn.Module):
                     if hasattr(layer, "ls1"):
                         layer.ls1.requires_grad = True
                         trainable += layer.ls1.numel()
+            # With separate temporal LoRA, the adapters are already covered by
+            # the generic LoRA parameter pass.  Shared attention bias, norm and
+            # layer scale deliberately remain frozen so the Stage1 spatial path
+            # is not modified through support parameters.
 
         if "language" in self.lora_targets:
             language_model = self.embedder.model.language_model

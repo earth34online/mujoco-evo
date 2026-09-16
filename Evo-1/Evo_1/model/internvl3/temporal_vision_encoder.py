@@ -1,11 +1,14 @@
 """π-MEM-style short-term video encoding for InternVL vision towers.
 
-The implementation deliberately owns no trainable parameters.  On every
-``temporal_layer_interval``-th active ViT layer it reuses that layer's
-normalization, QKV projection, output projection, layer-scale and drop-path
-modules to add causal attention across time for the same spatial patch.  Past
-tokens can be discarded before the upper ViT layers, and only the current
-frame is returned to the language backbone.
+On every ``temporal_layer_interval``-th active ViT layer the encoder reuses
+that layer's normalization, QKV projection, output projection, layer-scale and
+drop-path modules for MEM's composed space-time attention: causal temporal
+attention first mixes values for each spatial patch, then spatial attention
+uses those temporally mixed values.  An optional low-rank residual specializes
+only this memory-enabled call path while preserving the shared frozen ViT
+weights and exact single-frame path.  Past tokens can be discarded before the
+upper ViT layers, and only the current frame is returned to the language
+backbone.
 """
 
 from __future__ import annotations
@@ -13,6 +16,15 @@ from __future__ import annotations
 import math
 
 import torch
+import torch.nn.functional as F
+
+
+PI_MEM_COMPOSED_ATTENTION = "composed"
+PI_MEM_LEGACY_ADDITIVE_ATTENTION = "legacy_additive"
+PI_MEM_ATTENTION_MODES = {
+    PI_MEM_COMPOSED_ATTENTION,
+    PI_MEM_LEGACY_ADDITIVE_ATTENTION,
+}
 
 
 def fixed_relative_temporal_encoding(
@@ -53,7 +65,8 @@ def _causal_temporal_attention(
 
     Args:
         attention: Existing InternVL attention module.  Its QKV and projection
-            weights are reused; this function creates no parameters.
+            weights are reused; optional temporal-only residuals are attached
+            to this module by the LoRA configuration code.
         hidden_states: ``[groups, time, hidden]`` where each group is one
             camera/spatial-patch pair.
         history_mask: Boolean tensor ``[time]`` or ``[groups,time]``; false
@@ -64,7 +77,11 @@ def _causal_temporal_attention(
     if time == 1:
         return torch.zeros_like(hidden_states)
 
-    qkv = attention.qkv(hidden_states).reshape(
+    qkv = attention.qkv(hidden_states)
+    temporal_qkv_lora = getattr(attention, "temporal_qkv_lora", None)
+    if temporal_qkv_lora is not None:
+        qkv = qkv + temporal_qkv_lora(hidden_states)
+    qkv = qkv.reshape(
         groups, time, 3, attention.num_heads, attention.head_dim
     )
     q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(0)
@@ -92,6 +109,12 @@ def _causal_temporal_attention(
             "Expected history_mask shape "
             f"{(time,)} or {(groups, time)}, got {tuple(valid.shape)}"
         )
+    # A sample with only its current frame must exactly reduce to the original
+    # image encoder even when another sample in the same rectangular batch has
+    # history.  Without this per-group guard it would receive a temporal
+    # self-attention residual in batched training, while independent inference
+    # takes the exact single-frame path and receives no temporal residual.
+    single_frame_groups = valid.sum(dim=1) <= 1
     causal = torch.ones(time, time, device=scores.device, dtype=torch.bool).tril()
     allowed = causal.view(1, time, time) & valid.unsqueeze(1)
     scores = scores.masked_fill(
@@ -106,10 +129,201 @@ def _causal_temporal_attention(
     weights = torch.softmax(scores.float(), dim=-1).to(dtype=scores.dtype)
     weights = attention.attn_drop(weights)
     output = (weights @ v).transpose(1, 2).reshape(groups, time, channels)
-    output = attention.proj(output)
+    projected = attention.proj(output)
+    temporal_proj_lora = getattr(attention, "temporal_proj_lora", None)
+    if temporal_proj_lora is not None:
+        projected = projected + temporal_proj_lora(output)
+    output = projected
     output = attention.proj_drop(output)
     output = output.masked_fill(invalid_queries.unsqueeze(-1), 0)
+    output = output.masked_fill(single_frame_groups[:, None, None], 0)
     return output
+
+
+def _composed_space_time_attention(
+    attention,
+    hidden_states: torch.Tensor,
+    *,
+    batch_size: int,
+    num_frames: int,
+    num_views: int,
+    history_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Apply π-MEM Appendix-C composed space-time attention.
+
+    The existing Q/K/V projections are evaluated once.  Temporal attention
+    mixes values along matching patch tracks and spatial attention then uses
+    those mixed values with the same projected queries and keys.  The shared
+    output projection is applied only once.  This differs materially from the
+    old implementation, which added independent spatial and temporal attention
+    outputs and therefore did not implement the paper's composition.
+    """
+
+    flat_batch, num_tokens, channels = hidden_states.shape
+    expected_batch = batch_size * num_frames * num_views
+    if flat_batch != expected_batch:
+        raise ValueError(
+            f"Expected {expected_batch} image sequences for B={batch_size}, "
+            f"T={num_frames}, V={num_views}; got {flat_batch}"
+        )
+
+    valid = torch.as_tensor(
+        history_mask, device=hidden_states.device, dtype=torch.bool
+    )
+    if valid.shape != (batch_size, num_frames):
+        raise ValueError(
+            f"Expected history_mask shape {(batch_size, num_frames)}, "
+            f"got {tuple(valid.shape)}"
+        )
+    has_history = (valid.sum(dim=1) > 1).to(hidden_states.dtype)
+
+    base_qkv = attention.qkv(hidden_states)
+    qkv = base_qkv
+    temporal_qkv_lora = getattr(attention, "temporal_qkv_lora", None)
+    if temporal_qkv_lora is not None:
+        # The adapter is allowed to specialize temporal matching and temporal
+        # value mixing, but it must not alter the frozen Stage1 spatial Q/K.
+        # Samples with no valid history also keep the exact image-model path
+        # when they share a rectangular training batch with longer samples.
+        adapter_qkv = temporal_qkv_lora(hidden_states).reshape(
+            batch_size,
+            num_frames,
+            num_views,
+            num_tokens,
+            3 * channels,
+        )
+        adapter_qkv = adapter_qkv * has_history[:, None, None, None, None]
+        qkv = qkv + adapter_qkv.reshape_as(qkv)
+
+    base_qkv = base_qkv.reshape(
+        batch_size,
+        num_frames,
+        num_views,
+        num_tokens,
+        3,
+        attention.num_heads,
+        attention.head_dim,
+    )
+    base_q, base_k, _base_v = base_qkv.unbind(dim=4)
+    qkv = qkv.reshape(
+        batch_size,
+        num_frames,
+        num_views,
+        num_tokens,
+        3,
+        attention.num_heads,
+        attention.head_dim,
+    )
+    temporal_q, temporal_k, temporal_v = qkv.unbind(dim=4)
+
+    if attention.qk_normalization:
+        base_projected_shape = base_q.shape
+        base_q = attention.q_norm(base_q.flatten(-2, -1)).view(
+            base_projected_shape
+        )
+        base_k = attention.k_norm(base_k.flatten(-2, -1)).view(
+            base_projected_shape
+        )
+        temporal_projected_shape = temporal_q.shape
+        temporal_q = attention.q_norm(
+            temporal_q.flatten(-2, -1)
+        ).view(temporal_projected_shape)
+        temporal_k = attention.k_norm(
+            temporal_k.flatten(-2, -1)
+        ).view(temporal_projected_shape)
+
+    def as_temporal(tensor: torch.Tensor) -> torch.Tensor:
+        return tensor.permute(0, 2, 3, 4, 1, 5).reshape(
+            batch_size * num_views * num_tokens,
+            attention.num_heads,
+            num_frames,
+            attention.head_dim,
+        )
+
+    def as_spatial(tensor: torch.Tensor) -> torch.Tensor:
+        return tensor.permute(0, 1, 2, 4, 3, 5).reshape(
+            batch_size * num_frames * num_views,
+            attention.num_heads,
+            num_tokens,
+            attention.head_dim,
+        )
+
+    # Valid observations form a right-aligned causal key set for every patch.
+    # Padded query rows are kept numerically safe by allowing their diagonal;
+    # valid queries still cannot read any padded key.
+    causal = torch.ones(
+        num_frames,
+        num_frames,
+        device=hidden_states.device,
+        dtype=torch.bool,
+    ).tril()
+    allowed = causal[None] & valid[:, None, :]
+    allowed |= torch.eye(
+        num_frames, device=hidden_states.device, dtype=torch.bool
+    )[None]
+    temporal_mask = allowed[:, None, None].expand(
+        batch_size, num_views, num_tokens, num_frames, num_frames
+    ).reshape(
+        batch_size * num_views * num_tokens,
+        1,
+        num_frames,
+        num_frames,
+    )
+    dropout_p = (
+        float(getattr(attention.attn_drop, "p", 0.0))
+        if attention.training
+        else 0.0
+    )
+    temporal_values = F.scaled_dot_product_attention(
+        as_temporal(temporal_q),
+        as_temporal(temporal_k),
+        as_temporal(temporal_v),
+        attn_mask=temporal_mask,
+        dropout_p=dropout_p,
+        scale=attention.scale,
+    )
+    temporal_values = temporal_values.reshape(
+        batch_size,
+        num_views,
+        num_tokens,
+        attention.num_heads,
+        num_frames,
+        attention.head_dim,
+    ).permute(0, 4, 1, 2, 3, 5)
+
+    attended = F.scaled_dot_product_attention(
+        as_spatial(base_q),
+        as_spatial(base_k),
+        as_spatial(temporal_values),
+        dropout_p=dropout_p,
+        scale=attention.scale,
+    )
+    attended = attended.reshape(
+        batch_size,
+        num_frames,
+        num_views,
+        attention.num_heads,
+        num_tokens,
+        attention.head_dim,
+    ).permute(0, 1, 2, 4, 3, 5)
+    attended = attended.reshape(flat_batch, num_tokens, channels)
+
+    projected = attention.proj(attended)
+    temporal_proj_lora = getattr(attention, "temporal_proj_lora", None)
+    if temporal_proj_lora is not None:
+        adapter_output = temporal_proj_lora(attended).reshape(
+            batch_size,
+            num_frames,
+            num_views,
+            num_tokens,
+            channels,
+        )
+        adapter_output = (
+            adapter_output
+            * has_history[:, None, None, None, None]
+        )
+        projected = projected + adapter_output.reshape_as(projected)
+    return attention.proj_drop(projected)
 
 
 def _space_time_layer(
@@ -121,8 +335,9 @@ def _space_time_layer(
     history_mask: torch.Tensor,
     batch_size: int = 1,
     temporal_position: torch.Tensor | None = None,
+    attention_mode: str = PI_MEM_COMPOSED_ATTENTION,
 ) -> torch.Tensor:
-    """Run one ViT block with additive spatial and causal temporal attention."""
+    """Run one memory-enabled ViT block."""
     if num_frames == 1:
         # Exact checkpoint-compatible image path required by MEM.
         return layer(hidden_states)
@@ -135,6 +350,7 @@ def _space_time_layer(
         history_mask=history_mask,
         batch_size=batch_size,
         temporal_position=temporal_position,
+        attention_mode=attention_mode,
     )
     return _space_time_mlp_residual(layer, hidden_states)
 
@@ -148,8 +364,9 @@ def _space_time_attention_residual(
     history_mask: torch.Tensor,
     batch_size: int = 1,
     temporal_position: torch.Tensor | None = None,
+    attention_mode: str = PI_MEM_COMPOSED_ATTENTION,
 ) -> torch.Tensor:
-    """Run only the spatial/temporal attention residual of a π-MEM layer."""
+    """Run only the attention residual of a memory-enabled ViT layer."""
 
     flat_batch, num_tokens, channels = hidden_states.shape
     expected_batch = batch_size * num_frames * num_views
@@ -167,6 +384,11 @@ def _space_time_attention_residual(
         raise ValueError(
             f"Expected history_mask shape {(batch_size, num_frames)}, "
             f"got {tuple(history_mask.shape)}"
+        )
+    if attention_mode not in PI_MEM_ATTENTION_MODES:
+        raise ValueError(
+            f"Unknown π-MEM attention mode {attention_mode!r}; "
+            f"expected one of {sorted(PI_MEM_ATTENTION_MODES)}"
         )
     if temporal_position is None:
         temporal_position = fixed_relative_temporal_encoding(
@@ -189,29 +411,41 @@ def _space_time_attention_residual(
     )
 
     normalized = layer.norm1(positioned_flat).to(positioned_flat.dtype)
-    spatial_output = layer.attn(normalized)
-
-    temporal_input = normalized.view(
-        batch_size, num_frames, num_views, num_tokens, channels
-    )
-    temporal_input = temporal_input.permute(0, 2, 3, 1, 4).reshape(
-        batch_size * num_views * num_tokens, num_frames, channels
-    )
-    group_history_mask = history_mask[:, None, None, :].expand(
-        batch_size, num_views, num_tokens, num_frames
-    ).reshape(batch_size * num_views * num_tokens, num_frames)
-    temporal_output = _causal_temporal_attention(
-        layer.attn, temporal_input, group_history_mask
-    )
-    temporal_output = temporal_output.view(
-        batch_size, num_views, num_tokens, num_frames, channels
-    )
-    temporal_output = temporal_output.permute(0, 3, 1, 2, 4).reshape_as(
-        spatial_output
-    )
+    if attention_mode == PI_MEM_COMPOSED_ATTENTION:
+        attention_output = _composed_space_time_attention(
+            layer.attn,
+            normalized,
+            batch_size=batch_size,
+            num_frames=num_frames,
+            num_views=num_views,
+            history_mask=history_mask,
+        )
+    else:
+        # Checkpoint compatibility for runs trained before the Appendix-C
+        # composition bug was corrected.  Never select this mode for a new run.
+        spatial_output = layer.attn(normalized)
+        temporal_input = normalized.view(
+            batch_size, num_frames, num_views, num_tokens, channels
+        )
+        temporal_input = temporal_input.permute(0, 2, 3, 1, 4).reshape(
+            batch_size * num_views * num_tokens, num_frames, channels
+        )
+        group_history_mask = history_mask[:, None, None, :].expand(
+            batch_size, num_views, num_tokens, num_frames
+        ).reshape(batch_size * num_views * num_tokens, num_frames)
+        temporal_output = _causal_temporal_attention(
+            layer.attn, temporal_input, group_history_mask
+        )
+        temporal_output = temporal_output.view(
+            batch_size, num_views, num_tokens, num_frames, channels
+        )
+        temporal_output = temporal_output.permute(0, 3, 1, 2, 4).reshape_as(
+            spatial_output
+        )
+        attention_output = spatial_output + temporal_output
 
     hidden_states = hidden_states + layer.drop_path1(
-        (spatial_output + temporal_output) * layer.ls1
+        attention_output * layer.ls1
     )
     return hidden_states
 
@@ -233,6 +467,7 @@ def extract_temporal_feature(
     batch_size: int = 1,
     temporal_layer_interval: int = 4,
     drop_past_after_layer: int | None = None,
+    attention_mode: str = PI_MEM_COMPOSED_ATTENTION,
 ) -> torch.Tensor:
     """Encode ``[batch,time,view]`` images and return current-view tokens.
 
@@ -243,6 +478,11 @@ def extract_temporal_feature(
     """
     if temporal_layer_interval < 1:
         raise ValueError("temporal_layer_interval must be at least 1")
+    if attention_mode not in PI_MEM_ATTENTION_MODES:
+        raise ValueError(
+            f"Unknown π-MEM attention mode {attention_mode!r}; "
+            f"expected one of {sorted(PI_MEM_ATTENTION_MODES)}"
+        )
     if pixel_values.ndim != 4:
         raise ValueError(
             "Expected pixel_values [B*T*V,C,H,W], "
@@ -345,6 +585,7 @@ def extract_temporal_feature(
                         history_mask=history_mask,
                         batch_size=batch_size,
                         temporal_position=temporal_position,
+                        attention_mode=attention_mode,
                     )
 
                 hidden_states = torch.utils.checkpoint.checkpoint(
@@ -370,6 +611,7 @@ def extract_temporal_feature(
                     history_mask=history_mask,
                     batch_size=batch_size,
                     temporal_position=temporal_position,
+                    attention_mode=attention_mode,
                 )
         elif vision_model.encoder.gradient_checkpointing and vision_model.training:
             hidden_states = torch.utils.checkpoint.checkpoint(

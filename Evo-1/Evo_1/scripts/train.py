@@ -532,6 +532,13 @@ def train(config):
     config.setdefault("lora_dropout", 0.0)
     config.setdefault("lora_targets", "vision,action")
     config.setdefault("lora_train_bias_norm", True)
+    # New π-MEM LoRA runs protect the Stage1 spatial attention path.  EVO1
+    # itself defaults this off so legacy shared-LoRA checkpoints still build
+    # and load with their original state-dict structure during evaluation.
+    config.setdefault("separate_temporal_lora", True)
+    # Direct train(config) callers must use the corrected π-MEM composition as
+    # well; EVO1 keeps the legacy fallback only for loading old checkpoints.
+    config.setdefault("pi_mem_attention_mode", "composed")
 
 
     # === Set logging ===
@@ -1073,9 +1080,20 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Alongside LoRA, train target-module biases, LayerNorm parameters, "
-            "and temporal ViT layer scales to reduce underfitting risk "
-            "(default: enabled)."
+            "Alongside LoRA, train supported target-module biases and LayerNorm "
+            "parameters (default: enabled). Separate temporal LoRA still keeps "
+            "shared vision bias, norm, and layer scale frozen."
+        ),
+    )
+    parser.add_argument(
+        "--separate_temporal_lora",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Apply vision LoRA only to temporal matching/value mixing and the "
+            "composed memory output while leaving Stage1 spatial Q/K frozen "
+            "(default: enabled). "
+            "Use --no-separate_temporal_lora only for a shared-LoRA ablation."
         ),
     )
     parser.add_argument("--finetune_vlm", action="store_true")
@@ -1115,6 +1133,9 @@ if __name__ == "__main__":
         finetune_action_head=True,
         use_augmentation=True,
         use_state=True,
+        # Internal checkpoint architecture marker.  Older checkpoints omit it
+        # and retain their legacy additive attention during evaluation.
+        pi_mem_attention_mode="composed",
     )
     args = parser.parse_args()
     config = vars(args)

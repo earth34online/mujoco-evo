@@ -36,8 +36,6 @@ PRECISION_REPLAN_Z = (
     + PickPlaceEnv.EXPERT_GRASP_OFFSET
     + 0.050
 )
-GRASP_CONFIRM_FINGER_QPOS = 0.010
-GRASP_CONFIRM_STEPS = 2
 
 CKPT_NAME = "Evo1_mujoco_pickplace"
 LOG_FILE = f"./log_file/{CKPT_NAME}.txt"
@@ -45,7 +43,7 @@ log = logging.getLogger(__name__)
 
 
 class GripperCommandFilter:
-    """Apply hysteresis and debounce without reading simulator hidden state."""
+    """Close immediately; debounce only the unsafe open transition."""
 
     def __init__(
         self,
@@ -59,6 +57,7 @@ class GripperCommandFilter:
         if not 0.0 <= close_threshold < open_threshold <= 1.0:
             raise ValueError("gripper thresholds must satisfy 0 <= close < open <= 1")
         self.required_steps = int(required_steps)
+        self.close_required_steps = 1
         self.close_threshold = float(close_threshold)
         self.open_threshold = float(open_threshold)
         self.command = float(initial_command)
@@ -85,7 +84,10 @@ class GripperCommandFilter:
             self.candidate_steps = 1
         else:
             self.candidate_steps += 1
-        if self.candidate_steps >= self.required_steps:
+        transition_steps = (
+            self.close_required_steps if requested < 0.5 else self.required_steps
+        )
+        if self.candidate_steps >= transition_steps:
             self.command = requested
             self.candidate_steps = 0
         return self.command
@@ -95,25 +97,18 @@ class PrecisionExecutionController:
     """Replan grasp-sensitive actions without simulator privileged state.
 
     The controller only reads the policy-visible 8-D proprioception.  It keeps
-    the normal action-chunk horizon for free-space motion and, once contact is
-    supported by finger position, for transport/place.  Before that point it
-    replans every step near the grasp plane or while a close command is active,
-    so π-MEM receives the newest visual/proprioceptive recovery evidence.
+    the normal action-chunk horizon for free-space motion and replans every
+    step near the grasp plane or when a close command is imminent, so π-MEM
+    receives the newest visual/proprioceptive recovery evidence.
+
+    Finger opening is deliberately not treated as grasp confirmation.  A
+    corner collision and a stable two-pad grasp can produce nearly identical
+    finger qpos, so latching either as success can disable the recovery loop
+    precisely after a localization error.
     """
 
-    def __init__(
-        self,
-        precision_z=PRECISION_REPLAN_Z,
-        grasp_finger_qpos=GRASP_CONFIRM_FINGER_QPOS,
-        confirm_steps=GRASP_CONFIRM_STEPS,
-    ):
-        if confirm_steps < 1:
-            raise ValueError("confirm_steps must be at least 1")
+    def __init__(self, precision_z=PRECISION_REPLAN_Z):
         self.precision_z = float(precision_z)
-        self.grasp_finger_qpos = float(grasp_finger_qpos)
-        self.confirm_steps = int(confirm_steps)
-        self.contact_steps = 0
-        self.grasp_confirmed = False
 
     @staticmethod
     def _validate_robot_state(robot_state):
@@ -126,20 +121,6 @@ class PrecisionExecutionController:
             raise ValueError("robot_state contains NaN or Inf")
         return robot_state
 
-    def observe(self, robot_state, gripper_command):
-        robot_state = self._validate_robot_state(robot_state)
-        fingers = float(np.mean(robot_state[6:8]))
-        contact_candidate = (
-            float(gripper_command) < 0.5
-            and fingers >= self.grasp_finger_qpos
-        )
-        if contact_candidate:
-            self.contact_steps += 1
-            if self.contact_steps >= self.confirm_steps:
-                self.grasp_confirmed = True
-        else:
-            self.contact_steps = 0
-
     def execution_horizon(
         self,
         action_chunk,
@@ -148,7 +129,7 @@ class PrecisionExecutionController:
         gripper_filter,
         enabled=True,
     ):
-        if not enabled or self.grasp_confirmed:
+        if not enabled:
             return int(requested_horizon)
         robot_state = self._validate_robot_state(robot_state)
         prefix = np.asarray(action_chunk, dtype=np.float32)[:requested_horizon]
@@ -156,11 +137,11 @@ class PrecisionExecutionController:
             raise ValueError("action_chunk must have shape [horizon, >=7]")
 
         near_grasp_plane = float(robot_state[2]) <= self.precision_z
-        close_imminent = bool(
-            np.any(prefix[:, 6] <= gripper_filter.close_threshold)
+        close_transition_imminent = bool(
+            gripper_filter.command >= 0.5
+            and np.any(prefix[:, 6] <= gripper_filter.close_threshold)
         )
-        close_active = gripper_filter.command < 0.5
-        if near_grasp_plane or close_imminent or close_active:
+        if near_grasp_plane or close_transition_imminent:
             return 1
         return int(requested_horizon)
 
@@ -285,8 +266,8 @@ def parse_args(argv=None):
         type=int,
         default=2,
         help=(
-            "Consecutive strong open/close predictions required before the "
-            "gripper command changes (default: 2; use 1 to disable debounce)."
+            "Consecutive strong open predictions required before release "
+            "(default: 2; closing remains immediate as in success_random)."
         ),
     )
     parser.add_argument(
@@ -294,8 +275,8 @@ def parse_args(argv=None):
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Replan every control step near or during the first grasp until "
-            "finger proprioception confirms contact (default: enabled)."
+            "Replan every control step near the grasp plane or when closing is "
+            "imminent; no unreliable qpos-based grasp latch (default: enabled)."
         ),
     )
     parser.add_argument("--render", action="store_true", help="Show the front view.")
@@ -416,7 +397,6 @@ async def main():
                 maxlen=(args.memory_frames - 1) * args.memory_stride_steps + 1,
             )
             print(
-                f"seed={episode_seed}, "
                 f"cube_xy={env.initial_cube_xy.round(5).tolist()}, "
                 f"goal_xy={env.initial_goal_xy.round(5).tolist()}",
                 flush=True,
@@ -485,8 +465,7 @@ async def main():
                         enabled=args.precision_replan,
                     )
                     print(
-                        f"[Step {step}] execute horizon={execution_horizon} "
-                        f"(grasp_confirmed={precision_controller.grasp_confirmed})",
+                        f"[Step {step}] execute horizon={execution_horizon}",
                         flush=True,
                     )
                     append_diagnostic(
@@ -501,7 +480,6 @@ async def main():
                             "inference_seconds": inference_seconds,
                             "history_mask": payload["history_mask"],
                             "execution_horizon": execution_horizon,
-                            "grasp_confirmed": precision_controller.grasp_confirmed,
                             "robot_state": np.asarray(
                                 obs["robot_state"], dtype=float
                             ).tolist(),
@@ -525,9 +503,6 @@ async def main():
                         frames_in, obs, done = env.step_video(
                             action,
                             frames_per_step=FRAMES_PER_STEP,
-                        )
-                        precision_controller.observe(
-                            obs["robot_state"], action[6]
                         )
                         observation_history.append(snapshot_observation(obs))
                         for k in range(len(frames_in["front"])):
@@ -584,9 +559,6 @@ async def main():
                                     env._has_two_sided_grasp_contact()
                                 ),
                                 "simulator_attached": bool(env.attached),
-                                "proprioceptive_grasp_confirmed": bool(
-                                    precision_controller.grasp_confirmed
-                                ),
                                 "near_failed_grasp": near_failed_grasp,
                                 "stall_run": stall_run,
                             },
@@ -613,9 +585,6 @@ async def main():
                     "executed_steps": executed_steps,
                     "max_unconfirmed_grasp_stall_steps": max_stall_run,
                     "final_simulator_attached": bool(env.attached),
-                    "final_proprioceptive_grasp_confirmed": bool(
-                        precision_controller.grasp_confirmed
-                    ),
                 },
             )
 

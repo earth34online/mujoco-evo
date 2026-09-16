@@ -67,6 +67,11 @@ class PickPlaceEnv:
     # the cube.  Bound that useful deeper direction without reopening the
     # shallow (+Z) side of the gate.
     GRASP_CLOSE_Z_LOWER_TOL = 0.012
+    # Preserve the validated success_random grasp-assist contract.  This is a
+    # strict centred/closed geometry fallback, not a general collision latch.
+    GRASP_GEOM_XY_TOL = 0.006
+    GRASP_GEOM_Z_TOL = 0.004
+    GRASP_GEOM_FINGER_OPEN_MAX = 0.039
     GRASP_HOLD_FORCE_KP = 55.0
     GRASP_HOLD_FORCE_KD = 1.8
     GRASP_HOLD_MAX_FORCE = 4.0
@@ -88,6 +93,10 @@ class PickPlaceEnv:
     SUCCESS_DWELL_STEPS = 8
     SUCCESS_MAX_CUBE_SPEED = 0.020
     EXPERT_TRANSFER_X_ALIGN_TOL = 0.020
+    # Command a small positive margin during transfer so IK/tracking error
+    # reaches the unchanged SAFE_Z readiness gate instead of hovering just
+    # below it at workspace-edge goals.
+    EXPERT_TRANSFER_Z_MARGIN = 0.003
     EXPERT_LOWER_XY_TOL = 0.006
     EXPERT_LOWER_Z_TOL = 0.010
     EXPERT_APPROACH_XY_TOL = 0.006
@@ -99,6 +108,7 @@ class PickPlaceEnv:
     # speed near grasp acquisition; the phase sequence and grasp depth remain
     # unchanged for LoRA compatibility.
     EXPERT_DESCENT_MAX_DZ = 0.006
+    EXPERT_LOWER_MAX_DZ = 0.006
 
     def __init__(
         self,
@@ -427,6 +437,7 @@ class PickPlaceEnv:
             if (
                 self.attached
                 or self._has_two_sided_grasp_contact()
+                or self._has_geometric_grasp()
             ):
                 self.attached = True
                 self.release_counter = 0
@@ -460,6 +471,21 @@ class PickPlaceEnv:
             self.data.qpos[self.model.joint(name).qposadr[0]]
             for name in self.finger_joints
         ], dtype=np.float64)
+
+    def _has_geometric_grasp(self):
+        """Match the strict geometric fallback used by success_random."""
+        if self.gripper >= 0.5:
+            return False
+        if float(np.mean(self._finger_qpos())) > self.GRASP_GEOM_FINGER_OPEN_MAX:
+            return False
+        cube = self.data.body("cube").xpos.copy()
+        desired_cube = self.data.body("hand").xpos - self.grasp_hold_offset
+        xy_ok = (
+            np.linalg.norm(cube[:2] - desired_cube[:2])
+            < self.GRASP_GEOM_XY_TOL
+        )
+        z_ok = abs(float(cube[2] - desired_cube[2])) < self.GRASP_GEOM_Z_TOL
+        return bool(xy_ok and z_ok)
 
     def cube_tilt_degrees(self):
         """Return the cube local-Z tilt from world-Z for quality diagnostics."""
@@ -558,6 +584,7 @@ class ScriptedExpertPolicy:
         self.phase = "approach"
         self.phase_steps = 0
         self.recovery_count = 0
+        self.transfer_x_aligned = False
 
     def _set_phase(self, phase):
         if phase != self.phase:
@@ -584,6 +611,11 @@ class ScriptedExpertPolicy:
                 float(action[2]),
                 -self.env.EXPERT_DESCENT_MAX_DZ,
             )
+        return action
+
+    def _move_during_lower(self, target, gripper):
+        action = self._move(target, gripper)
+        action[2] = max(float(action[2]), -self.env.EXPERT_LOWER_MAX_DZ)
         return action
 
     def __call__(self, obs):
@@ -694,21 +726,23 @@ class ScriptedExpertPolicy:
             return self._move(target, 0.0)
 
         if self.phase == "transfer":
+            transfer_z = safe_z + self.env.EXPERT_TRANSFER_Z_MARGIN
             safe_target = np.array(
-                [hand_goal_xy[0], hand_goal_xy[1], safe_z],
+                [hand_goal_xy[0], hand_goal_xy[1], transfer_z],
                 dtype=np.float64,
             )
 
             # First finish the X alignment while staying at safe height.
-            if (
+            if not self.transfer_x_aligned and (
                 abs(hand[0] - hand_goal_xy[0])
                 > self.env.EXPERT_TRANSFER_X_ALIGN_TOL
             ):
                 target = np.array(
-                    [hand_goal_xy[0], hand[1], safe_z],
+                    [hand_goal_xy[0], hand[1], transfer_z],
                     dtype=np.float64,
                 )
                 return self._move(target, 0.0)
+            self.transfer_x_aligned = True
 
             xy_error = np.linalg.norm(hand[:2] - safe_target[:2])
             z_error = abs(float(hand[2] - safe_z))
@@ -723,7 +757,7 @@ class ScriptedExpertPolicy:
                     [hand_goal_xy[0], hand_goal_xy[1], place_z],
                     dtype=np.float64,
                 )
-                return self._move(lower_target, 0.0)
+                return self._move_during_lower(lower_target, 0.0)
 
             return self._move(safe_target, 0.0)
 
@@ -732,7 +766,7 @@ class ScriptedExpertPolicy:
             if np.linalg.norm(hand - target) < 0.010:
                 self._set_phase("release")
                 return self._move(hand, 1.0)
-            return self._move(target, 0.0)
+            return self._move_during_lower(target, 0.0)
 
         if self.phase == "release":
             if self.phase_steps >= self.env.SUCCESS_DWELL_STEPS:

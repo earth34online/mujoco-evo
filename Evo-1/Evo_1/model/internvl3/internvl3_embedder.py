@@ -97,6 +97,7 @@ class InternVL3Embedder(nn.Module):
         device="cuda",
         temporal_layer_interval=4,
         temporal_drop_past_after_layer=20,
+        pi_mem_attention_mode="legacy_additive",
         use_flash_attn=True,
         gradient_checkpointing=True,
         compact_masked_views=False,
@@ -110,6 +111,7 @@ class InternVL3Embedder(nn.Module):
             if temporal_drop_past_after_layer is None
             else int(temporal_drop_past_after_layer)
         )
+        self.pi_mem_attention_mode = str(pi_mem_attention_mode)
         self.compact_masked_views = bool(compact_masked_views)
         if self.temporal_layer_interval < 1:
             raise ValueError("temporal_layer_interval must be at least 1")
@@ -605,6 +607,7 @@ class InternVL3Embedder(nn.Module):
             history_mask=history_masks,
             temporal_layer_interval=self.temporal_layer_interval,
             drop_past_after_layer=self.temporal_drop_past_after_layer,
+            attention_mode=self.pi_mem_attention_mode,
         )
         valid_vit_embeds = valid_vit_embeds.reshape(
             batch_size,
@@ -733,6 +736,7 @@ class InternVL3Embedder(nn.Module):
             history_mask=history_mask,
             temporal_layer_interval=self.temporal_layer_interval,
             drop_past_after_layer=self.temporal_drop_past_after_layer,
+            attention_mode=self.pi_mem_attention_mode,
         )
         if self.compact_masked_views:
             # Padding cameras are not observations.  Omitting their 256-token

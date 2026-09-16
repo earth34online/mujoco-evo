@@ -109,6 +109,82 @@ class LoRALinear(nn.Linear):
         return base + update * self.lora_scaling
 
 
+class LoRAResidualProjection(nn.Module):
+    """Low-rank residual for one memory call path without replacing the base.
+
+    The temporal video encoder reuses a ViT attention module for both spatial
+    and temporal attention.  Replacing ``attention.qkv`` with ``LoRALinear``
+    applies the same adapter to both paths and can therefore move a previously
+    trained single-frame representation.  This module owns only the low-rank
+    residual; callers explicitly add it during temporal matching or at the
+    composed memory output while the shared base projection remains untouched.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        rank: int = 8,
+        alpha: float = 16.0,
+        dropout: float = 0.0,
+        device=None,
+    ):
+        super().__init__()
+        if rank <= 0:
+            raise ValueError(f"LoRA rank 必须大于 0，当前为 {rank}")
+        if alpha <= 0:
+            raise ValueError(f"LoRA alpha 必须大于 0，当前为 {alpha}")
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError(f"LoRA dropout 必须位于 [0, 1)，当前为 {dropout}")
+        self.in_features = int(in_features)
+        self.out_features = int(out_features)
+        self.lora_rank = int(rank)
+        self.lora_alpha = float(alpha)
+        self.lora_scaling = self.lora_alpha / self.lora_rank
+        self.lora_dropout = nn.Dropout(float(dropout))
+        self.lora_A = nn.Parameter(
+            torch.empty(
+                self.lora_rank,
+                self.in_features,
+                device=device,
+                dtype=torch.float32,
+            )
+        )
+        self.lora_B = nn.Parameter(
+            torch.zeros(
+                self.out_features,
+                self.lora_rank,
+                device=device,
+                dtype=torch.float32,
+            )
+        )
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+
+    @classmethod
+    def from_linear(
+        cls,
+        linear: nn.Linear,
+        rank: int,
+        alpha: float,
+        dropout: float,
+    ) -> "LoRAResidualProjection":
+        return cls(
+            in_features=linear.in_features,
+            out_features=linear.out_features,
+            rank=rank,
+            alpha=alpha,
+            dropout=dropout,
+            device=linear.weight.device,
+        )
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        compute_dtype = input.dtype
+        adapter_input = self.lora_dropout(input).to(compute_dtype)
+        hidden = F.linear(adapter_input, self.lora_A.to(compute_dtype))
+        update = F.linear(hidden, self.lora_B.to(compute_dtype))
+        return update * self.lora_scaling
+
+
 class LoRAMultiheadAttention(nn.MultiheadAttention):
     """对 MHA 的融合 QKV 和输出投影实施标准低秩权重增量。"""
 
@@ -407,6 +483,49 @@ def inject_lora_linear_layers(
             )
         )
     return replaced
+
+
+def attach_temporal_attention_lora(
+    attention: nn.Module,
+    rank: int,
+    alpha: float,
+    dropout: float,
+    prefix: str = "",
+) -> List[str]:
+    """Attach residuals used only by the composed short-term-memory path."""
+
+    attached: List[str] = []
+    specifications = (
+        ("qkv", "temporal_qkv_lora"),
+        ("proj", "temporal_proj_lora"),
+    )
+    for base_name, adapter_name in specifications:
+        base = getattr(attention, base_name, None)
+        if not isinstance(base, nn.Linear):
+            raise TypeError(
+                f"Temporal LoRA requires attention.{base_name} to be nn.Linear, "
+                f"got {type(base)!r}"
+            )
+        existing = getattr(attention, adapter_name, None)
+        if existing is not None:
+            if not isinstance(existing, LoRAResidualProjection):
+                raise TypeError(
+                    f"attention.{adapter_name} already exists with incompatible "
+                    f"type {type(existing)!r}"
+                )
+        else:
+            setattr(
+                attention,
+                adapter_name,
+                LoRAResidualProjection.from_linear(
+                    base,
+                    rank=rank,
+                    alpha=alpha,
+                    dropout=dropout,
+                ),
+            )
+        attached.append(f"{prefix}.{adapter_name}" if prefix else adapter_name)
+    return attached
 
 
 def is_lora_parameter(name: str) -> bool:
