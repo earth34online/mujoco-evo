@@ -165,8 +165,13 @@ def load_model_and_normalizer(ckpt_dir, vlm_name=None):
     # rewriting it for evaluation can make a valid checkpoint fail strict
     # state-dict loading.  ``eval()`` and ``torch.no_grad()`` already disable
     # training behavior without changing the model structure.
-    # 保持 Evo-1 原始评估精度设置；π-MEM 只改变观测记忆，不减少流匹配求解步数。
-    config["num_inference_timesteps"] = 50
+    # Pre-π-MEM Stage1 was trained and validated with the original 32-step
+    # flow solver.  New π-MEM checkpoints use the 50-step setting.  Solver
+    # count is part of the checkpoint's evaluation contract, not a universal
+    # accuracy knob.
+    legacy_inference_contract = "memory_frames" not in config
+    config["legacy_inference_contract"] = legacy_inference_contract
+    config["num_inference_timesteps"] = 32 if legacy_inference_contract else 50
     config["device"] = "cuda"
 
     print("Building EVO_1 module...", flush=True)
@@ -222,9 +227,9 @@ def decode_jpeg_base64(encoded: str, image_size=448):
 def decode_memory_images(data: dict, image_size: int):
     """Decode the compressed temporal schema or the legacy one-frame schema."""
     if "memory_images" in data:
-        if data.get("image_encoding") != "jpeg_base64":
+        if data.get("image_encoding") not in {"jpeg_base64", "png_base64"}:
             raise ValueError(
-                "memory_images currently requires image_encoding='jpeg_base64'"
+                "memory_images requires image_encoding='jpeg_base64' or 'png_base64'"
             )
         encoded_grid = data["memory_images"]
         if not encoded_grid or not encoded_grid[0]:
@@ -249,13 +254,33 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
     images = decode_memory_images(data, image_size=image_size)
     num_frames = len(images)
     num_views = len(images[0])
+    expected_frames = int(getattr(model, "memory_frames", 1))
+    legacy_inference_contract = bool(
+        getattr(model, "legacy_inference_contract", False)
+    )
+    if expected_frames == 1 and num_frames > 1:
+        # A current client defaults to a π-MEM window.  Old Stage1 weights
+        # must still see exactly the current observation, never an untrained
+        # temporal forward merely because the client sent additional frames.
+        images = [images[-1]]
+        num_frames = 1
+    elif num_frames != expected_frames:
+        raise ValueError(
+            f"Checkpoint expects {expected_frames} memory frames, got {num_frames}"
+        )
     max_views = int(model.config.get("max_views", 3))
     if num_views < 1 or num_views > max_views:
         raise ValueError(
             f"Expected 1..{max_views} physical camera views, got {num_views}"
         )
+    received_frame_count = len(data.get("memory_images", images))
+    raw_history_mask = data.get(
+        "history_mask", [1] * received_frame_count
+    )
+    if expected_frames == 1:
+        raw_history_mask = [raw_history_mask[-1]]
     history_mask = torch.as_tensor(
-        data.get("history_mask", [1] * num_frames),
+        raw_history_mask,
         dtype=torch.bool,
         device=device,
     )
@@ -271,6 +296,8 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
         state = torch.tensor(data["state"], dtype=torch.float32, device=device)
         if state.ndim == 1:
             state = state.unsqueeze(0)
+        if expected_frames == 1 and state.shape[0] > 1:
+            state = state[-1:]
         if state.shape != (num_frames, 8):
             raise ValueError(
                 "MuJoCo Panda state history must be [T,8] robot proprioception "
@@ -286,6 +313,19 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
     if image_mask.shape != (num_views,):
         raise ValueError(
             f"Expected image_mask shape {(num_views,)}, got {tuple(image_mask.shape)}"
+        )
+    if legacy_inference_contract and num_views < max_views:
+        blank = Image.new("RGB", (image_size, image_size))
+        missing_views = max_views - num_views
+        images = [
+            frame + [blank.copy() for _ in range(missing_views)]
+            for frame in images
+        ]
+        image_mask = torch.cat(
+            [
+                image_mask,
+                torch.zeros(missing_views, dtype=torch.bool, device=device),
+            ]
         )
     action_mask = torch.tensor([data["action_mask"]], dtype=torch.int32, device=device)
 
@@ -317,6 +357,17 @@ async def handle_request(websocket, model, normalizer, use_state):
     try:
         async for message in websocket:
             json_data = json.loads(message)
+            if json_data.get("request") == "model_metadata":
+                legacy = bool(getattr(model, "legacy_inference_contract", False))
+                await websocket.send(json.dumps({
+                    "type": "model_metadata",
+                    "memory_frames": int(getattr(model, "memory_frames", 1)),
+                    "legacy_inference_contract": legacy,
+                    "recommended_execution_horizon": 14 if legacy else 4,
+                    "recommended_precision_replan": not legacy,
+                    "recommended_grasp_x_bias": 0.006 if legacy else 0.003,
+                }))
+                continue
             print(f"Received JSON observation")
             actions = infer_from_json_dict(json_data, model, normalizer, use_state)
             await websocket.send(json.dumps(actions))

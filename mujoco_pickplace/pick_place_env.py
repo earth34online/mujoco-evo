@@ -48,11 +48,13 @@ class PickPlaceEnv:
     # close around the cube body instead of merely catching its top edge.
     EXPERT_GRASP_OFFSET = 0.112
     GRASP_OFFSET = RED_NAIL_Z
-    # The hand/pad geometry needs a small +X offset, but 6 mm makes the open
-    # fingers push and chase the cube during descent on a large fraction of
-    # randomized starts.  A physical 80-seed sweep found that 3 mm preserves
-    # two-pad closure while removing the pre-grasp toppling mode.
-    GRASP_X_BIAS = 0.003
+    # Keep the runtime grasp/hold geometry used by success_random so its
+    # checkpoints are not evaluated in a shifted task frame.
+    GRASP_X_BIAS = 0.006
+    # The scripted expert uses the independently validated 3 mm approach bias;
+    # this avoids pushing the cube during open-finger descent without changing
+    # the established runtime grasp-assist contract.
+    EXPERT_GRASP_X_BIAS = 0.003
     PLACE_Z = 0.195
     SAFE_Z = 0.280
     # The previous 14 mm XY gate taught the policy to close while visibly
@@ -628,8 +630,8 @@ class ScriptedExpertPolicy:
             + self.env.EXPERT_GRASP_OFFSET
         )
         place_z = self.env.PLACE_Z
-        hand_cube_xy = np.array([cube[0] + self.env.GRASP_X_BIAS, cube[1]])
-        hand_goal_xy = np.array([goal[0] + self.env.GRASP_X_BIAS, goal[1]])
+        hand_cube_xy = np.array([cube[0] + self.env.EXPERT_GRASP_X_BIAS, cube[1]])
+        hand_goal_xy = np.array([goal[0] + self.env.EXPERT_GRASP_X_BIAS, goal[1]])
 
         if self.phase == "approach":
             target = np.array([hand_cube_xy[0], hand_cube_xy[1], safe_z])
@@ -710,7 +712,7 @@ class ScriptedExpertPolicy:
                 self._set_phase("approach")
                 target = np.array(
                     [
-                        cube[0] + self.env.GRASP_X_BIAS,
+                        cube[0] + self.env.EXPERT_GRASP_X_BIAS,
                         cube[1],
                         safe_z,
                     ],

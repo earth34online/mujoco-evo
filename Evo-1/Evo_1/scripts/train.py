@@ -539,6 +539,10 @@ def train(config):
     # Direct train(config) callers must use the corrected π-MEM composition as
     # well; EVO1 keeps the legacy fallback only for loading old checkpoints.
     config.setdefault("pi_mem_attention_mode", "composed")
+    # New checkpoints use compact language sequences and propagate their
+    # validity mask into action-head cross-attention.  Old Stage1 checkpoints
+    # are detected by the absence of memory_frames during evaluation.
+    config.setdefault("legacy_inference_contract", False)
 
 
     # === Set logging ===

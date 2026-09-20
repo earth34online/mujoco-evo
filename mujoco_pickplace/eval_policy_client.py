@@ -18,10 +18,11 @@ from pick_place_env import PickPlaceEnv
 
 SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
-NUM_EPISODES = 100
-MAX_STEPS = 250
+NUM_EPISODES = 20
+MAX_STEPS = 200
 MODEL_ACTION_HORIZON = 14
 DEFAULT_EXECUTION_HORIZON = 4
+LEGACY_EXECUTION_HORIZON = 14
 ACTIVE_ACTION_MASK = [1, 1, 1, 0, 0, 0, 1] + [0] * 17
 TASK_ID = 1
 TASK_NAME = "task1"
@@ -135,8 +136,11 @@ class PrecisionExecutionController:
         if prefix.ndim != 2 or prefix.shape[1] < 7:
             raise ValueError("action_chunk must have shape [horizon, >=7]")
 
+        if not enabled:
+            return int(requested_horizon)
+
         near_grasp_plane = float(robot_state[2]) <= self.precision_z
-        if enabled and near_grasp_plane:
+        if near_grasp_plane:
             return 1
 
         # Do not collapse to horizon=1 merely because a later action requests
@@ -177,12 +181,11 @@ def append_diagnostic(path, record):
         stream.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def encode_rgb_jpeg(image, quality=90):
+def encode_rgb_png(image):
+    """Encode an observation losslessly so pixel geometry is not perturbed."""
     image = np.asarray(image, dtype=np.uint8)
     with io.BytesIO() as buffer:
-        Image.fromarray(image, mode="RGB").save(
-            buffer, format="JPEG", quality=int(quality), optimize=True
-        )
+        Image.fromarray(image, mode="RGB").save(buffer, format="PNG", optimize=True)
         return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
@@ -234,11 +237,11 @@ def obs_to_payload(history, memory_frames=MEMORY_FRAMES, stride_steps=MEMORY_STR
         # Send only physical cameras.  Dataset-side fixed-width padding is an
         # internal batching detail and should not consume websocket bandwidth
         # or server JPEG decode time.
-        memory_images.append([encode_rgb_jpeg(front)])
+        memory_images.append([encode_rgb_png(front)])
         states.append(state.astype(float).tolist())
     return {
         "memory_images": memory_images,
-        "image_encoding": "jpeg_base64",
+        "image_encoding": "png_base64",
         "image_mask": [1],
         "history_mask": [int(value) for value in history_mask],
         "state": states,
@@ -255,10 +258,10 @@ def parse_args(argv=None):
     parser.add_argument(
         "--horizon",
         type=int,
-        default=DEFAULT_EXECUTION_HORIZON,
+        default=None,
         help=(
-            "Actions executed before replanning (default: 4). The model still "
-            "predicts 14; a shorter receding horizon reduces open-loop drift."
+            "Actions executed before replanning. Omitted: use the checkpoint "
+            "contract (14 for legacy Stage1, 4 for π-MEM)."
         ),
     )
     parser.add_argument(
@@ -285,11 +288,11 @@ def parse_args(argv=None):
     parser.add_argument(
         "--precision-replan",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=None,
         help=(
             "Replan every control step near the grasp plane; gripper transition "
-            "boundaries always request a fresh observation and no unreliable "
-            "qpos-based grasp latch is used (default: enabled)."
+            "boundaries request a fresh observation. Omitted: disabled for "
+            "legacy Stage1 and enabled for π-MEM."
         ),
     )
     parser.add_argument("--render", action="store_true", help="Show the front view.")
@@ -325,9 +328,9 @@ def parse_args(argv=None):
         help="Optional first evaluation seed; omitted means a random seed per run.",
     )
     args = parser.parse_args(argv)
-    if args.horizon < 1:
+    if args.horizon is not None and args.horizon < 1:
         parser.error("--horizon must be at least 1")
-    if args.horizon > MODEL_ACTION_HORIZON:
+    if args.horizon is not None and args.horizon > MODEL_ACTION_HORIZON:
         parser.error(
             f"--horizon cannot exceed model horizon {MODEL_ACTION_HORIZON}"
         )
@@ -338,6 +341,38 @@ def parse_args(argv=None):
     if args.gripper_debounce_steps < 1:
         parser.error("--gripper-debounce-steps must be at least 1")
     return args
+
+
+async def request_model_metadata(websocket):
+    await websocket.send(json.dumps({"request": "model_metadata"}))
+    metadata = json.loads(await websocket.recv())
+    if not isinstance(metadata, dict) or metadata.get("type") != "model_metadata":
+        raise RuntimeError("Server did not return valid model metadata")
+    return metadata
+
+
+def resolve_execution_policy(args, metadata):
+    legacy = bool(metadata.get("legacy_inference_contract", False))
+    recommended_horizon = int(
+        metadata.get(
+            "recommended_execution_horizon",
+            LEGACY_EXECUTION_HORIZON if legacy else DEFAULT_EXECUTION_HORIZON,
+        )
+    )
+    recommended_precision = bool(
+        metadata.get("recommended_precision_replan", not legacy)
+    )
+    horizon = recommended_horizon if args.horizon is None else int(args.horizon)
+    precision_replan = (
+        recommended_precision
+        if args.precision_replan is None
+        else bool(args.precision_replan)
+    )
+    if not 1 <= horizon <= MODEL_ACTION_HORIZON:
+        raise ValueError(
+            f"Resolved execution horizon must be in 1..{MODEL_ACTION_HORIZON}, got {horizon}"
+        )
+    return horizon, precision_replan
 
 
 def maybe_show(frame, enabled):
@@ -365,6 +400,20 @@ def save_video(frames, path, fps=VIDEO_FPS):
     print(f"Video saved: {path} ({len(frames)} frames)", flush=True)
 
 
+def clear_episode_videos(video_root, task_name=TASK_NAME):
+    """Remove stale episode videos for this task before a new evaluation."""
+    task_dir = Path(video_root) / task_name
+    if not task_dir.is_dir():
+        return 0
+
+    removed = 0
+    for video_path in task_dir.glob("episode_*.mp4"):
+        if video_path.is_file():
+            video_path.unlink()
+            removed += 1
+    return removed
+
+
 async def main():
     configure_logging()
     args = parse_args()
@@ -376,6 +425,14 @@ async def main():
     success_count, total_steps = 0, 0
     render_enabled = args.render
     video_root = Path(args.video_dir)
+    removed_videos = clear_episode_videos(video_root)
+    if removed_videos:
+        log.info(
+            "Removed %s stale episode videos from %s/%s",
+            removed_videos,
+            video_root,
+            TASK_NAME,
+        )
     diagnostics_path = (
         Path(args.diagnostics_jsonl) if args.diagnostics_jsonl else None
     )
@@ -399,6 +456,19 @@ async def main():
         # the default keepalive timeout to close an otherwise healthy request.
         ping_timeout=None,
     ) as ws:
+        model_metadata = await request_model_metadata(ws)
+        execution_horizon_setting, precision_replan = resolve_execution_policy(
+            args, model_metadata
+        )
+        env.GRASP_X_BIAS = float(
+            model_metadata.get("recommended_grasp_x_bias", env.GRASP_X_BIAS)
+        )
+        log.info(
+            "Evaluation execution policy: horizon=%s, precision_replan=%s, grasp_x_bias=%.3f",
+            execution_horizon_setting,
+            precision_replan,
+            env.GRASP_X_BIAS,
+        )
         for ep in range(args.num_episodes):
             print(f"\n===== Task {TASK_ID - 1} | Episode {ep + 1} =====", flush=True)
             print(PROMPT, flush=True)
@@ -465,17 +535,17 @@ async def main():
                             "Expected action dimension "
                             f"{len(ACTIVE_ACTION_MASK)}, got {action_chunk.shape[1]}"
                         )
-                    if action_chunk.shape[0] < args.horizon:
+                    if action_chunk.shape[0] < execution_horizon_setting:
                         raise ValueError(
-                            f"Requested --horizon {args.horizon}, but server returned "
+                            f"Requested execution horizon {execution_horizon_setting}, but server returned "
                             f"only {action_chunk.shape[0]} actions"
                         )
                     execution_horizon = precision_controller.execution_horizon(
                         action_chunk,
-                        requested_horizon=args.horizon,
+                        requested_horizon=execution_horizon_setting,
                         robot_state=obs["robot_state"],
                         gripper_filter=gripper_filter,
-                        enabled=args.precision_replan,
+                        enabled=precision_replan,
                     )
                     print(
                         f"[Step {step}] execute horizon={execution_horizon}",

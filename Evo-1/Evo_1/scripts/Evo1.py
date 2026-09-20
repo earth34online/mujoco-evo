@@ -24,6 +24,13 @@ class EVO1(nn.Module):
         self.return_cls_only = config.get("return_cls_only", False)
         vlm_name = config.get("vlm_name", "OpenGVLab/InternVL3-1B")
         self.memory_frames = int(config.get("memory_frames", 1))
+        # Pre-π-MEM Stage1 checkpoints omit memory_frames.  Their inference
+        # contract includes the original fixed-width language context and an
+        # unmasked action-head cross-attention.  Keep that path exact instead
+        # of silently evaluating old weights under the new π-MEM protocol.
+        self.legacy_inference_contract = bool(
+            config.get("legacy_inference_contract", "memory_frames" not in config)
+        )
         self.temporal_layer_interval = int(config.get("temporal_layer_interval", 4))
         self.temporal_drop_past_after_layer = config.get(
             "temporal_drop_past_after_layer", 20
@@ -46,6 +53,7 @@ class EVO1(nn.Module):
             compact_masked_views=bool(
                 config.get("compact_masked_views", self.memory_frames > 1)
             ),
+            legacy_fixed_length_context=self.legacy_inference_contract,
         )
 
         action_head_type = config.get("action_head", "flowmatching").lower()
@@ -417,6 +425,12 @@ class EVO1(nn.Module):
             history_mask=history_mask,
             return_attention_mask=True,
         )
+
+        if self.legacy_inference_contract:
+            # The Stage1 action head was trained before fused-token padding
+            # masks were propagated into its cross-attention.  Applying the
+            # new mask only at evaluation changes the learned function.
+            fused_mask = None
 
         state_tensor = self.prepare_state(state_input, batch_size=fused_tokens.shape[0])
         if history_mask is not None:

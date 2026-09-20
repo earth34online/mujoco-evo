@@ -101,6 +101,7 @@ class InternVL3Embedder(nn.Module):
         use_flash_attn=True,
         gradient_checkpointing=True,
         compact_masked_views=False,
+        legacy_fixed_length_context=False,
     ):
         super().__init__()
         self.device = device
@@ -113,6 +114,11 @@ class InternVL3Embedder(nn.Module):
         )
         self.pi_mem_attention_mode = str(pi_mem_attention_mode)
         self.compact_masked_views = bool(compact_masked_views)
+        # Stage1 checkpoints created before π-MEM were trained with a
+        # right-padded 1024-token language sequence.  Removing those tokens is
+        # not checkpoint-neutral because the original action head attended to
+        # the complete language output, including padding positions.
+        self.legacy_fixed_length_context = bool(legacy_fixed_length_context)
         if self.temporal_layer_interval < 1:
             raise ValueError("temporal_layer_interval must be at least 1")
         self.max_text_length = 1024  # InternVL3 supports up to 1024 tokens
@@ -376,12 +382,14 @@ class InternVL3Embedder(nn.Module):
         # Do not materialize 1024 tokens for every sample.  Truncation still
         # enforces the model limit, while batch-level padding is performed only
         # after individual VLM calls in train.py.
-        model_inputs = self.tokenizer(
-            prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=self.max_text_length,
-        ).to(self.device)
+        tokenizer_kwargs = {
+            "return_tensors": "pt",
+            "truncation": True,
+            "max_length": self.max_text_length,
+        }
+        if getattr(self, "legacy_fixed_length_context", False):
+            tokenizer_kwargs["padding"] = "max_length"
+        model_inputs = self.tokenizer(prompt, **tokenizer_kwargs).to(self.device)
         input_ids = model_inputs["input_ids"]
         attention_mask = model_inputs["attention_mask"]
 
@@ -711,11 +719,17 @@ class InternVL3Embedder(nn.Module):
         if not valid_view_indices:
             raise ValueError("At least one current camera view must be valid")
 
-        # Masked camera slots are padding, so encoding their K zero images only
-        # wastes ViT memory.  Encode real views and restore zero embeddings for
-        # masked prompt slots before language fusion.
+        # Stage1 encoded all three camera slots, including the two black
+        # placeholders.  Its action head then attended to their language
+        # outputs despite the language-side mask.  Replacing those vision
+        # embeddings with zero is therefore not checkpoint-compatible.
+        # π-MEM checkpoints use compact physical views and avoid this work.
+        if getattr(self, "legacy_fixed_length_context", False):
+            encoded_view_indices = list(range(total_views))
+        else:
+            encoded_view_indices = valid_view_indices
         valid_grid = [
-            [frame[view_index] for view_index in valid_view_indices]
+            [frame[view_index] for view_index in encoded_view_indices]
             for frame in image_grid
         ]
         pixel_values, _, processed_frames, valid_views = self._preprocess_images(valid_grid)
@@ -738,7 +752,11 @@ class InternVL3Embedder(nn.Module):
             drop_past_after_layer=self.temporal_drop_past_after_layer,
             attention_mode=self.pi_mem_attention_mode,
         )
-        if self.compact_masked_views:
+        if getattr(self, "legacy_fixed_length_context", False):
+            fused_embeds = valid_vit_embeds
+            num_tiles_list = [1] * total_views
+            fusion_image_mask = image_mask
+        elif self.compact_masked_views:
             # Padding cameras are not observations.  Omitting their 256-token
             # placeholders reduces a one-real/two-padding prompt from roughly
             # 800 tokens to roughly 290, rather than merely masking work after

@@ -22,27 +22,14 @@ MuJoCo 5 Hz 历史观测
 - 微调：训练入口默认启用 LoRA，`rank=8`、`alpha=16`。动作头继续使用普通 LoRA；五个时间 ViT 层只在时间匹配/value 融合和组合记忆输出上使用独立低秩残差，空间 Q/K、视觉偏置、归一化和 layer scale 保持 Stage1 冻结值。
 - 批处理：物理 batch 直接执行一次 batched ViT 和一次 batched 语言主干前向，不再把 batch 8 拆成 8 次 B=1 VLM。
 - 优化器：正式单卡 LoRA 直接用一个 Python 进程启动 Accelerate + CUDA fused AdamW + BF16；DeepSpeed ZeRO-2 仅保留为多卡可选路径。worker 内的自动回退只能关闭 ZeRO，不能撤销外层 launcher 已建立的 NCCL 进程组。
-- 旧 Stage2 checkpoint 缺少结构标记，服务端会按原来的并联相加注意力和 shared LoRA 结构严格加载，便于基线复核；新训练保存 `pi_mem_attention_mode=composed` 与 `separate_temporal_lora=true`。旧 checkpoint 不会因为新代码自动获得新记忆效果。
 
 ## 数据与模型流程
 
 数据集按 episode 时间戳从早到晚选出 6 个观测；时间戳不可用时才退回固定步数。episode 开头不足 6 帧的槽位重复最早图像以维持固定 shape，但对应 `history_mask=False`。单样本推理会直接删除左填充帧；批量训练只删除整个 batch 共同无效的前缀，其余样本按各自 `history_mask` 屏蔽，样本之间不会共享时间注意力。状态 token 使用相同历史掩码。
 
-第 4/8/12/16/20 个 ViT 层按 π-MEM 的组合顺序运行：先对同相机、同 patch 的历史做因果时间注意力，得到 time-mixed value；再用冻结的 Stage1 空间 Q/K 对这些 value 做空间注意力；共享 output projection 只执行一次。它不是“空间输出 + 时间输出”的并联残差。独立 temporal QKV LoRA 只改变时间匹配与 value 融合，空间 Q/K 始终来自冻结基础权重；memory-output LoRA 只存在于 K>1 组合路径。混合 batch 中仅当前帧有效的样本会逐样本屏蔽这些 adapter，K=1 与无历史样本都严格退化为原图像编码器。第 20 层融合完成后只保留当前帧视觉 token，上层 ViT 继续处理当前帧。训练时 `[B,K,V,C,H,W]` 一次进入 ViT，之后所有 prompt 一次进入 14 层语言主干；batch 维和时间维始终独立。当前视觉语言 token 与 6 个状态 token 进入 flow-matching 动作头，产生 14 步动作。
-
 时序样本对所有时刻使用同一组增强参数，避免增强过程制造不存在的运动。MuJoCo 固定相机的笛卡尔动作标签与像素几何绑定，因此 `dataset/config.yaml` 默认设置 `preserve_spatial_calibration: true`：保留同步颜色增强，但禁用未同步变换动作标签的随机裁剪和旋转。默认保留原始 5 Hz 控制时间轴；只有显式添加 `--compact-static-frames` 才压缩静止帧。
 
 数据窗口会按模型真正收到的 6 个历史索引分类，只有所采样历史里实际包含 `recover`，且当前仍处在恢复后的 `recover/approach/descend/close`，才标为 `post_failure_correction`；采样间隔中出现但没有进入模型输入的恢复帧不会误标。训练默认按各事件在现有数据中的实际频次做逆平方根加权，不规定恢复 episode 数量或固定失败比例，也不要求为了凑比例而延长采集。
-
-现有 250 条 Stage2 专家 episode 中只有 1 条包含实际恢复，按 K=6 窗口统计只有 38 个 `post_failure_correction` 样本。自适应采样能提高这些已有证据被看到的频率，但不会凭空创造新的错误修正轨迹。因此本轮代码能够保证记忆结构、梯度和在线重规划链路正确，不能在新 checkpoint 实测前把“发现错误后必然快速修正”当成已经达成。若后续恢复指标仍不足，应保留严格专家门槛并采集自然出现的失败种子，而不是强行规定固定失败比例。
-
-## 专家轨迹与抓取回归
-
-- 抓取关闭门槛保持严格：XY 误差不超过 `6 mm`，手爪不能在目标抓取平面上方超过 `1 mm`；没有通过调宽抓取 Z 容差换取表面成功率。
-- 恢复 `success_random` 的严格几何抓取辅助：仅在手爪已闭合、XY 不超过 `6 mm`、Z 不超过 `4 mm` 时允许保持力接管。正式专家数据验收仍额外要求首次 attachment 当帧存在真实双指接触，因此人工辅助不能让劣质专家视频通过。
-- 搬运到下放阶段仍使用原 `10 mm` 高度就绪门槛。控制目标在安全高度上增加 `3 mm` 余量，用来抵消工作空间边缘的 IK 稳态误差；这不是放宽判定，也不改变抓取深度。
-- 专家状态机对 transfer 的 X 对齐使用单向锁存，避免在 X-only 与完整 XY 目标之间来回切换；下放每步最大 Z 位移限制为 `6 mm`，避免阶段切换冲击。
-- 80 个随机任务种子的物理回归为 `80/80` 完成、`0` 次恢复、`0` 次中途掉落；首次 attachment 最大 XY 误差 `2.673 mm`，抓前方块最大位移 `1.700 mm`，attachment 最大倾斜 `0.398°`，抓持阶段最大倾斜 `6.548°`。这验证的是专家与环境链路，不等同于尚未重新训练的策略成功率。
 
 ## 仓库结构
 
@@ -117,8 +104,8 @@ export ACCELERATE_MIXED_PRECISION=bf16
 python scripts/train.py \
   --run_name evo1_pi_mem --action_head flowmatching --use_flash_attn \
   --dataset_config_path dataset/config.yaml --vlm_name OpenGVLab/InternVL3-1B \
-  --use_augmentation --image_size 448 --batch_size 6 --lr 1e-5 --dropout 0.1 --weight_decay 1e-3 --fused_adamw \
-  --max_steps 24000 --warmup_steps 1500 --log_interval 20 --ckpt_interval 2000 --grad_clip_norm 1.0 \
+  --use_augmentation --image_size 448 --batch_size 4 --lr 1e-5 --dropout 0.1 --weight_decay 1e-3 --fused_adamw \
+  --max_steps 32000 --warmup_steps 1500 --log_interval 20 --ckpt_interval 2000 --grad_clip_norm 1.0 \
   --num_layers 8 --num_workers 4 --horizon 14 --per_action_dim 24 --state_dim 24 --use_state \
   --memory_frames 6 --memory_stride_seconds 1.0 --memory_stride_steps 5 --temporal_layer_interval 4 \
   --temporal_drop_past_after_layer 20 \
@@ -149,7 +136,7 @@ LoRA 默认已经开启；命令仍显式写出 rank、alpha 和目标范围以�
 
 当前命令里的 `--resume --resume_pretrain --resume_path /home/user/mujoco+evo/ckpt/archive/evo1_mujoco_pickplace_stage1_random_stepbest` 表示：只从已验收的随机任务 Stage1 `step_best` 载入模型权重，新的 temporal/action LoRA 从零增量开始；不继承 Stage1 的 optimizer、scheduler、global step 或 best loss。这正是新结构首次训练应使用的初始化方式，不应删除。
 
-现有 `stage2/step_best`、`step_final`、`step_16000`、`step_20000` 是旧的并联注意力 + shared spatial/temporal LoRA 结构，只作为基线评估，不能直接续训到新结构。开始新训练前，应先由操作者归档现有阶段二目录或明确选择一个空目录；本文不自动改名、移动或覆盖 checkpoint 路径。只有在已经产生 `separate_temporal_lora=true` 的新 checkpoint 后，意外中断续训才删除 `--resume_pretrain`，并把 `--resume_path` 指向该新 checkpoint；此时 `--max_steps` 表示最终全局步数。旧基线应直接评估原 checkpoint；`--no-separate_temporal_lora` 仅用于新组合注意力下的 shared-LoRA 消融，并不复刻旧并联数学。
+已有的 Stage2 checkpoint 不能代替这个初始化：其冻结 action-base 与 `stage1_random_stepbest` 不同。新一轮必须按上述 `resume_path` 开始；只有在新一轮已经产生带 `memory_frames=6`、`pi_mem_attention_mode=composed`、`separate_temporal_lora=true` 的 checkpoint 后，中断续训才把 `resume_path` 改为该新 checkpoint 并去掉 `--resume_pretrain`。
 
 ### 小规模真实模型调起验证
 
@@ -167,7 +154,7 @@ CUDA peak allocated=2467.6 MiB, peak reserved=2548.0 MiB
 
 这只证明训练和评估入口、权重恢复、梯度链路与输出 shape 可以正常工作，不代表完整训练的显存峰值，也不代替新 checkpoint 的 100 episode 成功率验收。
 
-兼容性方面，现有 `stage2/step_best` 已用当前服务端完成严格 state-dict 加载；自动选择 `legacy_additive`，42 个原 LoRA 模块可正常合并，K=6 推理输出为 `[14,24]` 且全部有限。它仍只用于复核旧基线，不应与新组合结构混合续训。
+兼容性方面，现有 `stage2/step_best` 已用当前服务端完成严格 state-dict 加载；它按自身配置选择 `composed` 和 temporal-only LoRA，32 个 LoRA 模块可正常合并，K=6 推理输出为 `[14,24]` 且全部有限。这只证明旧 Stage2 文件完整且能启动，不改变其初始 action-base 选错的事实，因此不应将它作为新一轮续训起点。
 
 
 ## 4. 推理与评估
@@ -187,8 +174,15 @@ cd /home/user/mujoco+evo/mujoco_pickplace
 MUJOCO_GL=egl python eval_policy_client.py
 ```
 
-客户端正式命令不重复写默认参数：默认就是 `num_episodes=100`、`max_steps=250`、`memory_frames=6`、`memory_stride_steps=5`、`horizon=4`。不传 `--start-seed` 时每次运行随机生成 seed。客户端用 base64 JPEG 发送 `[K,V]` 图像并只发送真实相机；服务端仍兼容旧单帧 payload。K=1 严格走原单帧视觉路径。K>1 使用旧 checkpoint 只能证明结构可运行，不能代替 K=6 历史数据训练。
+客户端正式命令不需要重复写默认参数：`num_episodes=100`、`max_steps=250`、`memory_frames=6`、`memory_stride_steps=5`；不传 `--start-seed` 时每次运行随机生成 seed。图像通过无损 base64 PNG 发送，避免 JPEG 改变像素边界后累积成夹取偏差。
 
-评估端保留四步滚动执行，但不会跨过夹爪状态跳变：若闭合/打开首次出现在动作块第 `i` 项，会执行到该项后立即用新图像和 proprioception 重规划。这样后续闭合不会因为提前截成一步而被永久推迟；打开防抖的第二次确认也必须来自下一次独立推理，不能由同一个旧动作块里的两个打开值在运输途中直接触发。`--no-precision-replan` 只关闭抓取平面附近的逐步重规划，不关闭这条夹爪安全边界。
+连接建立后，客户端会先读取 checkpoint 协议，而不再用一套评估参数强行解释所有权重：
+
+- 旧 Stage1（配置中没有 `memory_frames`）：服务端只取当前帧，恢复 1 个真实视角 + 2 个黑色占位视角、固定 1024-token 上下文、Stage1 action-head 的原始无 padding-mask 交叉注意力和 32 步 flow solver；客户端自动使用 `horizon=14`、不逐步重规划、`6 mm` 运行时抓取几何。
+- π-MEM Stage2：保留 K=6 历史、紧凑视角、带 mask 的 action context 和 50 步 flow solver；客户端自动使用 `horizon=4`、抓取平面逐步重规划、`3 mm` 新专家几何。
+
+命令行显式传入 `--horizon`、`--precision-replan` 或 `--no-precision-replan` 仍可覆盖 checkpoint 建议。禁用 precision replan 时会完整执行指定 horizon，不再暗中因夹爪跳变截断动作块。π-MEM 默认启用时，仍会在抓取平面每步重规划，并在夹爪跳变后用新观测重规划。
+
+回归证据：对原先失败的 seed `79341034`，同一份 `stage1_random_stepbest` 在恢复上述协议后于第 100 步成功；首次 attachment 与真实双指接触同在第 36 步，运输期间未掉落，闭爪未确认发愣连续步数为 0。这是定向回归，不冒充 100-episode 成功率。
 
 服务端构造模型时保持 checkpoint 中的 `finetune_vlm`、`finetune_action_head` 等结构字段原值；评估冻结由 `eval()` 和 `no_grad()` 完成。不要在加载前重写这些字段，因为全视觉 LoRA 是否注入由 `finetune_vlm` 决定，改写会让合法 checkpoint 的 state dict 拓扑不匹配。当前 temporal-only LoRA 的 QKV 与组合输出残差均保留：这是为避免 shared spatial/temporal LoRA 梯度干扰而采用的有意扩展，不是待删除的旧逻辑。

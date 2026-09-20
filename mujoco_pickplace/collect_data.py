@@ -112,7 +112,7 @@ def trajectory_quality(
         hand = grasp_state[:3]
         cube = grasp_state[3:6]
         target_xy = np.array(
-            [cube[0] + PickPlaceEnv.GRASP_X_BIAS, cube[1]],
+            [cube[0] + PickPlaceEnv.EXPERT_GRASP_X_BIAS, cube[1]],
             dtype=np.float64,
         )
         successful_close_xy_error = float(
@@ -144,7 +144,10 @@ def trajectory_quality(
         attach_hand = post_hand_positions[first_attachment_index]
         attach_cube = post_cube_positions[first_attachment_index]
         attach_target_xy = np.array(
-            [attach_cube[0] + PickPlaceEnv.GRASP_X_BIAS, attach_cube[1]],
+            [
+                attach_cube[0] + PickPlaceEnv.EXPERT_GRASP_X_BIAS,
+                attach_cube[1],
+            ],
             dtype=np.float64,
         )
         attachment_xy_error = float(
@@ -301,6 +304,10 @@ def remove_redundant_static_frames(trajectory):
 
 
 def collect_attempt(env, seed, max_steps):
+    # Demonstrations keep the expert's validated 3 mm physical grasp frame.
+    # Policy evaluation negotiates its own checkpoint-specific frame with the
+    # server, so collecting Stage2 data must not inherit the Stage1 6 mm mode.
+    env.GRASP_X_BIAS = env.EXPERT_GRASP_X_BIAS
     obs = env.reset(seed=seed)
     expert = ScriptedExpertPolicy(env)
     trajectory = {
@@ -499,13 +506,6 @@ def main(argv=None):
         image_size=args.image_size,
         randomize_task=args.randomize_task,
         randomization_scale=args.randomization_scale,
-    )
-    print(
-        "Task initialization: "
-        f"randomize_task={env.randomize_task}, "
-        f"randomization_scale={env.randomization_scale}, "
-        f"start_seed={args.start_seed}",
-        flush=True,
     )
     action_period = env.model.opt.timestep * env.CONTROL_NSTEP
     writer = EpisodeDatasetWriter(
