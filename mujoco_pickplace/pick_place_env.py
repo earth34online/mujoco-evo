@@ -55,7 +55,7 @@ class PickPlaceEnv:
     # this avoids pushing the cube during open-finger descent without changing
     # the established runtime grasp-assist contract.
     EXPERT_GRASP_X_BIAS = 0.003
-    PLACE_Z = 0.195
+    PLACE_Z = 0.190
     SAFE_Z = 0.280
     # The previous 14 mm XY gate taught the policy to close while visibly
     # off-centre.  Physical random-seed sweeps verify reliable two-pad contact
@@ -78,7 +78,7 @@ class PickPlaceEnv:
     GRASP_HOLD_FORCE_KD = 1.8
     GRASP_HOLD_MAX_FORCE = 4.0
     TABLE_TOP = 0.03
-    CUBE_HALF = 0.030
+    CUBE_HALF = 0.025
     CUBE_SUPPORT_Z = TABLE_TOP + CUBE_HALF
     GOAL_RADIUS = 0.075
     MIN_hand_Z = TABLE_TOP + RED_NAIL_Z + 0.010
