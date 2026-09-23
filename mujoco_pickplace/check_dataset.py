@@ -34,6 +34,9 @@ MAX_PREGRASP_CUBE_TILT_DEG = 3.0
 MAX_ATTACH_CUBE_TILT_DEG = 3.0
 MAX_HELD_CUBE_TILT_DEG = 8.0
 MAX_ATTACH_CUBE_ANGULAR_SPEED = 0.15
+EXPECTED_CUBE_SIDE_M = 0.050
+EXPECTED_CUBE_SUPPORT_Z_M = 0.055
+EXPECTED_EXPERT_GRASP_X_BIAS_M = 0.004
 
 REQUIRED_META_FILES = (
     "dataset.json",
@@ -156,6 +159,19 @@ def check_raw_dataset(
             raise AssertionError(
                 "π-MEM precision dataset must keep the dense, uncompacted timeline"
             )
+        geometry_contract = {
+            "cube_side_m": EXPECTED_CUBE_SIDE_M,
+            "cube_support_z_m": EXPECTED_CUBE_SUPPORT_Z_M,
+            "expert_grasp_x_bias_m": EXPECTED_EXPERT_GRASP_X_BIAS_M,
+        }
+        for key, expected in geometry_contract.items():
+            actual = collection_config.get(key)
+            if actual is None or not np.isclose(float(actual), expected):
+                raise AssertionError(
+                    "Dataset geometry does not match the current 50 mm task: "
+                    f"{key} expected {expected}, got {actual}. Recollect with "
+                    "--overwrite; do not append to the old 60 mm dataset."
+                )
 
     if expected_episodes != len(episodes):
         raise AssertionError(

@@ -365,7 +365,7 @@ async def handle_request(websocket, model, normalizer, use_state):
                     "legacy_inference_contract": legacy,
                     "recommended_execution_horizon": 14 if legacy else 4,
                     "recommended_precision_replan": not legacy,
-                    "recommended_grasp_x_bias": 0.006 if legacy else 0.003,
+                    "recommended_grasp_x_bias": 0.006 if legacy else 0.004,
                 }))
                 continue
             print(f"Received JSON observation")

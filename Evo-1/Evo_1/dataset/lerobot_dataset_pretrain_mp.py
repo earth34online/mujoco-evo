@@ -462,6 +462,43 @@ class LeRobotDataset(Dataset):
                 dataset_tasks = []
                 path_str = dataset_config['path']
                 dataset_path = Path(path_str)
+                required_collection_config = dataset_config.get(
+                    "required_collection_config", {}
+                )
+                if required_collection_config:
+                    dataset_metadata_path = dataset_path / "meta" / "dataset.json"
+                    if not dataset_metadata_path.is_file():
+                        raise FileNotFoundError(
+                            f"dataset metadata file not found: {dataset_metadata_path}"
+                        )
+                    with open(dataset_metadata_path, "r", encoding="utf-8") as stream:
+                        dataset_metadata = json.load(stream)
+                    actual_collection_config = dataset_metadata.get(
+                        "collection_config", {}
+                    )
+                    mismatches = {}
+                    for key, expected in required_collection_config.items():
+                        actual = actual_collection_config.get(key)
+                        if actual is None:
+                            mismatches[key] = {"expected": expected, "actual": None}
+                            continue
+                        if isinstance(expected, (int, float)) and not isinstance(
+                            expected, bool
+                        ):
+                            matches = bool(np.isclose(float(actual), float(expected)))
+                        else:
+                            matches = actual == expected
+                        if not matches:
+                            mismatches[key] = {
+                                "expected": expected,
+                                "actual": actual,
+                            }
+                    if mismatches:
+                        raise ValueError(
+                            f"{dataset_path} collection geometry does not match "
+                            f"the training contract: {mismatches}. Recollect the "
+                            "dataset with --overwrite instead of mixing geometries."
+                        )
                 tasks_path = dataset_path / "meta" / "tasks.jsonl"
                 if tasks_path.exists():
                     dataset_tasks = pd.read_json(tasks_path, lines=True).to_dict("records")

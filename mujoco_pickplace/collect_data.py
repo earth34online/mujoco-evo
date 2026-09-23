@@ -31,6 +31,27 @@ MIN_TWO_PAD_CONTACT_STEPS = 2
 QUALITY_SCHEMA_VERSION = 3
 
 
+def build_collection_config(
+    env,
+    *,
+    randomize_task,
+    randomization_scale,
+    compact_static_frames,
+):
+    """Describe every setting that changes the supervised task distribution."""
+    return {
+        "randomize_task": bool(randomize_task),
+        "randomization_scale": float(randomization_scale),
+        "compact_static_frames": bool(compact_static_frames),
+        # Geometry is part of the supervised visual/action distribution.
+        # Recording it prevents appending 50 mm demonstrations to the old
+        # 60 mm dataset and lets training reject stale data explicitly.
+        "cube_side_m": float(2.0 * env.CUBE_HALF),
+        "cube_support_z_m": float(env.CUBE_SUPPORT_Z),
+        "expert_grasp_x_bias_m": float(env.EXPERT_GRASP_X_BIAS),
+    }
+
+
 def _reversal_count(vectors, motion_epsilon=1e-5):
     vectors = np.asarray(vectors, dtype=np.float64)
     if len(vectors) < 2:
@@ -304,7 +325,7 @@ def remove_redundant_static_frames(trajectory):
 
 
 def collect_attempt(env, seed, max_steps):
-    # Demonstrations keep the expert's validated 3 mm physical grasp frame.
+    # Demonstrations keep the expert's validated physical grasp frame.
     # Policy evaluation negotiates its own checkpoint-specific frame with the
     # server, so collecting Stage2 data must not inherit the Stage1 6 mm mode.
     env.GRASP_X_BIAS = env.EXPERT_GRASP_X_BIAS
@@ -512,11 +533,12 @@ def main(argv=None):
         args.dataset_dir,
         fps=1.0 / action_period,
         image_size=args.image_size,
-        collection_config={
-            "randomize_task": bool(args.randomize_task),
-            "randomization_scale": float(args.randomization_scale),
-            "compact_static_frames": bool(args.compact_static_frames),
-        },
+        collection_config=build_collection_config(
+            env,
+            randomize_task=args.randomize_task,
+            randomization_scale=args.randomization_scale,
+            compact_static_frames=args.compact_static_frames,
+        ),
     )
     saved = 0
     rejected = 0

@@ -11,5 +11,9 @@ data_groups:
   mujoco_pickplace:
     MuJoCo_PickPlace_Dataset:
       path: /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
+      required_collection_config:
+        cube_side_m: 0.050
+        cube_support_z_m: 0.055
+        expert_grasp_x_bias_m: 0.004
       view_map:
         image_1: observation.images.front

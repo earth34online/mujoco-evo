@@ -18,6 +18,7 @@ MuJoCo 5 Hz 历史观测
 - 输入：`images [B,6,3,3,448,448]`、`state [B,6,24]`、`history_mask [B,6]`。
 - 输出：`14 × 24` 动作；自由空间和抬升/搬运阶段默认执行前 4 步，接近抓取平面或即将由开变闭时每步重新规划。控制器不再把指关节位置误当成“已经抓稳”的确认信号。
 - 夹爪：0.4/0.6 滞回；闭合立即执行以保留 `success_random` 的夹取时机，只有开爪/释放需要连续 2 步强信号，防止搬运途中单帧误开爪。
+- 当前任务几何：方块边长 `50 mm`、静止中心高度 `55 mm`；抓取 Z 容差没有放宽。50 mm 抓取平面下专家与 Stage2 运行时使用经随机回归验证的 `4 mm` X 几何补偿，旧 Stage1 checkpoint 仍保留原 `6 mm` 契约。
 - 缓存：窗口索引版本 3；除源 parquet、视频和关键 meta 指纹外，还保存每个窗口的短期记忆事件标签。
 - 微调：训练入口默认启用 LoRA，`rank=8`、`alpha=16`。动作头继续使用普通 LoRA；五个时间 ViT 层只在时间匹配/value 融合和组合记忆输出上使用独立低秩残差，空间 Q/K、视觉偏置、归一化和 layer scale 保持 Stage1 冻结值。
 - 批处理：物理 batch 直接执行一次 batched ViT 和一次 batched 语言主干前向，不再把 batch 8 拆成 8 次 B=1 VLM。
@@ -74,6 +75,8 @@ python collect_data.py
 python collect_data.py --append
 ```
 
+方块从 `60 mm` 改成 `50 mm` 后不能对旧数据使用 `--append`。新采集元数据会记录 `cube_side_m=0.050`、`cube_support_z_m=0.055` 和 `expert_grasp_x_bias_m=0.004`；写入器会拒绝把不同几何混入同一数据集，严格数据检查和正式数据加载也会拒绝旧 60 mm 数据。应使用默认覆盖模式重新采集，使图像尺寸、下探平面和动作标签属于同一个任务分布。
+
 ## 2. 检查数据
 
 ```bash
@@ -126,7 +129,7 @@ Optimizer=AdamW, fused=True
 Prepared optimizer=AcceleratedOptimizer; base optimizer=AdamW; DeepSpeed ZeRO stage=None
 ```
 
-`step_best` 沿用 MINT 原始判定：从全局 step 0 起用单 batch loss 更新内存中的 `best_loss`，但只有 `step > max(1000, warmup_steps)` 且再次刷新全局最低 loss 时才写入。
+`step_best` 沿用 MINT 原始判定：从全局 step 0 起用单 batch loss 更新内存中的 `best_loss`，但只有 `step > max(1000, warmup_steps)` 且再次刷新全局最低 loss 时才写入。该逻辑按要求保持不变；它代表训练 loss 最低点，不保证机器人成功率最高，因此正式验收仍需横向比较 `step_28000` 等周期 checkpoint、`step_best` 和 `step_final` 的同 seed 行为结果。
 
 ### 路径与恢复方式
 
@@ -179,10 +182,18 @@ MUJOCO_GL=egl python eval_policy_client.py
 连接建立后，客户端会先读取 checkpoint 协议，而不再用一套评估参数强行解释所有权重：
 
 - 旧 Stage1（配置中没有 `memory_frames`）：服务端只取当前帧，恢复 1 个真实视角 + 2 个黑色占位视角、固定 1024-token 上下文、Stage1 action-head 的原始无 padding-mask 交叉注意力和 32 步 flow solver；客户端自动使用 `horizon=14`、不逐步重规划、`6 mm` 运行时抓取几何。
-- π-MEM Stage2：保留 K=6 历史、紧凑视角、带 mask 的 action context 和 50 步 flow solver；客户端自动使用 `horizon=4`、抓取平面逐步重规划、`3 mm` 新专家几何。
+- π-MEM Stage2：保留 K=6 历史、紧凑视角、带 mask 的 action context 和 50 步 flow solver；客户端自动使用 `horizon=4`、抓取平面逐步重规划、当前 50 mm 环境的 `4 mm` 抓取几何。
 
 命令行显式传入 `--horizon`、`--precision-replan` 或 `--no-precision-replan` 仍可覆盖 checkpoint 建议。禁用 precision replan 时会完整执行指定 horizon，不再暗中因夹爪跳变截断动作块。π-MEM 默认启用时，仍会在抓取平面每步重规划，并在夹爪跳变后用新观测重规划。
 
 回归证据：对原先失败的 seed `79341034`，同一份 `stage1_random_stepbest` 在恢复上述协议后于第 100 步成功；首次 attachment 与真实双指接触同在第 36 步，运输期间未掉落，闭爪未确认发愣连续步数为 0。这是定向回归，不冒充 100-episode 成功率。
+
+### 50 mm 方块与现有 checkpoint
+
+现有 `step_28000`、`step_best` 和 `step_final` 都由 2026-09-17 采集的旧 60 mm 图像数据训练，不能因为代码能加载就视为已经适配 50 mm。一次不更新权重的可行性诊断中，`step_28000` 能按 K=6/4-step/precision-replan 协议正常启动，但在随机 seed `4009580131` 的 50 mm 场景里首次闭爪时没有双指接触或 attachment，夹爪相对真实方块约有 `7–9 mm` X 误差和 `22–24 mm` Y 误差。这个量级远大于 3→4 mm 的物理补偿，证明旧视觉策略发生了尺寸分布偏移，不能靠吸附、放宽 Z 容差或控制后处理掩盖。
+
+因此可以直接加载旧权重做兼容性评估，但不能把它当作 50 mm 方案的最终结果。要让 50 mm 成为正式任务，需要用当前严格专家重新覆盖采集数据，再从已验收的 Stage1 初始化进行 Stage2 训练或针对新几何微调。80 个随机专家种子的无模型回归为 `80/80` 成功、`0` 次恢复、`0` 次释放前掉落，抓取前方块最大位移 `0.39 mm`；这证明新专家标签本身稳定，不代表旧神经网络权重已经学会新外观。
+
+`step_best/step_final` 旧视频中的搬运掉落发生在策略连续给出开爪信号、通过两步释放防抖之后；方块不是在持续闭爪命令下自行脱落。同一运行时代码下 `step_28000` 的旧 60 mm 评估明显更好，因此目前证据支持晚期 checkpoint 的行为退化/过拟合可能，而不支持改大保持力、永久锁住 attachment 或继续增加释放防抖。后续应通过相同 seed 横向评估周期 checkpoint 判断；不能用环境特权状态替模型修正错误开爪。
 
 服务端构造模型时保持 checkpoint 中的 `finetune_vlm`、`finetune_action_head` 等结构字段原值；评估冻结由 `eval()` 和 `no_grad()` 完成。不要在加载前重写这些字段，因为全视觉 LoRA 是否注入由 `finetune_vlm` 决定，改写会让合法 checkpoint 的 state dict 拓扑不匹配。当前 temporal-only LoRA 的 QKV 与组合输出残差均保留：这是为避免 shared spatial/temporal LoRA 梯度干扰而采用的有意扩展，不是待删除的旧逻辑。

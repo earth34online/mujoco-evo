@@ -51,10 +51,12 @@ class PickPlaceEnv:
     # Keep the runtime grasp/hold geometry used by success_random so its
     # checkpoints are not evaluated in a shifted task frame.
     GRASP_X_BIAS = 0.006
-    # The scripted expert uses the independently validated 3 mm approach bias;
-    # this avoids pushing the cube during open-finger descent without changing
-    # the established runtime grasp-assist contract.
-    EXPERT_GRASP_X_BIAS = 0.003
+    # Keep the scripted expert's approach offset independent from the legacy
+    # runtime contract so cube-size calibration cannot alter old checkpoints.
+    # The 50 mm cube lowers the grasp plane by 5 mm.  At that plane the arm's
+    # reachable IK equilibrium leaves a small, repeatable X residual.  A 4 mm
+    # target offset centers both pads without relaxing any grasp tolerance.
+    EXPERT_GRASP_X_BIAS = 0.004
     PLACE_Z = 0.190
     SAFE_Z = 0.280
     # The previous 14 mm XY gate taught the policy to close while visibly

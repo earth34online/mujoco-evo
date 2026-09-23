@@ -18,7 +18,7 @@ from pick_place_env import PickPlaceEnv
 
 SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
-NUM_EPISODES = 20
+NUM_EPISODES = 100
 MAX_STEPS = 250
 MODEL_ACTION_HORIZON = 14
 DEFAULT_EXECUTION_HORIZON = 4
