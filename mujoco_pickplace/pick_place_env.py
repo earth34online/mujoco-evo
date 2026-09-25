@@ -59,20 +59,9 @@ class PickPlaceEnv:
     EXPERT_GRASP_X_BIAS = 0.004
     PLACE_Z = 0.190
     SAFE_Z = 0.280
-    # The previous 14 mm XY gate taught the policy to close while visibly
-    # off-centre.  Physical random-seed sweeps verify reliable two-pad contact
-    # only after the error is below 6 mm.
     GRASP_CLOSE_XY_TOL = 0.006
-    # A signed upper tolerance: the hand may be slightly below the nominal
-    # grasp plane, but it must not start closing several millimetres above it.
     GRASP_CLOSE_Z_TOL = 0.001
-    # MuJoCo joint tracking settles about 10--12 mm below the commanded hand
-    # target at contact, which centres the 102.9 mm-offset fingertip pads on
-    # the cube.  Bound that useful deeper direction without reopening the
-    # shallow (+Z) side of the gate.
     GRASP_CLOSE_Z_LOWER_TOL = 0.012
-    # Preserve the validated success_random grasp-assist contract.  This is a
-    # strict centred/closed geometry fallback, not a general collision latch.
     GRASP_GEOM_XY_TOL = 0.006
     GRASP_GEOM_Z_TOL = 0.004
     GRASP_GEOM_FINGER_OPEN_MAX = 0.039
@@ -97,9 +86,6 @@ class PickPlaceEnv:
     SUCCESS_DWELL_STEPS = 8
     SUCCESS_MAX_CUBE_SPEED = 0.020
     EXPERT_TRANSFER_X_ALIGN_TOL = 0.020
-    # Command a small positive margin during transfer so IK/tracking error
-    # reaches the unchanged SAFE_Z readiness gate instead of hovering just
-    # below it at workspace-edge goals.
     EXPERT_TRANSFER_Z_MARGIN = 0.003
     EXPERT_LOWER_XY_TOL = 0.006
     EXPERT_LOWER_Z_TOL = 0.010
@@ -108,9 +94,6 @@ class PickPlaceEnv:
     EXPERT_CLOSE_MAX_STEPS = 14
     EXPERT_RECOVERY_Z_TOL = 0.008
     EXPERT_RECOVERY_FINGER_OPEN_MIN = 0.035
-    # Keep the final open-finger descent quasi-static.  This changes only the
-    # speed near grasp acquisition; the phase sequence and grasp depth remain
-    # unchanged for LoRA compatibility.
     EXPERT_DESCENT_MAX_DZ = 0.006
     EXPERT_LOWER_MAX_DZ = 0.006
 

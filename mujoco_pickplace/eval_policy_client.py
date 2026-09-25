@@ -397,7 +397,6 @@ def save_video(frames, path, fps=VIDEO_FPS):
     import imageio.v2 as imageio
 
     imageio.mimsave(path, frames, fps=fps, macro_block_size=1)
-    print(f"Video saved: {path} ({len(frames)} frames)", flush=True)
 
 
 def clear_episode_videos(video_root, task_name=TASK_NAME):

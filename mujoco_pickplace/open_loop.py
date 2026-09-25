@@ -99,12 +99,6 @@ def action_jitter_metrics(chunk):
 
 
 def _sample_replay_indices(total_frames, stride=1, max_frames=None):
-    """Return deterministic replay indices, optionally capped per episode.
-
-    Defaults preserve the original full-frame replay behavior.  The optional cap
-    is only for fast smoke tests: it keeps coverage across the whole trajectory
-    instead of looking only at the prefix.
-    """
     stride = max(1, int(stride))
     indices = np.arange(0, total_frames, stride, dtype=np.int64)
     if max_frames is not None and max_frames > 0 and len(indices) > max_frames:

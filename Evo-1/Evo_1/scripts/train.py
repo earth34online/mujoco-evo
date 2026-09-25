@@ -532,12 +532,7 @@ def train(config):
     config.setdefault("lora_dropout", 0.0)
     config.setdefault("lora_targets", "vision,action")
     config.setdefault("lora_train_bias_norm", True)
-    # New π-MEM LoRA runs protect the Stage1 spatial attention path.  EVO1
-    # itself defaults this off so legacy shared-LoRA checkpoints still build
-    # and load with their original state-dict structure during evaluation.
     config.setdefault("separate_temporal_lora", True)
-    # Direct train(config) callers must use the corrected π-MEM composition as
-    # well; EVO1 keeps the legacy fallback only for loading old checkpoints.
     config.setdefault("pi_mem_attention_mode", "composed")
     # New checkpoints use compact language sequences and propagate their
     # validity mask into action-head cross-attention.  Old Stage1 checkpoints
