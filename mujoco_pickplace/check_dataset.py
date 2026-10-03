@@ -7,17 +7,27 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATASET_DIR = (
-    PROJECT_ROOT / "Mujoco_training_dataset" / "cache" / "mujoco_pickplace"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from mujoco_pickplace.episode_dataset import (
+    validate_contact_quality as check_contact_quality,
+    validate_precision_grasp_quality,
+    MAX_SUCCESSFUL_CLOSE_XY_ERROR,
+    MIN_SUCCESSFUL_CLOSE_Z_ABOVE,
+    MAX_SUCCESSFUL_CLOSE_Z_ABOVE,
+    MAX_PREGRASP_CUBE_DISPLACEMENT,
+    MAX_PREGRASP_CUBE_TILT_DEG,
+    MAX_ATTACH_CUBE_TILT_DEG,
+    MAX_HELD_CUBE_TILT_DEG,
+    MAX_ATTACH_CUBE_ANGULAR_SPEED,
 )
+
 EVO_ROOT = PROJECT_ROOT / "Evo-1" / "Evo_1"
 
 MAX_ACTION_DIM = 24
 MAX_STATE_DIM = 24
 MAX_VIEWS = 3
-ACTIVE_ACTION_MASK = [True, True, True, False, False, False, True]
 ACTION_HORIZON = 14
 IMAGE_SIZE = 448
 LEGACY_PRECISION_POLICY_VERSION = "precision-grasp-recovery-v2"
@@ -26,14 +36,6 @@ PRECISION_POLICY_VERSIONS = {
     LEGACY_PRECISION_POLICY_VERSION,
     STRICT_PRECISION_POLICY_VERSION,
 }
-MAX_SUCCESSFUL_CLOSE_XY_ERROR = 0.006
-MIN_SUCCESSFUL_CLOSE_Z_ABOVE = -0.012
-MAX_SUCCESSFUL_CLOSE_Z_ABOVE = 0.001
-MAX_PREGRASP_CUBE_DISPLACEMENT = 0.004
-MAX_PREGRASP_CUBE_TILT_DEG = 3.0
-MAX_ATTACH_CUBE_TILT_DEG = 3.0
-MAX_HELD_CUBE_TILT_DEG = 8.0
-MAX_ATTACH_CUBE_ANGULAR_SPEED = 0.15
 EXPECTED_CUBE_SIDE_M = 0.050
 EXPECTED_CUBE_SUPPORT_Z_M = 0.055
 EXPECTED_EXPERT_GRASP_X_BIAS_M = 0.004
@@ -104,8 +106,12 @@ def check_raw_dataset(
     dataset_dir,
     require_precision_grasp=False,
     require_strict_grasp_quality=False,
+    task_number=1,
 ):
     dataset_dir = dataset_dir.resolve()
+    precision_checks = task_number == 1 and (
+        require_precision_grasp or require_strict_grasp_quality
+    )
     meta_dir = dataset_dir / "meta"
 
     if not dataset_dir.is_dir():
@@ -131,7 +137,20 @@ def check_raw_dataset(
 
     collection_config = dataset_info.get("collection_config", {})
     source_policy_version = dataset_info.get("source_policy_version")
-    if require_precision_grasp or require_strict_grasp_quality:
+    if task_number in (3, 4):
+        if source_policy_version != f"task{task_number}-contact-v1":
+            raise AssertionError(
+                f"Task{task_number} requires its native contact expert dataset"
+            )
+        if collection_config.get("task_id") != task_number:
+            raise AssertionError("Dataset task_id does not match the selected task")
+        if collection_config.get("compact_static_frames") is not False:
+            raise AssertionError(
+                "Memory datasets must preserve the dense simulation timeline"
+            )
+        if state_dim != 8 or action_dim != 7:
+            raise AssertionError("Expected the shared Panda 8-state/7-action contract")
+    if precision_checks:
         if source_policy_version not in PRECISION_POLICY_VERSIONS:
             raise AssertionError(
                 "Dataset was not collected by the precision-grasp recovery "
@@ -209,115 +228,18 @@ def check_raw_dataset(
         episode_index = int(episode["episode_index"])
         expected_length = int(episode["length"])
         parquet_path = dataset_dir / episode["data_path"]
+        if task_number in (3, 4):
+            check_contact_quality(episode.get("quality", {}), task_number)
 
-        if require_precision_grasp or require_strict_grasp_quality:
+        if precision_checks:
             quality = episode.get("quality", {})
-            required_quality = {
-                "successful_close_xy_error",
-                "successful_close_z_above",
-                "initial_cube_xy",
-                "initial_goal_xy",
-                "randomize_task",
-                "randomization_scale",
-            }
-            missing_quality = sorted(required_quality - set(quality))
-            if missing_quality:
-                raise AssertionError(
-                    f"Episode {episode_index} is missing precision quality fields: "
-                    f"{missing_quality}"
-                )
-            if quality["randomize_task"] is not True:
-                raise AssertionError(
-                    f"Episode {episode_index} was not collected with randomization"
-                )
-            if not np.isclose(float(quality["randomization_scale"]), 1.0):
-                raise AssertionError(
-                    f"Episode {episode_index} did not use randomization_scale=1.0"
-                )
-            if float(quality["successful_close_xy_error"]) > (
-                MAX_SUCCESSFUL_CLOSE_XY_ERROR + 1e-8
-            ):
-                raise AssertionError(
-                    f"Episode {episode_index} closed too far from cube XY"
-                )
-            if float(quality["successful_close_z_above"]) > (
-                MAX_SUCCESSFUL_CLOSE_Z_ABOVE + 1e-8
-            ):
-                raise AssertionError(
-                    f"Episode {episode_index} closed above the precision grasp plane"
-                )
-            if float(quality["successful_close_z_above"]) < (
-                MIN_SUCCESSFUL_CLOSE_Z_ABOVE - 1e-8
-            ):
-                raise AssertionError(
-                    f"Episode {episode_index} closed below the precision grasp band"
-                )
+            validate_precision_grasp_quality(
+                quality,
+                episode_index,
+                strict=source_policy_version == STRICT_PRECISION_POLICY_VERSION,
+            )
             initial_cube_positions.append(quality["initial_cube_xy"])
             initial_goal_positions.append(quality["initial_goal_xy"])
-
-            if source_policy_version == STRICT_PRECISION_POLICY_VERSION:
-                strict_quality = {
-                    "quality_schema_version",
-                    "first_attachment_has_two_pad_contact",
-                    "two_pad_contact_steps",
-                    "attachment_lost_before_release",
-                    "attachment_xy_error",
-                    "attachment_z_above",
-                    "attachment_cube_tilt_deg",
-                    "attachment_cube_angular_speed",
-                    "pregrasp_cube_displacement",
-                    "pregrasp_cube_tilt_deg",
-                    "held_cube_tilt_deg",
-                }
-                missing_strict = sorted(strict_quality - set(quality))
-                if missing_strict:
-                    raise AssertionError(
-                        f"Episode {episode_index} is missing strict grasp fields: "
-                        f"{missing_strict}"
-                    )
-                if int(quality["quality_schema_version"]) < 3:
-                    raise AssertionError(
-                        f"Episode {episode_index} uses an obsolete quality schema"
-                    )
-                strict_checks = {
-                    "first_attachment_has_two_pad_contact": bool(
-                        quality["first_attachment_has_two_pad_contact"]
-                    ),
-                    "two_pad_contact_steps": int(quality["two_pad_contact_steps"]) >= 2,
-                    "attachment_retained": not bool(
-                        quality["attachment_lost_before_release"]
-                    ),
-                    "attachment_xy_error": float(quality["attachment_xy_error"])
-                    <= MAX_SUCCESSFUL_CLOSE_XY_ERROR + 1e-8,
-                    "attachment_z_lower": float(quality["attachment_z_above"])
-                    >= MIN_SUCCESSFUL_CLOSE_Z_ABOVE - 1e-8,
-                    "attachment_z_upper": float(quality["attachment_z_above"])
-                    <= MAX_SUCCESSFUL_CLOSE_Z_ABOVE + 1e-8,
-                    "pregrasp_cube_displacement": float(
-                        quality["pregrasp_cube_displacement"]
-                    )
-                    <= MAX_PREGRASP_CUBE_DISPLACEMENT + 1e-8,
-                    "pregrasp_cube_tilt": float(quality["pregrasp_cube_tilt_deg"])
-                    <= MAX_PREGRASP_CUBE_TILT_DEG + 1e-8,
-                    "attachment_cube_tilt": float(
-                        quality["attachment_cube_tilt_deg"]
-                    )
-                    <= MAX_ATTACH_CUBE_TILT_DEG + 1e-8,
-                    "held_cube_tilt": float(quality["held_cube_tilt_deg"])
-                    <= MAX_HELD_CUBE_TILT_DEG + 1e-8,
-                    "attachment_cube_angular_speed": float(
-                        quality["attachment_cube_angular_speed"]
-                    )
-                    <= MAX_ATTACH_CUBE_ANGULAR_SPEED + 1e-8,
-                }
-                failed_strict = [
-                    name for name, passed in strict_checks.items() if not passed
-                ]
-                if failed_strict:
-                    raise AssertionError(
-                        f"Episode {episode_index} failed strict grasp checks: "
-                        f"{failed_strict}"
-                    )
 
         _require_file(parquet_path, f"episode {episode_index} parquet")
         for camera, relative_path in episode.get("video_paths", {}).items():
@@ -340,7 +262,9 @@ def check_raw_dataset(
         if not np.array_equal(
             frame["frame_index"].to_numpy(), np.arange(expected_length)
         ):
-            raise AssertionError(f"{parquet_path} has non-contiguous frame_index values")
+            raise AssertionError(
+                f"{parquet_path} has non-contiguous frame_index values"
+            )
 
         timestamps = frame["timestamp"].to_numpy(dtype=np.float64)
         if not np.all(np.isfinite(timestamps)):
@@ -385,7 +309,7 @@ def check_raw_dataset(
             f"Validated {total_frames} frames, dataset.json reports {expected_frames}"
         )
 
-    if require_precision_grasp or require_strict_grasp_quality:
+    if precision_checks:
         if len(episodes) > 1:
             if len(np.unique(np.asarray(initial_cube_positions), axis=0)) < 2:
                 raise AssertionError("Cube positions are fixed across the dataset")
@@ -437,9 +361,42 @@ def _missing_evo_dependencies():
     return [name for name in required if importlib.util.find_spec(name) is None]
 
 
+def _check_native_video_metadata(dataset_path):
+    """Check every native MP4 header without substituting frames or decoding a rollout."""
+    import av
+
+    info = json.loads((dataset_path / "meta/dataset.json").read_text(encoding="utf-8"))
+    if info.get("format") != "mujoco-evo-episodes":
+        return
+    for episode in _read_jsonl(dataset_path / "meta/episodes.jsonl"):
+        for camera, relative in episode["video_paths"].items():
+            path = dataset_path / relative
+            with av.open(str(path)) as container:
+                stream = container.streams.video[0]
+                count = int(stream.frames)
+                if count <= 0:
+                    count = sum(1 for _ in container.decode(video=0))
+                if count != int(episode["length"]):
+                    raise AssertionError(
+                        f"{path} contains {count} video frames, expected {episode['length']}"
+                    )
+                rate = float(stream.average_rate or 0)
+                if not np.isfinite(rate) or abs(rate - float(info["fps"])) > 1e-6:
+                    raise AssertionError(
+                        f"{path} video fps={rate} disagrees with dataset fps={info['fps']}"
+                    )
+                expected = info["cameras"][camera]
+                if (stream.width, stream.height) != (
+                    int(expected["shape"][1]),
+                    int(expected["shape"][0]),
+                ):
+                    raise AssertionError(
+                        f"{path} video resolution disagrees with dataset camera metadata"
+                    )
+
+
 def check_evo_interface(
-    dataset_dir,
-    dataset_info,
+    datasets,
     image_size,
     action_horizon,
     memory_frames,
@@ -452,92 +409,516 @@ def check_evo_interface(
         raise ModuleNotFoundError(
             "Missing Evo interface dependencies: " + ", ".join(missing)
         )
-    if not EVO_ROOT.is_dir():
-        raise FileNotFoundError(f"Evo-1 source directory does not exist: {EVO_ROOT}")
-
     sys.path.insert(0, str(EVO_ROOT))
+    import yaml
     from dataset.lerobot_dataset_pretrain_mp import LeRobotDataset
 
-    cameras = list(dataset_info.get("cameras", {}).keys())
-    if not cameras:
-        raise AssertionError("dataset.json does not define any camera")
-
-    view_map = {
-        f"image_{index + 1}": f"observation.images.{camera}"
-        for index, camera in enumerate(cameras)
-    }
-    config = {
-        "max_action_dim": MAX_ACTION_DIM,
-        "max_state_dim": MAX_STATE_DIM,
-        "max_views": MAX_VIEWS,
-        "active_action_mask": [int(value) for value in ACTIVE_ACTION_MASK],
-        "data_groups": {
-            "mujoco_pickplace": {
-                "MuJoCo_PickPlace_Dataset": {
-                    "path": str(dataset_dir.resolve()),
-                    "view_map": view_map,
-                }
-            }
-        },
-    }
-
+    # Use the actual training configuration, including each dataset's action mask.
+    with (EVO_ROOT / "dataset/config.yaml").open(encoding="utf-8") as stream:
+        config = yaml.safe_load(stream)
+    group = config["data_groups"]["mujoco_panda"]
+    selected = {}
+    for task, path, info in datasets:
+        _check_native_video_metadata(path)
+        entry = dict(group[task.key])
+        entry["path"] = str(path.resolve())
+        selected[task.key] = entry
+        if tuple(entry["active_action_mask"]) != task.action_mask:
+            raise AssertionError(f"Task{task.number} training/action contract mismatch")
+    config["data_groups"] = {"mujoco_panda": selected}
+    # Interface probes must not replace the full training manifest/cache.
+    config["cache_namespace"] += "_check"
     dataset = LeRobotDataset(
         config=config,
         image_size=image_size,
         action_horizon=action_horizon,
-        max_samples_per_file=None,
+        max_samples_per_file=1,
         use_augmentation=False,
         overwrite_horizon_cache=False,
         memory_frames=memory_frames,
         memory_stride_steps=memory_stride_steps,
         memory_stride_seconds=memory_stride_seconds,
         cache_dir=training_cache_dir,
+        video_backend="av",
     )
     if len(dataset) <= 0:
         raise AssertionError("Evo LeRobotDataset did not produce any samples")
-
-    print(f"Evo dataset length: {len(dataset)}")
-    item = dataset[0]
-    for key, value in item.items():
-        if hasattr(value, "shape"):
-            print(key, value.shape, value.dtype)
-        else:
-            print(key, value)
-
-    expected_views = min(len(cameras), MAX_VIEWS)
-    expected_image_mask = [True] * expected_views + [False] * (
-        MAX_VIEWS - expected_views
-    )
-    expected_action_mask = ACTIVE_ACTION_MASK + [False] * (
-        MAX_ACTION_DIM - len(ACTIVE_ACTION_MASK)
-    )
-
-    assert item["images"].shape == (
-        memory_frames, MAX_VIEWS, 3, image_size, image_size
-    )
-    assert item["state"].shape == (memory_frames, MAX_STATE_DIM)
-    assert item["state_mask"].shape == (memory_frames, MAX_STATE_DIM)
-    assert item["history_mask"].shape == (memory_frames,)
-    assert bool(item["history_mask"][-1])
-    assert item["action"].shape == (action_horizon, MAX_ACTION_DIM)
-    assert item["image_mask"].tolist() == expected_image_mask
-    assert item["action_mask"].shape == (action_horizon, MAX_ACTION_DIM)
-    assert item["action_mask"][0].tolist() == expected_action_mask
-
-    print("[PASS] Evo dataset interface is correct")
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description=(
-            "Check the raw MuJoCo dataset and, when available, its Evo interface."
+    print(f"Evo dataset length: {len(dataset)} (one interface window per episode)")
+    for task, path, info in datasets:
+        index = next(
+            (
+                i
+                for i, cached in enumerate(dataset.data)
+                if Path(cached).relative_to(dataset.cache_dir).parts[1] == task.key
+            ),
+            None,
         )
+        if index is None:
+            raise AssertionError(f"Task{task.number} has no Evo interface sample")
+        item = dataset[index]
+        cameras = list(info.get("cameras", {}))
+        if not cameras:
+            raise AssertionError("dataset.json does not define any camera")
+        expected_views = min(len(cameras), MAX_VIEWS)
+        expected_image_mask = [True] * expected_views + [False] * (
+            MAX_VIEWS - expected_views
+        )
+        expected_action_mask = list(map(bool, task.action_mask)) + [False] * (
+            MAX_ACTION_DIM - len(task.action_mask)
+        )
+        assert item["images"].shape == (
+            memory_frames,
+            MAX_VIEWS,
+            3,
+            image_size,
+            image_size,
+        )
+        assert item["state"].shape == (memory_frames, MAX_STATE_DIM)
+        assert item["state_mask"].shape == (memory_frames, MAX_STATE_DIM)
+        assert item["history_mask"].shape == (memory_frames,)
+        assert bool(item["history_mask"][-1])
+        assert item["action"].shape == (action_horizon, MAX_ACTION_DIM)
+        assert item["image_mask"].tolist() == expected_image_mask
+        assert item["action_mask"].shape == (action_horizon, MAX_ACTION_DIM)
+        assert item["action_mask"][0].tolist() == expected_action_mask
+        assert int(item["embodiment_id"]) == 0
+        print(
+            f"[PASS] Task{task.number} Evo interface: images={tuple(item['images'].shape)}, "
+            f"state={tuple(item['state'].shape)}, action={tuple(item['action'].shape)}, "
+            f"active actions={item['action_mask'][0].tolist()[:7]}"
+        )
+    print("[PASS] all selected tasks share one Panda training group")
+
+
+def _replay_drawer_contact(task, episode, frame, predictions):
+    """Isolate pose errors; no expert actions are substituted in normal evaluation."""
+    from mujoco_pickplace.eval_policy_client import GripperCommandFilter
+    import mujoco
+
+    indices = frame.index[
+        frame["expert.phase"].isin(
+            ["approach", "handle_approach", "handle_close", "pull"]
+        )
+    ].tolist()
+    results = []
+    for mode in ("expert", "model_translation", "model_translation_rotation"):
+        env = task.make_env(seed=episode["seed"], image_size=128, capture_frames=False)
+        try:
+            list(env.presentation())
+            grip = GripperCommandFilter()
+            initial = float(
+                env.data.qpos[env.model.joint(f"drawer_slide{env.target}").qposadr[0]]
+            )
+            for index in indices:
+                action = np.asarray(
+                    frame.iloc[index]["action"], dtype=np.float32
+                ).copy()
+                if mode != "expert":
+                    action[:3] = predictions[index][:3]
+                if mode == "model_translation_rotation":
+                    action[3:6] = predictions[index][3:6]
+                env.phase = str(frame.iloc[index]["expert.phase"])
+                env.step(task.prepare_action(action, grip))
+            pull = [row for row in env.rows if row["phase"] == "pull"]
+            position = float(
+                env.data.qpos[env.model.joint(f"drawer_slide{env.target}").qposadr[0]]
+            )
+            results.append(
+                dict(
+                    mode=mode,
+                    mujoco_version=mujoco.__version__,
+                    steps=len(indices),
+                    drawer_displacement_mm=(position - initial) * 1000,
+                    two_finger_handle_contact=bool(
+                        env.contacts(env.model.geom(f"handle{env.target}").id)[0]
+                    ),
+                    unsafe_contact=bool(env.unsafe_execution_contact),
+                    pull_contact_fraction=(
+                        float(
+                            np.mean(
+                                [
+                                    row["handle_two_contact_physics_steps"]
+                                    / env.CONTROL_NSTEP
+                                    for row in pull
+                                ]
+                            )
+                        )
+                        if pull
+                        else None
+                    ),
+                    longest_pull_contact_gap_seconds=max(
+                        [row["longest_handle_contact_gap_seconds"] for row in pull],
+                        default=0.0,
+                    ),
+                    maximum_pull_normal_error_mm=max(
+                        [row["handle_normal_tracking_error_m"] * 1000 for row in pull],
+                        default=0.0,
+                    ),
+                    maximum_pull_inclination_degrees=max(
+                        [row["peak_tool_axis_inclination_deg"] for row in pull],
+                        default=0.0,
+                    ),
+                )
+            )
+        finally:
+            env.close()
+    if results[0]["drawer_displacement_mm"] < 160 or results[0]["unsafe_contact"]:
+        raise AssertionError(
+            "Contact reference replay no longer matches the accepted expert"
+        )
+    return results
+
+
+async def _check_drawer_history_response(socket, task, path, memory_frames, stride):
+    """Hold current vision and all proprioception fixed; vary visual history only.
+
+    Target labels annotate results after inference. This is a controlled history
+    response check, not evidence of successful drawer selection or manipulation.
+    """
+    import av
+    import copy
+    from collections import deque
+    from mujoco_pickplace.tasks import ObservationHistory
+    from dataset.lerobot_dataset_pretrain_mp import select_history_indices
+
+    episodes = {}
+    for episode in _read_jsonl(path / "meta/episodes.jsonl"):
+        target = episode["quality"].get("target_drawer_diagnostic_only")
+        if target is not None:
+            episodes.setdefault(int(target), episode)
+    if len(episodes) < 2:
+        return dict(checked=False, available_targets=sorted(episodes))
+    cases, anchor = [], None
+    for target, episode in sorted(episodes.items()):
+        frame = pd.read_parquet(path / episode["data_path"])
+        phases = frame["expert.phase"].astype(str).tolist()
+        index = next(i for i, phase in enumerate(phases) if phase == "approach")
+        timestamps = frame["timestamp"].to_numpy(dtype=np.float64)
+        rows, valid = select_history_indices(
+            timestamps, index, memory_frames, 5, stride
+        )
+        needed = {0, *rows}
+        images = {}
+        with av.open(str(path / episode["video_paths"]["front"])) as container:
+            for j, decoded in enumerate(container.decode(video=0)):
+                if j in needed:
+                    images[j] = decoded.to_ndarray(format="rgb24")
+                if j >= max(needed):
+                    break
+        if set(images) != needed:
+            raise ValueError("Missing source frames for drawer history response check")
+        history = ObservationHistory(memory_frames, stride)
+        history.rows = deque(
+            (
+                float(timestamps[j]),
+                np.asarray(frame.iloc[j]["observation.state"]),
+                images[j],
+            )
+            for j in sorted(needed)
+        )
+        payload = history.payload(task)
+        if anchor is None:
+            anchor = copy.deepcopy(payload)
+        if payload["history_mask"] != anchor["history_mask"]:
+            raise ValueError(
+                "Drawer presentation windows have different validity masks"
+            )
+        payload["state"] = copy.deepcopy(anchor["state"])
+        payload["memory_images"][-1] = copy.deepcopy(anchor["memory_images"][-1])
+        for slot, valid in enumerate(payload["history_mask"]):
+            if not valid:
+                payload["memory_images"][slot] = copy.deepcopy(
+                    anchor["memory_images"][slot]
+                )
+        payload["flow_seed"] = 0
+        await socket.send(json.dumps(payload))
+        predicted = np.asarray(json.loads(await socket.recv()), dtype=np.float64)
+        if (
+            predicted.ndim != 2
+            or predicted.shape[1] != 24
+            or not len(predicted)
+            or not np.isfinite(predicted).all()
+        ):
+            raise ValueError(
+                "Invalid policy actions during drawer history response check"
+            )
+        expert = np.asarray(frame.iloc[index]["action"])
+        cases.append(
+            dict(
+                target_annotation_only=target,
+                seed=episode["seed"],
+                expert_first_action=expert.tolist(),
+                policy_first_action=predicted[0, :7].tolist(),
+                first_translation_error_mm=float(
+                    np.linalg.norm(predicted[0, :3] - expert[:3]) * 1000
+                ),
+                simulation_time=float(timestamps[index]),
+                history_sim_times=timestamps[rows].tolist(),
+            )
+        )
+    current_only = copy.deepcopy(anchor)
+    current_only["history_mask"] = [False] * (memory_frames - 1) + [True]
+    current_only["flow_seed"] = 0
+    await socket.send(json.dumps(current_only))
+    without_history = np.asarray(json.loads(await socket.recv()), dtype=np.float64)
+    if (
+        without_history.ndim != 2
+        or without_history.shape[1] != 24
+        or not len(without_history)
+        or not np.isfinite(without_history).all()
+    ):
+        raise ValueError("Invalid policy actions during current-only drawer check")
+    return dict(
+        checked=True,
+        controlled_counterfactual=True,
+        current_image_identical=True,
+        all_state_history_identical=True,
+        history_mask=anchor["history_mask"],
+        task_selection_success_not_measured=True,
+        cases=cases,
+        current_only_first_action=without_history[0, :7].tolist(),
+        maximum_pairwise_first_translation_difference_mm=float(
+            max(
+                np.linalg.norm(
+                    np.asarray(a["policy_first_action"][:3])
+                    - b["policy_first_action"][:3]
+                )
+                * 1000
+                for a in cases
+                for b in cases
+            )
+        ),
     )
+
+
+async def check_policy_contact_precision(datasets, policy_url, report_path):
+    """Bounded teacher-forced checks of the first episode of each selected task.
+
+    The policy receives exactly the public image/state/history contract. Phases
+    and expert labels select diagnostic samples and measure errors only.
+    """
+    import av
+    import websockets
+    from collections import deque
+    from mujoco_pickplace.tasks import ObservationHistory
+    from mujoco_pickplace.eval_policy_client import request_model_metadata
+    from mujoco_pickplace.task_env import rotation_matrix, rotation_vector
+
+    sys.path.insert(0, str(EVO_ROOT))
+    from dataset.lerobot_dataset_pretrain_mp import (
+        select_history_indices,
+        verified_target_history_indices,
+    )
+
+    result = dict(policy_url=policy_url, flow_seed=0, teacher_forced=True, tasks=[])
+    async with websockets.connect(policy_url, max_size=100_000_000) as socket:
+        metadata = await request_model_metadata(socket)
+        result["checkpoint_metadata"] = metadata
+        memory_frames = int(metadata["memory_frames"])
+        stride = float(metadata["memory_stride_seconds"])
+        required = {task.key for task, _, _ in datasets}
+        if not required.issubset(set(metadata["normalization_keys"])):
+            raise ValueError(
+                "Policy checkpoint lacks selected task normalization statistics"
+            )
+        for task, path, info in datasets:
+            episode = _read_jsonl(path / "meta/episodes.jsonl")[0]
+            frame = pd.read_parquet(path / episode["data_path"])
+            phases = frame["expert.phase"].astype(str).tolist()
+            certified_visible = (
+                verified_target_history_indices(frame, path)
+                if task.number == 4
+                else set()
+            )
+            checked_phases = (
+                [
+                    "approach",
+                    "handle_approach",
+                    "handle_close",
+                    "pull",
+                    "safe_wrist_arc",
+                    "topdown_orientation",
+                    "object_approach",
+                    "object_descend",
+                    "object_close",
+                    "object_lift",
+                ]
+                if task.number == 4
+                else [
+                    "approach",
+                    "descend",
+                    "close",
+                    "lift",
+                    "transfer" if task.number == 1 else "transport",
+                ]
+            )
+            indices = []
+            for phase in checked_phases:
+                candidates = [i for i, value in enumerate(phases) if value == phase]
+                if task.number == 4 and phase in {
+                    "approach",
+                    "handle_approach",
+                    "handle_close",
+                    "pull",
+                }:
+                    indices.extend(candidates)
+                elif candidates:
+                    indices.extend(
+                        candidates[i]
+                        for i in np.unique(
+                            np.linspace(
+                                0,
+                                len(candidates) - 1,
+                                min(3, len(candidates)),
+                                dtype=int,
+                            )
+                        )
+                    )
+            indices = sorted(set(indices))
+            timestamps = frame["timestamp"].to_numpy(dtype=np.float64)
+            histories = {
+                i: select_history_indices(timestamps, i, memory_frames, 5, stride)
+                for i in indices
+            }
+            needed = {0} | {j for rows, _ in histories.values() for j in rows}
+            video = path / episode["video_paths"]["front"]
+            images = {}
+            with av.open(str(video)) as container:
+                for index, decoded in enumerate(container.decode(video=0)):
+                    if index in needed:
+                        images[index] = decoded.to_ndarray(format="rgb24")
+                    if index >= max(needed):
+                        break
+            if needed != set(images):
+                raise ValueError(f"Missing requested MP4 frames in {video}")
+            predictions, measurements = {}, []
+            for index in indices:
+                rows, valid = histories[index]
+                history = ObservationHistory(memory_frames, stride)
+                history.rows = deque(
+                    (
+                        float(timestamps[j]),
+                        np.asarray(frame.iloc[j]["observation.state"]),
+                        images[j],
+                    )
+                    for j in sorted({0, *rows})
+                )
+                selected_rows, selected_valid = history.selected()
+                if [row[0] for row in selected_rows] != timestamps[
+                    rows
+                ].tolist() or selected_valid != valid:
+                    raise AssertionError(
+                        "Policy and training disagree on sampled history frames"
+                    )
+                payload = history.payload(task)
+                if payload["history_mask"] != valid:
+                    raise AssertionError(
+                        "Policy and training disagree on history validity"
+                    )
+                payload["flow_seed"] = (
+                    0  # Diagnostic noise only; evaluation start_seed is unchanged.
+                )
+                await socket.send(json.dumps(payload))
+                actions = np.asarray(json.loads(await socket.recv()), dtype=np.float64)
+                if (
+                    actions.ndim != 2
+                    or not len(actions)
+                    or actions.shape[1] != 24
+                    or not np.isfinite(actions).all()
+                ):
+                    raise ValueError(
+                        "Policy returned invalid actions during precision check"
+                    )
+                predicted = actions[0, :7].copy()
+                predicted *= np.asarray(task.action_mask)
+                expert = np.asarray(frame.iloc[index]["action"])
+                predictions[index] = predicted
+                difference = predicted - expert
+                rotation_error = np.linalg.norm(
+                    rotation_vector(
+                        rotation_matrix(predicted[3:6]) @ rotation_matrix(expert[3:6]).T
+                    )
+                )
+                measurements.append(
+                    dict(
+                        frame_index=index,
+                        phase=phases[index],
+                        simulation_time=float(timestamps[index]),
+                        translation_error_mm=float(
+                            np.linalg.norm(difference[:3]) * 1000
+                        ),
+                        translation_error_xyz_mm=(difference[:3] * 1000).tolist(),
+                        rotation_error_degrees=float(np.rad2deg(rotation_error)),
+                        gripper_absolute_error=float(abs(difference[6])),
+                        expert_action=expert.tolist(),
+                        policy_action=predicted.tolist(),
+                        valid_history_sim_times=[
+                            float(timestamps[j]) for j, ok in zip(rows, valid) if ok
+                        ],
+                        presentation_in_valid_history=any(
+                            (phases[j] == "observe_target" or j in certified_visible)
+                            and ok
+                            for j, ok in zip(rows, valid)
+                        ),
+                    )
+                )
+            metrics = {}
+            for phase in checked_phases:
+                selected = [row for row in measurements if row["phase"] == phase]
+                if not selected:
+                    continue
+                metrics[phase] = {"samples": len(selected)}
+                for key in [
+                    "translation_error_mm",
+                    "rotation_error_degrees",
+                    "gripper_absolute_error",
+                ]:
+                    values = [row[key] for row in selected]
+                    metrics[phase][key] = dict(
+                        mean=float(np.mean(values)),
+                        p95=float(np.percentile(values, 95)),
+                        maximum=float(max(values)),
+                    )
+            task_result = dict(
+                task=task.number,
+                dataset=str(path),
+                seed=episode["seed"],
+                episode_index=episode["episode_index"],
+                phases=metrics,
+                measurements=measurements,
+            )
+            if task.number == 4:
+                task_result["controlled_contact_replay"] = _replay_drawer_contact(
+                    task, episode, frame, predictions
+                )
+                task_result["visual_history_response"] = (
+                    await _check_drawer_history_response(
+                        socket, task, path, memory_frames, stride
+                    )
+                )
+            result["tasks"].append(task_result)
+    report_path = Path(report_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    return result
+
+
+def parse_args(argv=None):
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    from mujoco_pickplace.tasks import TASKS
+
+    parser = argparse.ArgumentParser(
+        description="Check the MuJoCo task suite and its shared Evo interface."
+    )
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--tasks", type=int, nargs="+", choices=list(TASKS))
+    selection.add_argument("--task", type=int, choices=list(TASKS))
     parser.add_argument(
         "--dataset-dir",
         type=Path,
-        default=DEFAULT_DATASET_DIR,
-        help="Dataset directory containing data/, videos/, and meta/.",
+        default=None,
+        help="Suite data root, or the dataset directory when selecting one task.",
     )
     parser.add_argument("--image-size", type=int, default=IMAGE_SIZE)
     parser.add_argument("--action-horizon", type=int, default=ACTION_HORIZON)
@@ -548,61 +929,107 @@ def parse_args():
         "--training-cache-dir",
         type=Path,
         default=None,
-        help="Optional derived-window cache path for an isolated interface check.",
+        help="Optional derived-window cache for this interface check.",
     )
     parser.add_argument(
         "--raw-only",
         action="store_true",
-        help="Check metadata, parquet files, and video paths without loading Evo.",
+        help="Check every episode without loading Evo.",
     )
     parser.add_argument(
         "--require-evo",
         action="store_true",
-        help="Fail instead of skipping when Evo interface dependencies are unavailable.",
+        help="Fail when Evo interface dependencies are unavailable.",
     )
     parser.add_argument(
         "--require-precision-grasp",
         action="store_true",
-        help=(
-            "Require the precision-grasp expert version, full randomization, "
-            "dense π-MEM timeline, and grasp tolerances."
-        ),
+        help="Require Task1 precision grasp evidence and new tasks' contact evidence.",
     )
     parser.add_argument(
         "--require-strict-grasp-quality",
         action="store_true",
-        help=(
-            "Require stable-grasp-v3 contact-time displacement, tilt, contact, "
-            "and attachment-persistence evidence."
-        ),
+        help="Require Task1 stable-grasp-v3 evidence and new tasks' strict contact evidence.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--policy-url",
+        default=None,
+        help="Optional running EVO server: check contact precision on one recorded episode per selected task.",
+    )
+    parser.add_argument(
+        "--policy-report",
+        type=Path,
+        default=PROJECT_ROOT / "mujoco_pickplace/outputs/contact_precision.json",
+        help="File for phase errors and controlled drawer contact replay; normal terminal output is unchanged.",
+    )
+    args = parser.parse_args(argv)
+    args.tasks = args.tasks or ([args.task] if args.task is not None else list(TASKS))
+    if len(set(args.tasks)) != len(args.tasks):
+        parser.error("Tasks must be unique")
+    if (
+        min(
+            args.image_size,
+            args.action_horizon,
+            args.memory_frames,
+            args.memory_stride_steps,
+        )
+        < 1
+    ):
+        parser.error(
+            "Image size, horizon, memory frames and stride steps must be positive"
+        )
+    if not np.isfinite(args.memory_stride_seconds) or args.memory_stride_seconds <= 0:
+        parser.error("Memory stride seconds must be finite and positive")
+    if args.raw_only and args.require_evo:
+        parser.error("--raw-only and --require-evo cannot be combined")
+    return args
 
 
 def main():
     args = parse_args()
-    dataset_info = check_raw_dataset(
-        args.dataset_dir,
-        require_precision_grasp=args.require_precision_grasp,
-        require_strict_grasp_quality=args.require_strict_grasp_quality,
-    )
+    from mujoco_pickplace.tasks import get_task
 
+    datasets = []
+    for number in args.tasks:
+        task = get_task(number)
+        path = (
+            task.dataset
+            if args.dataset_dir is None
+            else (
+                args.dataset_dir
+                if len(args.tasks) == 1
+                else args.dataset_dir / task.dataset.name
+            )
+        )
+        print(f"Checking Task{number}: {path}", flush=True)
+        info = check_raw_dataset(
+            path,
+            require_precision_grasp=args.require_precision_grasp,
+            require_strict_grasp_quality=args.require_strict_grasp_quality,
+            task_number=number,
+        )
+        datasets.append((task, path, info))
+    if args.policy_url:
+        import asyncio
+
+        asyncio.run(
+            check_policy_contact_precision(
+                datasets, args.policy_url, args.policy_report
+            )
+        )
     if args.raw_only:
         print("[SKIP] Evo interface check disabled by --raw-only")
         return
-
     missing = _missing_evo_dependencies()
     if missing and not args.require_evo:
         print(
             "[SKIP] Evo interface check requires: "
             + ", ".join(missing)
-            + ". Run this script in the Evo1 environment for the full interface check."
+            + ". Run in the Evo1 environment for the full interface check."
         )
         return
-
     check_evo_interface(
-        args.dataset_dir,
-        dataset_info,
+        datasets,
         image_size=args.image_size,
         action_horizon=args.action_horizon,
         memory_frames=args.memory_frames,

@@ -1,5 +1,6 @@
 #use lerobot_dataset_pretrain_mp.py for multithreading load dataset
 import os
+import sys
 import io
 import hashlib
 import torch
@@ -22,12 +23,22 @@ import logging
 import pickle
 from collections import Counter
 
+CACHE_INDEX_VERSION = 7
+
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 MEMORY_EVENT_ROUTINE = "routine"
 MEMORY_EVENT_GRASP_ALIGNMENT = "grasp_alignment"
 MEMORY_EVENT_POST_FAILURE_CORRECTION = "post_failure_correction"
-GRASP_PHASES = {"approach", "descend", "close"}
+MEMORY_EVENT_PROBE = "memory_probe"
+GRASP_PHASES = {
+    "approach", "descend", "close", "handle_approach", "handle_close", "pull",
+    "object_descend", "object_close",
+}
+CONTACT_PRECISION_PHASES = {
+    "descend", "close", "handle_approach", "handle_close", "pull",
+    "object_descend", "object_close",
+}
 CORRECTION_PHASES = {"recover", "approach", "descend", "close"}
 
 
@@ -101,10 +112,13 @@ def select_history_indices(
         lag = memory_frames - 1 - slot
         if use_seconds:
             target_time = timestamps[current_index] - lag * float(memory_stride_seconds)
-            is_valid = target_time >= timestamps[0] - 1e-8
+            # Episode timestamps are stored as float32. Preserve the intended
+            # control tick when subtraction lands a few ulps below that tick.
+            tolerance = max(1e-8, 2 * np.finfo(np.float32).eps * max(1., abs(timestamps[current_index])))
+            is_valid = target_time >= timestamps[0] - tolerance
             index = int(
                 np.searchsorted(
-                    timestamps[: current_index + 1], target_time + 1e-8, side="right"
+                    timestamps[: current_index + 1], target_time + tolerance, side="right"
                 ) - 1
             )
         else:
@@ -117,7 +131,9 @@ def select_history_indices(
     return indices, valid
 
 
-def classify_memory_event(phases, history_indices, current_index):
+def classify_memory_event(
+    phases, history_indices, current_index, history_valid=None, verified_visible_indices=()
+):
     """Label windows whose current action can use visible short-term history.
 
     A correction window is not defined by a requested dataset quota.  It is
@@ -131,14 +147,31 @@ def classify_memory_event(phases, history_indices, current_index):
     if current_index < 0 or current_index >= len(phases):
         raise IndexError(f"current_index {current_index} is outside phase history")
     current_phase = str(phases[current_index])
+    if history_valid is None:
+        history_valid = [True] * len(history_indices)
+    if len(history_valid) != len(history_indices):
+        raise ValueError("History indices and validity mask must have equal length")
     visible_phases = {
         str(phases[int(index)])
-        for index in history_indices
-        if 0 <= int(index) <= current_index
+        for index, valid in zip(history_indices, history_valid)
+        if valid and 0 <= int(index) <= current_index
     }
     if current_phase in CORRECTION_PHASES and "recover" in visible_phases:
         return MEMORY_EVENT_POST_FAILURE_CORRECTION
+    # Drawer selection uses history during approach. Once the fingers close or
+    # pull, contact precision takes precedence even if presentation is visible.
+    target_visible = "observe_target" in visible_phases or any(
+        valid and int(index) in verified_visible_indices
+        for index, valid in zip(history_indices, history_valid)
+    )
+    if current_phase in {"approach", "handle_approach"} and target_visible:
+        return MEMORY_EVENT_PROBE
     if current_phase in GRASP_PHASES:
+        # Short contact phases must not be diluted by long approach trajectories.
+        # Keep the existing inverse-frequency sampler; these are training labels,
+        # never privileged phase inputs to the policy.
+        if current_phase in CONTACT_PRECISION_PHASES:
+            return f"{MEMORY_EVENT_GRASP_ALIGNMENT}/{current_phase}"
         return MEMORY_EVENT_GRASP_ALIGNMENT
     return MEMORY_EVENT_ROUTINE
 
@@ -201,6 +234,65 @@ def merge_lerobot_stats(stats_list: List[Dict[str, Dict[str, List[float]]]]) -> 
     }
 
 
+def episode_video_timestamps(frame, dataset_path):
+    """Map pre-action records to MP4 frames, keeping simulation time separate."""
+    metadata_path = Path(dataset_path) / "meta" / "dataset.json"
+    if metadata_path.is_file():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if metadata.get("format") == "mujoco-evo-episodes":
+            fps = float(metadata["fps"])
+            if not np.isfinite(fps) or fps <= 0:
+                raise ValueError("Dataset video fps must be finite and positive")
+            indices = frame["frame_index"].to_numpy()
+            if not np.array_equal(indices, np.arange(len(frame))):
+                raise ValueError("Episode frame indices must be contiguous from zero")
+            times = indices.astype(np.float64) / fps
+            if "video_timestamp" in frame and not np.allclose(
+                frame["video_timestamp"].to_numpy(), times, atol=1e-6, rtol=0
+            ):
+                raise ValueError("Recorded video timestamps disagree with MP4 frame indices")
+            return times
+    # Other LeRobot datasets retain their original timestamp convention.
+    return (
+        frame["timestamp"].to_numpy(dtype=np.float64)
+        if "timestamp" in frame
+        else np.arange(len(frame), dtype=np.float64)
+    )
+
+
+def verified_target_history_indices(frame, dataset_path):
+    """Recover certified visible history slots, including during drawer closure.
+
+    This annotation only affects sampling. It never enters image/state/action
+    tensors, prompts or inference requests, and contains no target drawer ID.
+    """
+    path = Path(dataset_path) / "meta/episodes.jsonl"
+    if not path.is_file() or "episode_index" not in frame:
+        return set()
+    episode_index = int(frame.iloc[0]["episode_index"])
+    times = frame["timestamp"].to_numpy(dtype=np.float64)
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        episode = json.loads(line)
+        if episode["episode_index"] != episode_index:
+            continue
+        quality = episode.get("quality", {})
+        certified_times = quality.get("sampled_history_sim_times_at_selection", [])
+        if not certified_times:
+            return set()
+        indices = set()
+        for slot in quality.get("target_visible_history_slots_at_selection", []):
+            if not 0 <= int(slot) < len(certified_times):
+                raise ValueError("Target visibility annotation refers to an invalid history slot")
+            visible_time = float(certified_times[int(slot)])
+            tolerance = max(1e-6, 2 * np.finfo(np.float32).eps * max(1., abs(visible_time)))
+            matches = np.flatnonzero(np.abs(times - visible_time) <= tolerance)
+            indices.update(int(index) for index in matches)
+        return indices
+    return set()
+
+
 def _process_parquet_file_worker(args):
     (
         parquet_path,
@@ -228,17 +320,41 @@ def _process_parquet_file_worker(args):
         if source_df.empty:
             raise ValueError("episode parquet is empty")
 
+        metadata_path = Path(dataset_path) / "meta" / "dataset.json"
+        metadata = (
+            json.loads(metadata_path.read_text(encoding="utf-8"))
+            if metadata_path.is_file() else {}
+        )
+        if metadata.get("format") == "mujoco-evo-episodes":
+            episode_path = Path(dataset_path) / "meta/episodes.jsonl"
+            records = [
+                json.loads(line) for line in episode_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            records = [
+                row for row in records
+                if (Path(dataset_path) / row["data_path"]).resolve() == Path(parquet_path).resolve()
+            ]
+            if len(records) != 1:
+                raise ValueError(f"Native parquet has no unique accepted manifest record: {parquet_path}")
+            record = records[0]
+            if (len(source_df) != int(record["length"])
+                    or not np.all(
+                        source_df["episode_index"].to_numpy() == int(record["episode_index"])
+                    )
+                    or not np.array_equal(source_df["frame_index"].to_numpy(), np.arange(len(source_df)))
+                    or not np.all(source_df["task_index"].to_numpy() == int(record["task_index"]))):
+                raise ValueError(f"Native parquet rows do not match the accepted episode record: {parquet_path}")
+
         if action_horizon < 1:
             raise ValueError("action_horizon must be at least 1")
-
-        sample_count = len(source_df)
-        if max_samples_per_file is not None:
-            sample_count = min(sample_count, int(max_samples_per_file))
 
         if "timestamp" in source_df:
             source_timestamps = source_df["timestamp"].to_numpy(dtype=np.float64)
         else:
             source_timestamps = np.arange(len(source_df), dtype=np.float64)
+
+        video_timestamps = episode_video_timestamps(source_df, dataset_path)
 
         df = source_df
         last_row = df.iloc[-1:]
@@ -252,9 +368,24 @@ def _process_parquet_file_worker(args):
             if "expert.phase" in source_df
             else []
         )
+        sample_indices = list(range(len(source_df)))
+        verified_visible_indices = set()
+        if metadata_path.is_file():
+            if (metadata.get("format") == "mujoco-evo-episodes"
+                    and metadata.get("collection_config", {}).get("task_id") == 4):
+                # The simulated human owns this interval. Keep its observations
+                # in history, but do not train policy actions that evaluation
+                # never requests from the model.
+                verified_visible_indices = verified_target_history_indices(source_df, dataset_path)
+                sample_indices = [
+                    i for i in sample_indices
+                    if source_phases[i] not in {"observe_target", "presentation_close"}
+                ]
+        if max_samples_per_file is not None:
+            sample_indices = sample_indices[:int(max_samples_per_file)]
         episode_files = []
         episode_events = []
-        for i in range(sample_count):
+        for i in sample_indices:
             start_idx = i
             end_idx = i + action_horizon
 
@@ -273,7 +404,7 @@ def _process_parquet_file_worker(args):
             if cache_filepath.exists():
                 episode_files.append(str(cache_filepath))
                 episode_events.append(
-                    classify_memory_event(source_phases, history_indices, i)
+                    classify_memory_event(source_phases, history_indices, i, history_valid, verified_visible_indices)
                     if source_phases
                     else MEMORY_EVENT_ROUTINE
                 )
@@ -283,7 +414,7 @@ def _process_parquet_file_worker(args):
             sub_df = df.iloc[i: i + action_horizon]
             history_df = source_df.iloc[history_indices]
             memory_event = (
-                classify_memory_event(source_phases, history_indices, i)
+                classify_memory_event(source_phases, history_indices, i, history_valid, verified_visible_indices)
                 if source_phases
                 else MEMORY_EVENT_ROUTINE
             )
@@ -296,15 +427,16 @@ def _process_parquet_file_worker(args):
                 if full_path.exists():
                     video_paths[view_key] = str(full_path)
                 else:
-                    logging.warning(f"missing video file: {full_path}")
+                    raise FileNotFoundError(f"Configured camera video is missing: {full_path}")
             
             
             task_index = sub_df.iloc[0].get("task_index", None)
             if task_index is not None and task_index in task_mapping:
                 prompt = task_mapping[task_index]
             else:
-                logging.info(f"cannot find task description from task_index={task_index}")
-                prompt = ""
+                raise ValueError(f"No language instruction for task_index={task_index} in {parquet_path}")
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError(f"Empty language instruction for task_index={task_index} in {parquet_path}")
 
             episode = {
                 "arm_key": arm_name,
@@ -316,7 +448,8 @@ def _process_parquet_file_worker(args):
                 ],
                 "action": [row["action"] for _, row in sub_df.iterrows()],
                 "video_paths": video_paths,
-                "timestamps": source_timestamps[history_indices].tolist(),
+                "timestamps": video_timestamps[history_indices].tolist(),
+                "simulation_timestamps": source_timestamps[history_indices].tolist(),
                 "history_mask": history_valid,
                 "memory_event": memory_event,
             }
@@ -360,6 +493,14 @@ class LeRobotDataset(Dataset):
         self.max_state_dim = config['max_state_dim']
         self.max_views = config['max_views']
         self.active_action_mask = config.get("active_action_mask", None)
+        self.dataset_action_masks = {}
+        for arm_config in config['data_groups'].values():
+            for dataset_name, dataset_config in arm_config.items():
+                mask = dataset_config.get('active_action_mask')
+                if mask is not None:
+                    if len(mask) > self.max_action_dim or not any(mask):
+                        raise ValueError(f'Invalid action mask for {dataset_name}')
+                    self.dataset_action_masks[dataset_name] = torch.tensor(mask, dtype=torch.bool)
         if self.active_action_mask is not None:
             if len(self.active_action_mask) > self.max_action_dim:
                 raise ValueError("active_action_mask cannot be longer than max_action_dim")
@@ -372,6 +513,11 @@ class LeRobotDataset(Dataset):
         self.preserve_spatial_calibration = bool(
             self.config.get("preserve_spatial_calibration", False)
         )
+        self.normalization_scope = self.config.get("normalization_scope", "arm")
+        if self.normalization_scope not in {"arm", "dataset"}:
+            raise ValueError("normalization_scope must be 'arm' or 'dataset'")
+        if self.dataset_action_masks and self.normalization_scope != 'dataset':
+            raise ValueError('Per-dataset action masks require dataset normalization')
         self.memory_frames = int(memory_frames)
         self.memory_stride_steps = int(memory_stride_steps)
         self.memory_stride_seconds = memory_stride_seconds
@@ -387,6 +533,11 @@ class LeRobotDataset(Dataset):
         if self.memory_stride_seconds is not None:
             seconds_tag = str(float(self.memory_stride_seconds)).replace(".", "p")
             cache_name += f"_seconds_{seconds_tag}"
+        cache_namespace = str(config.get("cache_namespace", "")).strip()
+        if cache_namespace:
+            if not cache_namespace.replace("_", "").isalnum():
+                raise ValueError("cache_namespace must be alphanumeric or underscores")
+            cache_name += f"_{cache_namespace}"
         self.cache_name = cache_name
 
         if cache_dir is None:
@@ -465,14 +616,29 @@ class LeRobotDataset(Dataset):
                 required_collection_config = dataset_config.get(
                     "required_collection_config", {}
                 )
-                if required_collection_config:
+                required_source_policy_version = dataset_config.get(
+                    "required_source_policy_version"
+                )
+                dataset_metadata = {}
+                dataset_metadata_path = dataset_path / "meta" / "dataset.json"
+                if dataset_metadata_path.is_file():
+                    dataset_metadata = json.loads(dataset_metadata_path.read_text(encoding="utf-8"))
+                if required_collection_config or required_source_policy_version:
                     dataset_metadata_path = dataset_path / "meta" / "dataset.json"
                     if not dataset_metadata_path.is_file():
                         raise FileNotFoundError(
                             f"dataset metadata file not found: {dataset_metadata_path}"
                         )
-                    with open(dataset_metadata_path, "r", encoding="utf-8") as stream:
-                        dataset_metadata = json.load(stream)
+                    if (
+                        required_source_policy_version
+                        and dataset_metadata.get("source_policy_version")
+                        != required_source_policy_version
+                    ):
+                        raise ValueError(
+                            f"{dataset_path} expert policy version must be "
+                            f"{required_source_policy_version!r}; got "
+                            f"{dataset_metadata.get('source_policy_version')!r}"
+                        )
                     actual_collection_config = dataset_metadata.get(
                         "collection_config", {}
                     )
@@ -513,7 +679,90 @@ class LeRobotDataset(Dataset):
                 
                 episodes_path = dataset_path / "meta" / "episodes.jsonl"
                 if episodes_path.exists():
-                    self.episodes += pd.read_json(episodes_path, lines=True).to_dict("records")
+                    dataset_episodes = pd.read_json(
+                        episodes_path, lines=True
+                    ).to_dict("records")
+                    required_quality_schema = dataset_config.get(
+                        "required_quality_schema"
+                    )
+                    if required_quality_schema:
+                        expected_version = dataset_config.get(
+                            "required_quality_schema_version"
+                        )
+                        for episode in dataset_episodes:
+                            quality = episode.get("quality") or {}
+                            if required_quality_schema == "precision-grasp-stable-v3":
+                                project_root = Path(__file__).resolve().parents[3]
+                                if str(project_root) not in sys.path:
+                                    sys.path.insert(0, str(project_root))
+                                from mujoco_pickplace.episode_dataset import validate_precision_grasp_quality
+                                try:
+                                    validate_precision_grasp_quality(quality, episode.get("episode_index"))
+                                    if (episode.get("success") is not True
+                                            or quality.get("success") is not True
+                                            or int(quality["quality_schema_version"]) < int(expected_version)):
+                                        raise AssertionError("Unsuccessful or obsolete Task1 expert episode")
+                                except (AssertionError, TypeError, ValueError, KeyError) as exc:
+                                    raise ValueError(
+                                        f"{dataset_path} episode {episode.get('episode_index')} "
+                                        f"fails precision grasp quality: {exc}"
+                                    ) from exc
+                                continue
+                            if required_quality_schema == "mujoco-panda-contact":
+                                project_root = Path(__file__).resolve().parents[3]
+                                if str(project_root) not in sys.path:
+                                    sys.path.insert(0, str(project_root))
+                                from mujoco_pickplace.episode_dataset import (
+                                    validate_contact_quality,
+                                )
+                                try:
+                                    validate_contact_quality(
+                                        quality, required_collection_config.get("task_id")
+                                    )
+                                except (AssertionError, TypeError, AttributeError) as exc:
+                                    raise ValueError(
+                                        f"{dataset_path} episode {episode.get('episode_index')} "
+                                        f"fails contact quality: {exc}"
+                                    ) from exc
+                            checks = quality.get("checks") or {}
+                            if (
+                                not bool(episode.get("success"))
+                                or not bool(quality.get("success"))
+                                or quality.get("schema") != required_quality_schema
+                                or quality.get("schema_version") != expected_version
+                                or not checks
+                                or quality.get("failed_checks")
+                                or not all(value is True for value in checks.values())
+                            ):
+                                raise ValueError(
+                                    f"{dataset_path} episode "
+                                    f"{episode.get('episode_index')} fails required "
+                                    f"expert quality {required_quality_schema!r}"
+                                )
+                    self.episodes += dataset_episodes
+                    if dataset_metadata.get("format") == "mujoco-evo-episodes":
+                        expected_files = []
+                        episode_indices = []
+                        for episode in dataset_episodes:
+                            relative = Path(episode["data_path"])
+                            resolved = (dataset_path / relative).resolve()
+                            if relative.is_absolute() or not resolved.is_relative_to(dataset_path.resolve()):
+                                raise ValueError(f"Native episode path escapes dataset: {relative}")
+                            expected_files.append(resolved)
+                            episode_indices.append(int(episode["episode_index"]))
+                        actual_files = {path.resolve() for path in dataset_path.glob("data/*/*.parquet")}
+                        if (not expected_files or len(set(expected_files)) != len(expected_files)
+                                or episode_indices != list(range(len(dataset_episodes)))
+                                or set(expected_files) != actual_files
+                                or dataset_metadata.get("total_episodes") != len(dataset_episodes)
+                                or dataset_metadata.get("total_frames") != sum(int(row["length"]) for row in dataset_episodes)):
+                            raise ValueError(
+                                f"{dataset_path}: native episode manifest does not match the parquet files and dataset totals"
+                            )
+                elif dataset_config.get("required_quality_schema"):
+                    raise FileNotFoundError(
+                        f"episode quality records not found: {episodes_path}"
+                    )
 
      
                 stats_path = dataset_path / "meta" / "episodes_stats.jsonl"
@@ -533,35 +782,75 @@ class LeRobotDataset(Dataset):
                     norm_arm_list.append(stats)
                 else:
                     raise FileNotFoundError(f"normalization stats file not found: {stats_path}")
+                if self.normalization_scope == "dataset":
+                    if dataset_name in self.arm2stats_dict:
+                        raise ValueError(
+                            f"Dataset normalization key is ambiguous: {dataset_name}"
+                        )
+                    self.arm2stats_dict[dataset_name] = merge_lerobot_stats([stats])
             
-            merged_states = merge_lerobot_stats(norm_arm_list)
+            if self.normalization_scope == "dataset":
+                stats_targets = [
+                    self.arm2stats_dict[dataset_name]
+                    for dataset_name in arm_config
+                ]
+            else:
+                stats_targets = [merge_lerobot_stats(norm_arm_list)]
             
-            if self.active_action_mask is not None:
-                action_min = merged_states["action"]["min"]
-                action_max = merged_states["action"]['max']
-                native_action_dim = len(action_min)
-                
-                for dim in range(native_action_dim):
-                    if not bool(self.active_action_mask[dim]):
-                         # Raw inactive action is zero.
-                        # [-1, +1] makes normalized zero exactly zero.
-                        action_min[dim] = -1.0
-                        action_max[dim] = 1.0
-                        
-            self.arm2stats_dict[arm_name] = merged_states
+            for dataset_name, stats_target in zip(arm_config, stats_targets):
+                active_mask = self.dataset_action_masks.get(dataset_name, self.active_action_mask)
+                if active_mask is not None:
+                    action_min = stats_target["action"]["min"]
+                    action_max = stats_target["action"]["max"]
+                    for dim in range(len(action_min)):
+                        if dim >= len(active_mask) or not bool(active_mask[dim]):
+                            # Raw inactive action is zero.
+                            # [-1, +1] makes normalized zero exactly zero.
+                            action_min[dim] = -1.0
+                            action_max[dim] = 1.0
+
+            if self.normalization_scope == "arm":
+                self.arm2stats_dict[arm_name] = stats_targets[0]
 
     def _compute_source_signature(self) -> str:
         """Fingerprint source metadata, parquet and videos using cheap stat data."""
         digest = hashlib.sha256()
+        digest.update(
+            json.dumps(
+                {
+                    "video_alignment_version": CACHE_INDEX_VERSION,
+                    "window_contract": {
+                        "action_horizon": getattr(self, "action_horizon", None),
+                        "memory_frames": getattr(self, "memory_frames", None),
+                        "memory_stride_steps": getattr(self, "memory_stride_steps", None),
+                        "memory_stride_seconds": getattr(self, "memory_stride_seconds", None),
+                    },
+                    "phase_classification": {
+                        "verified_target_visibility": 1,
+                        "grasp": sorted(GRASP_PHASES),
+                        "contact_precision": sorted(CONTACT_PRECISION_PHASES),
+                        "correction": sorted(CORRECTION_PHASES),
+                    },
+                    "data_config": self.config,
+                    "max_samples_per_file": getattr(
+                        self, "max_samples_per_file", None
+                    ),
+                },
+                sort_keys=True,
+                ensure_ascii=False,
+            ).encode("utf-8")
+        )
         for arm_name, arm_config in sorted(self.config["data_groups"].items()):
             for dataset_name, dataset_config in sorted(arm_config.items()):
                 dataset_path = Path(dataset_config["path"]).resolve()
                 digest.update(f"{arm_name}/{dataset_name}\n".encode("utf-8"))
                 candidates = []
                 for relative in (
+                    "meta/dataset.json",
                     "meta/tasks.jsonl",
                     "meta/episodes.jsonl",
                     "meta/episodes_stats.jsonl",
+                    "meta/stats.json",
                 ):
                     path = dataset_path / relative
                     if path.is_file():
@@ -588,7 +877,7 @@ class LeRobotDataset(Dataset):
         with open(temporary_index, "w", encoding="utf-8") as index_file:
             json.dump(
                 {
-                    "version": 3,
+                    "version": CACHE_INDEX_VERSION,
                     "source_signature": self.source_signature,
                     "files": relative_files,
                     "memory_events": self.memory_events,
@@ -606,7 +895,7 @@ class LeRobotDataset(Dataset):
                 with open(index_path, "r", encoding="utf-8") as index_file:
                     index_data = json.load(index_file)
                 version = index_data.get("version")
-                if version != 3:
+                if version != CACHE_INDEX_VERSION:
                     raise ValueError("unsupported cache index version")
                 relative_files = index_data["files"]
                 self.data = [self.cache_dir / value for value in relative_files]
@@ -686,10 +975,12 @@ class LeRobotDataset(Dataset):
         with mp.Pool(processes=num_processes) as pool:
             
             total_episodes = 0
+            failed_files = []
             with tqdm(total=len(parquet_process_units), desc="Processing Parquet files to cache") as pbar:
                 for episode_files, episode_events, error in pool.imap_unordered(_process_parquet_file_worker, parquet_process_units):
                     if error:
                         logging.error(error)
+                        failed_files.append(error)
                     else:
                         self.data.extend(episode_files)  
                         self.memory_events.extend(episode_events)
@@ -700,12 +991,31 @@ class LeRobotDataset(Dataset):
                         'total_episodes': total_episodes
                     })
                     pbar.update(1)
+        if failed_files:
+            raise RuntimeError(
+                f"Failed to build {len(failed_files)} episode windows; "
+                f"first error: {failed_files[0]}"
+            )
         
         print(f"Data processing completed, total {len(self.data)} files generated")
         self._write_cache_index()
 
     def memory_event_sampling_weights(self):
-        weights, counts = adaptive_memory_event_weights(self.memory_events)
+        # Balance the naturally occurring event types inside each dataset, not
+        # just globally.  Otherwise a large Task1 dataset can drown out every
+        # Task3 window even though both belong to the same Panda embodiment.
+        # This changes no collection quota and duplicates no trajectories.
+        labels = []
+        cache_root = self.cache_dir.resolve()
+        for cache_file, event in zip(self.data, self.memory_events):
+            relative = Path(cache_file).resolve().relative_to(cache_root)
+            if len(relative.parts) < 2:
+                raise ValueError(
+                    f"Unexpected cache layout for sampling: {cache_file}"
+                )
+            dataset_key = relative.parts[1]
+            labels.append(f"{dataset_key}/{event}")
+        weights, counts = adaptive_memory_event_weights(labels)
         return torch.as_tensor(weights, dtype=torch.double), counts
 
 
@@ -736,6 +1046,10 @@ class LeRobotDataset(Dataset):
     def _load_video_frames(self, video_paths: dict, timestamps) -> List[List[Image.Image]]:
         """Decode all requested timestamps while opening each camera video once."""
         timestamps = [float(value) for value in timestamps]
+        if not video_paths or not timestamps:
+            raise ValueError("Video paths and requested timestamps must not be empty")
+        if not np.isfinite(timestamps).all() or min(timestamps) < 0 or np.any(np.diff(timestamps) < 0):
+            raise ValueError("Video timestamps must be finite, nonnegative and ordered")
         frames = [[None for _ in video_paths] for _ in timestamps]
         for view_index, (view, path) in enumerate(video_paths.items()):
             if not os.path.exists(path):
@@ -755,7 +1069,7 @@ class LeRobotDataset(Dataset):
                     logging.info(f"Successfully opened video file: {path}")
                     fps = vr.get_avg_fps()
                     logging.info(f"Video {path} FPS: {fps}")
-                    if fps is None or np.isnan(fps):
+                    if fps is None or not np.isfinite(fps) or fps <= 0 or not len(vr):
                         raise ValueError(f"Unable to read FPS, video may be corrupted: {path}")
 
                     for time_index, timestamp in enumerate(timestamps):
@@ -763,9 +1077,12 @@ class LeRobotDataset(Dataset):
                         # land just below an integer frame index in binary
                         # floating point.  Nearest-frame selection avoids a
                         # systematic one-frame shift into the past.
-                        frame_idx = min(
-                            max(int(round(timestamp * fps)), 0), len(vr) - 1
-                        )
+                        frame_idx = int(round(timestamp * fps))
+                        if frame_idx >= len(vr):
+                            raise ValueError(
+                                f"Requested video frame {frame_idx} at {timestamp:.6f}s is missing from {path}; "
+                                f"video has {len(vr)} frames"
+                            )
                         frames[time_index][view_index] = Image.fromarray(
                             vr[frame_idx].asnumpy()
                         )
@@ -792,9 +1109,11 @@ class LeRobotDataset(Dataset):
                                 target_index += 1
                         if last_image is None:
                             raise ValueError(f"Video contains no decodable frames: {path}")
-                        while target_index < len(timestamps):
-                            frames[target_index][view_index] = last_image.copy()
-                            target_index += 1
+                        if target_index < len(timestamps):
+                            raise ValueError(
+                                f"Requested video timestamp {timestamps[target_index]:.6f}s is missing from {path}; "
+                                f"last decoded timestamp is {frame_time:.6f}s"
+                            )
 
                 except Exception as e:
                     print(f"Failed to read video file: {path}")
@@ -869,7 +1188,8 @@ class LeRobotDataset(Dataset):
     
 
         try:
-            norm_stats = self.arm2stats_dict[arm_key]
+            stats_key = dataset_key if self.normalization_scope == "dataset" else arm_key
+            norm_stats = self.arm2stats_dict[stats_key]
         except KeyError:
         
             raise KeyError(f"Normalization stats not found for arm_key={arm_key} and dataset_key={dataset_key}")
@@ -903,9 +1223,10 @@ class LeRobotDataset(Dataset):
         action_padded, action_mask = self._pad_tensor(
             action, self.max_action_dim
         )
-        if self.active_action_mask is not None:
+        active_mask = self.dataset_action_masks.get(dataset_key, self.active_action_mask)
+        if active_mask is not None:
             active = torch.zeros(self.max_action_dim, dtype=torch.bool, device=action_mask.device)
-            active[:len(self.active_action_mask)] = self.active_action_mask.to(action_mask.device)
+            active[:len(active_mask)] = active_mask.to(action_mask.device)
             action_mask = action_mask & active
 
         prompt = item["prompt"] if item["prompt"] is not None else ""

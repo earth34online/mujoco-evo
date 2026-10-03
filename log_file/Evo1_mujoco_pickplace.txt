@@ -1,0 +1,33 @@
+2026-09-30 16:23:59,722 [INFO] Random evaluation start seed: 3022155319
+2026-09-30 16:24:00,220 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-30 16:24:01,694 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-09-30 16:24:10,770 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-09-30 16:24:10,770 [INFO] ========= Task 1 Summary: 0/1 Successful =========
+2026-09-30 16:24:10,770 [INFO] 
+========= Overall Task Summary =========
+2026-09-30 16:24:10,770 [INFO] ✅ Total Successful Episodes: 0/1
+2026-09-30 16:24:10,770 [INFO] 📊 Average Steps: 1.00
+2026-09-30 16:24:10,770 [INFO] success_rate=0.000
+2026-10-03 12:10:48,086 [INFO] Random evaluation start seed: 692631778
+2026-10-03 12:10:48,155 [INFO] 
+========= Start task3: pick up the chopstick and place it inside the storage box =========
+2026-10-03 12:10:48,755 [INFO] Evaluation execution policy: horizon=1, precision_replan=False
+2026-10-03 12:15:12,224 [INFO] Task 2 | Episode 1: ❌ Fail
+2026-10-03 12:15:12,269 [INFO] ========= Task 3 Summary: 0/1 Successful =========
+2026-10-03 12:15:12,271 [INFO] 
+========= Overall Task Summary =========
+2026-10-03 12:15:12,271 [INFO] ✅ Total Successful Episodes: 0/1
+2026-10-03 12:15:12,271 [INFO] 📊 Average Steps: 300.00
+2026-10-03 12:15:12,271 [INFO] success_rate=0.000
+2026-10-03 12:58:16,074 [INFO] Random evaluation start seed: 1867064447
+2026-10-03 12:58:16,087 [INFO] 
+========= Start task4: take the object you just saw out of its drawer and place it on the green receiving area =========
+2026-10-03 12:58:16,825 [INFO] Evaluation execution policy: horizon=1, precision_replan=False
+2026-10-03 13:00:01,170 [INFO] Task 3 | Episode 1: ❌ Fail
+2026-10-03 13:00:01,212 [INFO] ========= Task 4 Summary: 0/1 Successful =========
+2026-10-03 13:00:01,214 [INFO] 
+========= Overall Task Summary =========
+2026-10-03 13:00:01,214 [INFO] ✅ Total Successful Episodes: 0/1
+2026-10-03 13:00:01,214 [INFO] 📊 Average Steps: 100.00
+2026-10-03 13:00:01,214 [INFO] success_rate=0.000

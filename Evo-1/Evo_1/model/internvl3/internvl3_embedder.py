@@ -176,7 +176,9 @@ class InternVL3Embedder(nn.Module):
         if gradient_checkpointing and hasattr(
             self.model.language_model, "gradient_checkpointing_enable"
         ):
-            self.model.language_model.gradient_checkpointing_enable()
+            self.model.language_model.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={"use_reentrant": False}
+            )
         
 
     def _normalize_memory_images(self, image_tensors):

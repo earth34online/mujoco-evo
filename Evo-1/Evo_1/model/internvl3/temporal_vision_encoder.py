@@ -527,7 +527,18 @@ def extract_temporal_feature(
         history_mask = history_mask[:, first_shared_valid:]
 
     if num_frames == 1:
-        return chat_model.extract_feature(pixel_values)
+        vision_model = getattr(chat_model, "vision_model", None)
+        if not (
+            vision_model is not None
+            and vision_model.training
+            and vision_model.encoder.gradient_checkpointing
+            and torch.is_grad_enabled()
+        ):
+            return chat_model.extract_feature(pixel_values)
+        # InternVL's native encoder uses reentrant checkpointing without an
+        # explicit argument. A frozen embedding/prefix therefore detaches even
+        # later trainable attention blocks. Use the same spatial forward math
+        # below with non-reentrant checkpoints; keep native inference intact.
 
     vision_model = chat_model.vision_model
     layers = vision_model.encoder.layers
@@ -567,7 +578,8 @@ def extract_temporal_feature(
     for layer_index, layer in enumerate(layers[:target_state_index]):
         layer_number = layer_index + 1
         use_temporal_attention = (
-            not history_dropped
+            num_frames > 1
+            and not history_dropped
             and layer_number % temporal_layer_interval == 0
         )
         if use_temporal_attention:

@@ -27,7 +27,7 @@ _single_gpu_deepspeed_disabled = False
 if (
     os.environ.get("ACCELERATE_USE_DEEPSPEED", "").lower() == "true"
     and int(os.environ.get("WORLD_SIZE", "1")) <= 1
-    and "--no-use_lora" not in sys.argv
+    and "--use_lora" in sys.argv
     and "--allow_single_gpu_deepspeed" not in sys.argv
 ):
     os.environ["ACCELERATE_USE_DEEPSPEED"] = "false"
@@ -170,6 +170,7 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
     dataset_type = get_with_warning(config, "dataset_type", "lerobot")
     image_size = get_with_warning(config, "image_size", 448)
     max_samples = get_with_warning(config, "max_samples_per_file", None)
+    cache_dir = get_with_warning(config, "cache_dir", None)
     horizon = get_with_warning(config, "horizon", 14)
     binarize_gripper = get_with_warning(config, "binarize_gripper", False)
     use_augmentation = get_with_warning(config, "use_augmentation", False)
@@ -187,6 +188,7 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
             config=dataset_config,
             image_size=image_size,
             max_samples_per_file=max_samples,
+            cache_dir=cache_dir,
             action_horizon=horizon,
             binarize_gripper=binarize_gripper,
             use_augmentation=use_augmentation,
@@ -449,6 +451,8 @@ def load_checkpoint_with_deepspeed(
             load_optimizer_states=load_optimizer_states and not resume_pretrain,
             load_lr_scheduler_states=load_optimizer_states and not resume_pretrain
         )
+        if not load_path or not isinstance(client_state, dict):
+            raise RuntimeError("DeepSpeed did not load a checkpoint and its client state")
         if accelerator.is_main_process:
             state_scope = (
                 "including optimizer and scheduler states"
@@ -464,25 +468,11 @@ def load_checkpoint_with_deepspeed(
         return client_state.get("step", 0), client_state
         
     except Exception as e:
-        if accelerator.is_main_process:
-            logging.warning(f"World size mismatch detected: {str(e)}")
-            logging.warning("Attempting to load only model weights (skipping optimizer states)...")
-        try:
-            load_path, client_state = model_engine.load_checkpoint(
-                load_dir,
-                tag=tag,
-                load_module_strict=not allow_missing_lora,
-                load_optimizer_states=False,
-                load_lr_scheduler_states=False
-            )
-            if accelerator.is_main_process:
-                logging.info(f"Loaded DeepSpeed checkpoint from {load_dir}/{tag} (model weights only)")
-            return client_state.get("step", 0), client_state
-            
-        except Exception as e2:
-            if accelerator.is_main_process:
-                logging.error(f"Failed to load checkpoint even without optimizer states: {str(e2)}")
-            raise RuntimeError(f"Failed to load DeepSpeed checkpoint from {load_dir} with tag {tag}: {str(e2)}")
+        raise RuntimeError(
+            f"Failed to restore requested DeepSpeed checkpoint state from {load_dir}/{tag}: {e}. "
+            "Full resume requires compatible optimizer and scheduler states; "
+            "use --resume_pretrain explicitly for model-only initialization."
+        ) from e
 
     
 
@@ -524,9 +514,10 @@ def build_param_groups(model, wd):
             {"params": no_decay, "weight_decay": 0.0}]
 
 def train(config):
-    # 命令行和直接调用 train(config) 使用同一默认值；EVO1(config) 本身仍以
-    # 缺省关闭保持旧推理 checkpoint 的结构兼容性。
-    config.setdefault("use_lora", True)
+    # 命令行和直接调用 train(config) 都默认使用普通参数微调。LoRA 只有在
+    # 配置或 CLI 明确启用时才注入，避免调用方在没有察觉的情况下改变模型
+    # 结构和 checkpoint 契约。
+    config.setdefault("use_lora", False)
     config.setdefault("lora_rank", 8)
     config.setdefault("lora_alpha", 16.0)
     config.setdefault("lora_dropout", 0.0)
@@ -602,6 +593,7 @@ def train(config):
             raise ValueError(f"Invalid --resume_path: {resume_path!r}")
     if (
         resume_pretrain
+        and get_with_warning(config, "use_lora", False)
         and os.path.realpath(save_dir) == os.path.realpath(resume_dir)
     ):
         raise ValueError(
@@ -623,7 +615,7 @@ def train(config):
             tag=resume_tag,
             load_optimizer_states=False,
             resume_pretrain=True,
-            allow_missing_lora=get_with_warning(config, "use_lora", True),
+            allow_missing_lora=get_with_warning(config, "use_lora", False),
         )
         if accelerator.is_main_process:
             logging.info(
@@ -691,7 +683,7 @@ def train(config):
             load_optimizer_states=True,  
             resume_pretrain=resume_pretrain,
             allow_missing_lora=(
-                resume_pretrain and get_with_warning(config, "use_lora", True)
+                resume_pretrain and get_with_warning(config, "use_lora", False)
             ),
             optimizer=optimizer,
         )
@@ -948,6 +940,22 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_type", type=str, default="lerobot")
     parser.add_argument("--data_paths", type=str, required=False)
     parser.add_argument("--dataset_config_path", type=str, default="/home/user/mujoco+evo/Evo-1/Evo_1/dataset/config.yaml")
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        default=None,
+        help=(
+            "Optional derived-window cache directory. Use a dedicated path "
+            "when the dataset combination changes so Task3 cannot replace the "
+            "existing Task1 cache."
+        ),
+    )
+    parser.add_argument(
+        "--max_samples_per_file",
+        type=int,
+        default=None,
+        help="Optional per-episode sample cap for startup smoke tests.",
+    )
     parser.add_argument("--image_size", type=int, default=448)
     parser.add_argument(
         "--memory_frames",
@@ -1042,7 +1050,7 @@ if __name__ == "__main__":
     # Logging & checkpointing
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--ckpt_interval", type=int, default=1000)
-    parser.add_argument("--save_dir", type=str, default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage1")
+    parser.add_argument("--save_dir", type=str, default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage3")
     parser.add_argument(
         "--verbose_parameter_listing",
         action="store_true",
@@ -1059,10 +1067,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use_lora",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
-            "Use LoRA for the selected vision/action modules (default: enabled). "
-            "Pass --no-use_lora to recover the previous full/partial-finetuning path."
+            "Use LoRA for the selected vision/action modules (default: disabled). "
+            "Pass --use_lora explicitly to enable adapter training."
         ),
     )
     parser.add_argument("--lora_rank", type=int, default=8)

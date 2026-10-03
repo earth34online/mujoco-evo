@@ -329,3 +329,197 @@
 2026-09-20 16:16:42,559 [INFO] ✅ Total Successful Episodes: 11/20
 2026-09-20 16:16:42,559 [INFO] 📊 Average Steps: 171.40
 2026-09-20 16:16:42,560 [INFO] success_rate=0.550
+2026-09-26 18:09:58,328 [INFO] Random evaluation start seed: 417206158
+2026-09-26 18:09:58,329 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 18:09:58,367 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 18:09:58,368 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 18:42:48,699 [INFO] Random evaluation start seed: 1892350152
+2026-09-26 18:42:48,701 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 18:42:48,786 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-09-26 18:47:55,589 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 18:47:55,784 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 18:55:04,518 [INFO] Random evaluation start seed: 3863449095
+2026-09-26 18:55:04,557 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 18:55:05,526 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-09-26 18:58:08,681 [INFO] Removed 1 stale episode videos from outputs/step_best/task1
+2026-09-26 18:58:08,687 [INFO] Random evaluation start seed: 89903658
+2026-09-26 18:58:08,688 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 18:58:19,065 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 18:58:19,066 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 18:59:32,435 [INFO] Random evaluation start seed: 2966366093
+2026-09-26 18:59:32,435 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 18:59:42,463 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 18:59:42,463 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 19:00:04,741 [INFO] Task 0 | Episode 1: ✅ Success
+2026-09-26 19:00:06,570 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 19:00:06,570 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 19:03:04,647 [INFO] Removed 2 stale episode videos from outputs/step_8000/task1
+2026-09-26 19:03:04,652 [INFO] Random evaluation start seed: 1819106401
+2026-09-26 19:03:04,652 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 19:03:04,670 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-09-26 19:03:17,633 [INFO] Random evaluation start seed: 3227594314
+2026-09-26 19:03:17,633 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 19:03:17,660 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 19:03:17,661 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 19:30:38,774 [INFO] Random evaluation start seed: 3190394090
+2026-09-26 19:30:38,774 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 19:30:39,235 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-09-26 19:37:25,877 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-09-26 19:39:27,364 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 19:39:27,364 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 19:40:38,099 [INFO] Random evaluation start seed: 1437246204
+2026-09-26 19:40:38,099 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 19:40:38,116 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-09-26 19:44:02,322 [INFO] Random evaluation start seed: 1506288023
+2026-09-26 19:44:02,323 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 19:44:02,350 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-09-26 19:45:33,118 [INFO] Task 0 | Episode 1: ✅ Success
+2026-09-26 19:50:14,729 [INFO] Task 0 | Episode 1: ✅ Success
+2026-09-26 19:50:50,879 [INFO] Task 0 | Episode 2: ❌ Fail
+2026-09-26 19:53:30,262 [INFO] Task 0 | Episode 2: ✅ Success
+2026-09-26 19:56:45,191 [INFO] Task 0 | Episode 3: ✅ Success
+2026-09-26 19:59:15,595 [INFO] Task 0 | Episode 3: ❌ Fail
+2026-09-26 20:01:11,682 [INFO] Task 0 | Episode 4: ✅ Success
+2026-09-26 20:03:53,418 [INFO] Task 0 | Episode 4: ❌ Fail
+2026-09-26 20:04:30,805 [INFO] Task 0 | Episode 5: ✅ Success
+2026-09-26 20:07:27,412 [INFO] Task 0 | Episode 5: ✅ Success
+2026-09-26 20:08:32,327 [INFO] Task 0 | Episode 6: ✅ Success
+2026-09-26 20:11:07,723 [INFO] Task 0 | Episode 6: ✅ Success
+2026-09-26 20:15:36,430 [INFO] Task 0 | Episode 7: ❌ Fail
+2026-09-26 20:16:32,842 [INFO] Task 0 | Episode 7: ✅ Success
+2026-09-26 20:17:57,513 [INFO] Task 0 | Episode 8: ✅ Success
+2026-09-26 20:19:07,212 [INFO] Task 0 | Episode 8: ✅ Success
+2026-09-26 20:21:08,304 [INFO] Task 0 | Episode 9: ✅ Success
+2026-09-26 20:21:40,239 [INFO] Task 0 | Episode 9: ✅ Success
+2026-09-26 20:23:22,879 [INFO] Task 0 | Episode 10: ✅ Success
+2026-09-26 20:25:20,001 [INFO] Task 0 | Episode 10: ✅ Success
+2026-09-26 20:26:22,551 [INFO] Task 0 | Episode 11: ✅ Success
+2026-09-26 20:27:58,959 [INFO] Task 0 | Episode 11: ✅ Success
+2026-09-26 20:30:25,097 [INFO] Task 0 | Episode 12: ✅ Success
+2026-09-26 20:31:25,554 [INFO] Task 0 | Episode 12: ✅ Success
+2026-09-26 20:35:12,751 [INFO] Task 0 | Episode 13: ✅ Success
+2026-09-26 20:37:15,176 [INFO] Task 0 | Episode 13: ✅ Success
+2026-09-26 20:40:02,786 [INFO] Task 0 | Episode 14: ✅ Success
+2026-09-26 20:41:30,624 [INFO] Task 0 | Episode 14: ❌ Fail
+2026-09-26 20:42:43,810 [INFO] Task 0 | Episode 15: ✅ Success
+2026-09-26 20:45:30,109 [INFO] Task 0 | Episode 15: ✅ Success
+2026-09-26 20:46:08,377 [INFO] Task 0 | Episode 16: ✅ Success
+2026-09-26 20:48:04,558 [INFO] Task 0 | Episode 16: ✅ Success
+2026-09-26 20:50:40,020 [INFO] Task 0 | Episode 17: ✅ Success
+2026-09-26 20:53:08,838 [INFO] Task 0 | Episode 18: ✅ Success
+2026-09-26 20:53:22,182 [INFO] Task 0 | Episode 17: ❌ Fail
+2026-09-26 20:54:44,738 [INFO] Task 0 | Episode 19: ✅ Success
+2026-09-26 20:56:51,776 [INFO] Task 0 | Episode 18: ✅ Success
+2026-09-26 21:01:15,201 [INFO] Task 0 | Episode 20: ❌ Fail
+2026-09-26 21:04:26,471 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 21:04:26,506 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 21:05:16,015 [INFO] Task 0 | Episode 19: ❌ Fail
+2026-09-26 21:05:34,040 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 21:05:34,069 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 21:10:06,135 [INFO] Random evaluation start seed: 564893870
+2026-09-26 21:10:06,135 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 21:10:07,420 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 21:10:07,420 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 21:21:56,951 [INFO] Random evaluation start seed: 2853888453
+2026-09-26 21:21:56,952 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 21:21:56,988 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-09-26 21:22:02,016 [INFO] Random evaluation start seed: 4241922834
+2026-09-26 21:22:02,016 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-09-26 21:22:02,070 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-09-26 21:24:55,139 [INFO] Task 0 | Episode 1: ✅ Success
+2026-09-26 21:30:46,443 [INFO] Task 0 | Episode 1: ❌ Fail
+2026-09-26 21:33:33,805 [INFO] Task 0 | Episode 2: ✅ Success
+2026-09-26 21:34:07,235 [INFO] Task 0 | Episode 2: ❌ Fail
+2026-09-26 21:36:43,382 [INFO] Task 0 | Episode 3: ✅ Success
+2026-09-26 21:36:47,879 [INFO] Platform import failed (likely during shutdown)
+2026-09-26 21:36:47,879 [INFO] Platform import failed (likely during shutdown)
+2026-10-03 09:05:42,350 [INFO] Random evaluation start seed: 701620864
+2026-10-03 09:05:42,375 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-10-03 09:05:42,378 [INFO] Removed 20 stale episode videos from /home/user/mujoco+evo/mujoco_pickplace/outputs/step_best/task1
+2026-10-03 09:05:43,897 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-10-03 09:06:46,802 [INFO] Task 0 | Episode 1: ✅ Success
+2026-10-03 09:07:07,356 [INFO] Random evaluation start seed: 201180630
+2026-10-03 09:07:07,383 [INFO] 
+========= Start task1: pick up the blue cube and place it on the green target =========
+2026-10-03 09:07:08,493 [INFO] Evaluation execution policy: horizon=4, precision_replan=True, grasp_x_bias=0.004
+2026-10-03 09:07:59,412 [INFO] Task 0 | Episode 2: ✅ Success
+2026-10-03 09:08:26,529 [INFO] Task 0 | Episode 1: ✅ Success
+2026-10-03 09:09:14,365 [INFO] Task 0 | Episode 3: ✅ Success
+2026-10-03 09:09:55,048 [INFO] Task 0 | Episode 2: ✅ Success
+2026-10-03 09:10:35,060 [INFO] Task 0 | Episode 4: ✅ Success
+2026-10-03 09:11:13,364 [INFO] Task 0 | Episode 3: ✅ Success
+2026-10-03 09:11:56,610 [INFO] Task 0 | Episode 5: ✅ Success
+2026-10-03 09:12:23,066 [INFO] Task 0 | Episode 4: ✅ Success
+2026-10-03 09:12:54,719 [INFO] Task 0 | Episode 6: ✅ Success
+2026-10-03 09:13:35,200 [INFO] Task 0 | Episode 5: ✅ Success
+2026-10-03 09:14:13,930 [INFO] Task 0 | Episode 7: ✅ Success
+2026-10-03 09:14:57,029 [INFO] Task 0 | Episode 6: ✅ Success
+2026-10-03 09:15:35,799 [INFO] Task 0 | Episode 8: ✅ Success
+2026-10-03 09:16:13,515 [INFO] Task 0 | Episode 7: ✅ Success
+2026-10-03 09:17:00,058 [INFO] Task 0 | Episode 9: ✅ Success
+2026-10-03 09:17:27,735 [INFO] Task 0 | Episode 8: ✅ Success
+2026-10-03 09:18:14,953 [INFO] Task 0 | Episode 10: ✅ Success
+2026-10-03 09:18:41,250 [INFO] Task 0 | Episode 9: ✅ Success
+2026-10-03 09:19:23,554 [INFO] Task 0 | Episode 11: ✅ Success
+2026-10-03 09:19:46,722 [INFO] Task 0 | Episode 10: ✅ Success
+2026-10-03 09:20:28,402 [INFO] Task 0 | Episode 12: ✅ Success
+2026-10-03 09:20:55,053 [INFO] Task 0 | Episode 11: ✅ Success
+2026-10-03 09:21:39,254 [INFO] Task 0 | Episode 13: ✅ Success
+2026-10-03 09:22:05,066 [INFO] Task 0 | Episode 12: ✅ Success
+2026-10-03 09:22:47,972 [INFO] Task 0 | Episode 14: ✅ Success
+2026-10-03 09:23:28,679 [INFO] Task 0 | Episode 13: ✅ Success
+2026-10-03 09:23:58,165 [INFO] Task 0 | Episode 15: ✅ Success
+2026-10-03 09:24:38,177 [INFO] Task 0 | Episode 14: ✅ Success
+2026-10-03 09:25:09,938 [INFO] Task 0 | Episode 16: ✅ Success
+2026-10-03 09:25:57,949 [INFO] Task 0 | Episode 15: ✅ Success
+2026-10-03 09:26:29,969 [INFO] Task 0 | Episode 17: ✅ Success
+2026-10-03 09:27:13,984 [INFO] Task 0 | Episode 16: ✅ Success
+2026-10-03 09:27:42,337 [INFO] Task 0 | Episode 18: ✅ Success
+2026-10-03 09:28:27,639 [INFO] Task 0 | Episode 17: ✅ Success
+2026-10-03 09:28:55,877 [INFO] Task 0 | Episode 19: ✅ Success
+2026-10-03 09:29:52,124 [INFO] Task 0 | Episode 18: ✅ Success
+2026-10-03 09:30:13,557 [INFO] Task 0 | Episode 20: ✅ Success
+2026-10-03 09:30:13,629 [INFO] ========= Task 1 Summary: 20/20 Successful =========
+2026-10-03 09:30:13,630 [INFO] 
+========= Start task3: pick up the chopstick and place it inside the storage box =========
+2026-10-03 09:30:14,362 [INFO] Evaluation execution policy: horizon=1, precision_replan=False
+2026-10-03 09:31:13,087 [INFO] Task 0 | Episode 19: ✅ Success
+2026-10-03 09:32:31,825 [INFO] Task 0 | Episode 20: ✅ Success
+2026-10-03 09:32:31,876 [INFO] ========= Task 1 Summary: 20/20 Successful =========
+2026-10-03 09:32:31,877 [INFO] 
+========= Start task3: pick up the chopstick and place it inside the storage box =========
+2026-10-03 09:32:32,471 [INFO] Evaluation execution policy: horizon=1, precision_replan=False
+2026-10-03 09:36:13,436 [INFO] Task 2 | Episode 1: ❌ Fail
+2026-10-03 09:38:53,782 [INFO] Task 2 | Episode 1: ❌ Fail
+2026-10-03 09:42:43,365 [INFO] Task 2 | Episode 2: ❌ Fail
+2026-10-03 09:45:22,036 [INFO] Task 2 | Episode 2: ❌ Fail
+2026-10-03 09:49:16,170 [INFO] Task 2 | Episode 3: ❌ Fail
+2026-10-03 09:51:56,315 [INFO] Task 2 | Episode 3: ❌ Fail
+2026-10-03 09:55:54,109 [INFO] Task 2 | Episode 4: ❌ Fail
+2026-10-03 09:58:19,408 [INFO] Task 2 | Episode 4: ❌ Fail
+2026-10-03 10:02:18,778 [INFO] Task 2 | Episode 5: ❌ Fail
+2026-10-03 10:04:02,264 [INFO] Task 2 | Episode 5: ❌ Fail
+2026-10-03 10:07:16,312 [INFO] Random evaluation start seed: 2029374989
+2026-10-03 10:07:16,384 [INFO] 
+========= Start task4: take the object you just saw out of its drawer and place it on the green receiving area =========
+2026-10-03 10:07:17,458 [INFO] Evaluation execution policy: horizon=1, precision_replan=False
+2026-10-03 10:07:45,248 [INFO] Random evaluation start seed: 696984743
+2026-10-03 10:07:45,286 [INFO] 
+========= Start task4: take the object you just saw out of its drawer and place it on the green receiving area =========
+2026-10-03 10:07:46,067 [INFO] Evaluation execution policy: horizon=1, precision_replan=False
+2026-10-03 10:23:14,157 [INFO] Task 3 | Episode 1: ❌ Fail
+2026-10-03 10:23:49,508 [INFO] Task 3 | Episode 1: ❌ Fail

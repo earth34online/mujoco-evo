@@ -93,7 +93,7 @@ class EVO1(nn.Module):
             raise NotImplementedError(f"Unknown action_head: {action_head_type}")
 
         # 为保持旧 checkpoint 和外部直接构造 EVO1 的兼容性，模型类只在配置中
-        # 明确存在 use_lora=true 时注入；训练 CLI 会默认写入 true。
+        # 明确存在 use_lora=true 时注入；训练入口默认也不启用 LoRA。
         self.use_lora = bool(config.get("use_lora", False))
         self.lora_module_names = []
         if self.use_lora:
@@ -479,9 +479,6 @@ class EVO1(nn.Module):
     def set_finetune_flags(self):
         config = self.config  
         if self.use_lora:
-            # LoRA 模式冻结大矩阵，只训练低秩增量和少量偏置/归一化参数。
-            # 后者几乎不增加优化器显存，但比纯 LoRA 更接近原训练路径的
-            # 表达能力；可用 --no-lora_train_bias_norm 做严格纯 LoRA 消融。
             self._freeze_module(self.embedder, "VLM (InternVL3) base weights")
             self._freeze_module(self.action_head, "Action Head base weights")
             adapter_trainable = 0

@@ -1,19 +1,50 @@
+# One Panda embodiment and one EVO checkpoint for Tasks 1, 3 and 4.
 max_action_dim: 24
 max_state_dim: 24
 max_views: 3
-active_action_mask: [1, 1, 1, 0, 0, 0, 1]
-# The fixed MuJoCo camera is metrically tied to Cartesian action labels.
-# Cropping or rotating an image without transforming dx/dy/dz corrupts that
-# correspondence.  Keep photometric augmentation but preserve pixel geometry.
+normalization_scope: dataset
+cache_namespace: mujoco_panda_multitask
 preserve_spatial_calibration: true
-
 data_groups:
-  mujoco_pickplace:
-    MuJoCo_PickPlace_Dataset:
+  mujoco_panda:
+    mujoco_pickplace:
       path: /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
+      active_action_mask: [1, 1, 1, 0, 0, 0, 1]
+      required_source_policy_version: precision-grasp-stable-v3
+      required_quality_schema: precision-grasp-stable-v3
+      required_quality_schema_version: 3
       required_collection_config:
         cube_side_m: 0.050
         cube_support_z_m: 0.055
         expert_grasp_x_bias_m: 0.004
+      view_map:
+        image_1: observation.images.front
+    mujoco_chopstick:
+      path: /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_chopstick
+      active_action_mask: [1, 1, 1, 0, 0, 0, 1]
+      required_collection_config:
+        task_id: 3
+        robot_state_convention: mujoco_hand_quaternion_axis_angle
+        action_convention: world_delta_pose_m_rad_gripper_0_close_1_open
+        compact_static_frames: false
+      required_quality_schema: mujoco-panda-contact
+      required_quality_schema_version: 1
+      view_map:
+        image_1: observation.images.front
+    mujoco_drawer_memory:
+      path: /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_drawer_memory
+      active_action_mask: [1, 1, 1, 1, 1, 1, 1]
+      required_collection_config:
+        task_id: 4
+        robot_state_convention: mujoco_hand_quaternion_axis_angle
+        action_convention: world_delta_pose_m_rad_gripper_0_close_1_open
+        compact_static_frames: false
+        drawer_pitch_m: 0.12
+        drawer_insert_height_m: 0.03
+        handle_axis: horizontal
+        memory_frames: 6
+        memory_stride_seconds: 1.0
+      required_quality_schema: mujoco-panda-contact
+      required_quality_schema_version: 1
       view_map:
         image_1: observation.images.front

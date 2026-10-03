@@ -20,7 +20,7 @@ from model.lora import merge_lora_weights
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CKPT_DIR = (
-    REPO_ROOT / "ckpt" / "evo1_mujoco_pickplace_stage2" / "step_best"
+    REPO_ROOT / "ckpt" / "evo1_mujoco_pickplace_stage3" / "step_best"
 )
 DEFAULT_VLM_REPO_ID = "OpenGVLab/InternVL3-1B"
 
@@ -46,37 +46,49 @@ class Normalizer:
                 )
             return x
 
-        if len(stats) != 1:
-            raise ValueError(f"norm_stats.json should contain only one robot key, but: {list(stats.keys())}")
+        if not isinstance(stats, dict) or not stats:
+            raise ValueError("norm_stats.json must contain at least one statistics key")
+        self.stats_by_key = {}
+        for stats_key, robot_stats in stats.items():
+            for feature in ("observation.state", "action"):
+                if (
+                    len(robot_stats[feature]["min"]) != self.target_dim
+                    or len(robot_stats[feature]["max"]) != self.target_dim
+                ):
+                    raise ValueError(
+                        f"{stats_key}/{feature} checkpoint statistics must be 24-D. "
+                        "This checkpoint predates neutral-bound padding."
+                    )
+            self.stats_by_key[stats_key] = {
+                "state_min": pad_to_24(robot_stats["observation.state"]["min"]),
+                "state_max": pad_to_24(robot_stats["observation.state"]["max"]),
+                "action_min": pad_to_24(robot_stats["action"]["min"]),
+                "action_max": pad_to_24(robot_stats["action"]["max"]),
+            }
 
-        robot_key = list(stats.keys())[0]
-        robot_stats = stats[robot_key]
+    def _stats(self, task_key=None):
+        if len(self.stats_by_key) == 1:
+            if task_key is not None and task_key not in self.stats_by_key:
+                raise ValueError(f'Checkpoint statistics do not contain task_key={task_key!r}; available: {list(self.stats_by_key)}')
+            return next(iter(self.stats_by_key.values()))
+        if task_key not in self.stats_by_key:
+            raise ValueError(
+                f"This multi-task checkpoint requires task_key in "
+                f"{list(self.stats_by_key)}; got {task_key!r}"
+            )
+        return self.stats_by_key[task_key]
 
-        for key in ("observation.state", "action"):
-            if (
-                len(robot_stats[key]["min"]) != self.target_dim
-                or len(robot_stats[key]["max"]) != self.target_dim
-            ):
-                raise ValueError(
-                    f"{key} checkpoint statistics must be 24-D. "
-                    "This checkpoint predates neutral-bound padding."
-                )
-
-        self.state_min = pad_to_24(robot_stats["observation.state"]["min"])
-        self.state_max = pad_to_24(robot_stats["observation.state"]["max"])
-        self.action_min = pad_to_24(robot_stats["action"]["min"])
-        self.action_max = pad_to_24(robot_stats["action"]["max"])
-
-    def normalize_state(self, state: torch.Tensor) -> torch.Tensor:
+    def normalize_state(self, state: torch.Tensor, task_key=None) -> torch.Tensor:
         current_dim = state.shape[-1]
         if current_dim > self.target_dim:
             raise ValueError(
                 f"State length {current_dim} exceeds expected {self.target_dim}"
             )
-        state_min = self.state_min[:current_dim].to(
+        stats = self._stats(task_key)
+        state_min = stats["state_min"][:current_dim].to(
             state.device, dtype=state.dtype
         )
-        state_max = self.state_max[:current_dim].to(
+        state_max = stats["state_max"][:current_dim].to(
             state.device, dtype=state.dtype
         )
         normalized = torch.clamp(
@@ -98,9 +110,10 @@ class Normalizer:
             )
         return normalized
 
-    def denormalize_action(self, action: torch.Tensor) -> torch.Tensor:
-        action_min = self.action_min.to(action.device, dtype=action.dtype)
-        action_max = self.action_max.to(action.device, dtype=action.dtype)
+    def denormalize_action(self, action: torch.Tensor, task_key=None) -> torch.Tensor:
+        stats = self._stats(task_key)
+        action_min = stats["action_min"].to(action.device, dtype=action.dtype)
+        action_max = stats["action_max"].to(action.device, dtype=action.dtype)
         if action.ndim == 1:
             action = action.view(1, -1)
         return (action + 1.0) / 2.0 * (action_max - action_min + 1e-8) + action_min
@@ -304,7 +317,9 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
                 "(eef xyz + axis-angle + two finger qpos); got "
                 f"{tuple(state.shape)}"
             )
-        norm_state = normalizer.normalize_state(state).to(dtype=torch.float32)
+        norm_state = normalizer.normalize_state(
+            state, task_key=data.get("task_key")
+        ).to(dtype=torch.float32)
 
     prompt = data["prompt"]
     image_mask = torch.tensor(data["image_mask"], dtype=torch.bool, device=device)
@@ -348,7 +363,9 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
             history_mask=history_mask,
         )
         action = action.reshape(1, -1, 24)
-        action = normalizer.denormalize_action(action[0])
+        action = normalizer.denormalize_action(
+            action[0], task_key=data.get("task_key")
+        )
         return action.cpu().numpy().tolist()
 
 
@@ -362,6 +379,9 @@ async def handle_request(websocket, model, normalizer, use_state):
                 await websocket.send(json.dumps({
                     "type": "model_metadata",
                     "memory_frames": int(getattr(model, "memory_frames", 1)),
+                    "memory_stride_seconds": model.config.get('memory_stride_seconds'),
+                    "memory_stride_steps": int(model.config.get('memory_stride_steps', 5)),
+                    "normalization_keys": list(normalizer.stats_by_key),
                     "legacy_inference_contract": legacy,
                     "recommended_execution_horizon": 14 if legacy else 4,
                     "recommended_precision_replan": not legacy,

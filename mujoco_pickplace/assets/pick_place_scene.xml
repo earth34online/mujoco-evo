@@ -1,5 +1,5 @@
 <mujoco model="evo1_panda_pick_place">
-  <include file="../mujoco_menagerie/franka_emika_panda/panda.xml"/>
+  <include file="../../mujoco_menagerie/franka_emika_panda/panda.xml"/>
   <option timestep="0.002" gravity="0 0 -9.81" cone="elliptic" impratio="5"/>
 
   <visual>

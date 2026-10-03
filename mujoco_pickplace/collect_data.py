@@ -1,17 +1,16 @@
 from pathlib import Path
 import argparse
-import shutil
+import sys
 
 import numpy as np
-from tqdm import tqdm
-
-from episode_dataset import CAMERAS, EpisodeDatasetWriter
-from pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+from mujoco_pickplace.episode_dataset import CAMERAS
+from mujoco_pickplace.pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
+
 DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "cache" / "mujoco_pickplace"
-NUM_EPISODES = 250
+NUM_EPISODES = 200
 MAX_ATTEMPTS = 20000
 MAX_STEPS = 250
 MIN_LEN = 20
@@ -59,7 +58,7 @@ def _reversal_count(vectors, motion_epsilon=1e-5):
     moving = np.linalg.norm(vectors, axis=1) > motion_epsilon
     valid = moving[1:] & moving[:-1]
     dots = np.sum(vectors[1:] * vectors[:-1], axis=1)
-    return int(np.sum(valid & (dots < -motion_epsilon ** 2)))
+    return int(np.sum(valid & (dots < -(motion_epsilon**2))))
 
 
 def _phase_entry_count(phases, target):
@@ -87,9 +86,7 @@ def trajectory_quality(
     post_hand_positions = np.asarray(post_hand_positions, dtype=np.float64)
     post_cube_positions = np.asarray(post_cube_positions, dtype=np.float64)
     post_cube_tilts_deg = np.asarray(post_cube_tilts_deg, dtype=np.float64)
-    post_cube_angular_speeds = np.asarray(
-        post_cube_angular_speeds, dtype=np.float64
-    )
+    post_cube_angular_speeds = np.asarray(post_cube_angular_speeds, dtype=np.float64)
     post_two_pad_contacts = np.asarray(post_two_pad_contacts, dtype=bool)
     post_attached = np.asarray(post_attached, dtype=bool)
     initial_cube_position = np.asarray(initial_cube_position, dtype=np.float64)
@@ -136,15 +133,9 @@ def trajectory_quality(
             [cube[0] + PickPlaceEnv.EXPERT_GRASP_X_BIAS, cube[1]],
             dtype=np.float64,
         )
-        successful_close_xy_error = float(
-            np.linalg.norm(hand[:2] - target_xy)
-        )
+        successful_close_xy_error = float(np.linalg.norm(hand[:2] - target_xy))
         successful_close_z_above = float(
-            hand[2]
-            - (
-                PickPlaceEnv.CUBE_SUPPORT_Z
-                + PickPlaceEnv.EXPERT_GRASP_OFFSET
-            )
+            hand[2] - (PickPlaceEnv.CUBE_SUPPORT_Z + PickPlaceEnv.EXPERT_GRASP_OFFSET)
         )
 
     attachment_indices = np.flatnonzero(post_attached)
@@ -171,16 +162,12 @@ def trajectory_quality(
             ],
             dtype=np.float64,
         )
-        attachment_xy_error = float(
-            np.linalg.norm(attach_hand[:2] - attach_target_xy)
-        )
+        attachment_xy_error = float(np.linalg.norm(attach_hand[:2] - attach_target_xy))
         attachment_z_above = float(
             attach_hand[2]
             - (PickPlaceEnv.CUBE_SUPPORT_Z + PickPlaceEnv.EXPERT_GRASP_OFFSET)
         )
-        attachment_cube_tilt_deg = float(
-            post_cube_tilts_deg[first_attachment_index]
-        )
+        attachment_cube_tilt_deg = float(post_cube_tilts_deg[first_attachment_index])
         attachment_cube_angular_speed = float(
             post_cube_angular_speeds[first_attachment_index]
         )
@@ -197,9 +184,7 @@ def trajectory_quality(
                 )
             )
         )
-        pregrasp_cube_tilt_deg = float(
-            np.max(post_cube_tilts_deg[pregrasp_slice])
-        )
+        pregrasp_cube_tilt_deg = float(np.max(post_cube_tilts_deg[pregrasp_slice]))
 
         release_indices = np.flatnonzero(
             (np.asarray(phases) == "release")
@@ -215,18 +200,13 @@ def trajectory_quality(
             if not has_two_pad_contact:
                 break
             two_pad_contact_steps += 1
-        attachment_lost_before_release = bool(
-            not np.all(post_attached[held_slice])
-        )
+        attachment_lost_before_release = bool(not np.all(post_attached[held_slice]))
 
     allowed_eef_reversals = (
-        MAX_EEF_REVERSALS
-        + recovery_count * RECOVERY_EEF_REVERSAL_ALLOWANCE
+        MAX_EEF_REVERSALS + recovery_count * RECOVERY_EEF_REVERSAL_ALLOWANCE
     )
     allowed_action_jump = (
-        RECOVERY_ACTION_JUMP_LIMIT
-        if recovery_count
-        else MAX_ACTION_JUMP
+        RECOVERY_ACTION_JUMP_LIMIT if recovery_count else MAX_ACTION_JUMP
     )
     metrics = {
         "quality_schema_version": QUALITY_SCHEMA_VERSION,
@@ -248,16 +228,20 @@ def trajectory_quality(
         "action_reversals": _reversal_count(actions[:, :3]),
         "eef_reversals": _reversal_count(eef_delta),
         "allowed_eef_reversals": int(allowed_eef_reversals),
-        "max_action_jump": float(
-            np.max(np.linalg.norm(action_delta, axis=1))
-        ) if len(action_delta) else 0.0,
+        "max_action_jump": (
+            float(np.max(np.linalg.norm(action_delta, axis=1)))
+            if len(action_delta)
+            else 0.0
+        ),
         "allowed_action_jump": float(allowed_action_jump),
-        "max_eef_step": float(
-            np.max(np.linalg.norm(eef_delta, axis=1))
-        ) if len(eef_delta) else 0.0,
-        "max_joint_target_delta": float(
-            np.max(np.abs(np.diff(joint_targets, axis=0)))
-        ) if len(joint_targets) > 1 else 0.0,
+        "max_eef_step": (
+            float(np.max(np.linalg.norm(eef_delta, axis=1))) if len(eef_delta) else 0.0
+        ),
+        "max_joint_target_delta": (
+            float(np.max(np.abs(np.diff(joint_targets, axis=0))))
+            if len(joint_targets) > 1
+            else 0.0
+        ),
         "robot_table_contact": False,
     }
     accepted = (
@@ -285,7 +269,8 @@ def trajectory_quality(
         and metrics["eef_reversals"] <= allowed_eef_reversals
         and metrics["max_action_jump"] <= allowed_action_jump
         and metrics["max_eef_step"] <= MAX_EEF_STEP
-        and metrics["max_joint_target_delta"] <= PickPlaceEnv.MAX_JOINT_TARGET_DELTA + 1e-8
+        and metrics["max_joint_target_delta"]
+        <= PickPlaceEnv.MAX_JOINT_TARGET_DELTA + 1e-8
     )
     return accepted, metrics
 
@@ -368,18 +353,12 @@ def collect_attempt(env, seed, max_steps):
         obs, done = env.step(action)
         actual_two_pad_contact = env._has_two_sided_grasp_contact()
         had_two_pad_contact |= actual_two_pad_contact
-        trajectory["post_hand_positions"].append(
-            env.data.body("hand").xpos.copy()
-        )
-        trajectory["post_cube_positions"].append(
-            env.data.body("cube").xpos.copy()
-        )
+        trajectory["post_hand_positions"].append(env.data.body("hand").xpos.copy())
+        trajectory["post_cube_positions"].append(env.data.body("cube").xpos.copy())
         trajectory["post_cube_tilts_deg"].append(env.cube_tilt_degrees())
         trajectory["post_cube_angular_speeds"].append(
             float(
-                np.linalg.norm(
-                    env.data.qvel[env.cube_dof_id + 3 : env.cube_dof_id + 6]
-                )
+                np.linalg.norm(env.data.qvel[env.cube_dof_id + 3 : env.cube_dof_id + 6])
             )
         )
         trajectory["post_two_pad_contacts"].append(actual_two_pad_contact)
@@ -448,11 +427,24 @@ def build_argument_parser():
     parser = argparse.ArgumentParser(
         description="Collect smooth contact-aware demonstrations in the project dataset format."
     )
-    parser.add_argument("--dataset-dir", type=Path, default=DATASET_DIR)
+    parser.add_argument(
+        "--dataset-dir",
+        type=Path,
+        default=None,
+        help="Suite data root; default: Mujoco_training_dataset/cache. For one selected task, this is its dataset directory.",
+    )
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--tasks", type=int, nargs="+", choices=(1, 3, 4))
+    selection.add_argument("--task", type=int, choices=(1, 3, 4))
     parser.add_argument("--num-episodes", type=int, default=NUM_EPISODES)
-    parser.add_argument("--max-steps", type=int, default=MAX_STEPS)
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Expert step limit; omitted: use each task definition.",
+    )
     parser.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS)
-    parser.add_argument("--start-seed", type=int, default=0)
+    parser.add_argument("--start-seed", type=int, default=None)
     parser.add_argument("--image-size", type=int, default=448)
     parser.add_argument(
         "--randomize-task",
@@ -485,119 +477,45 @@ def build_argument_parser():
         action="store_true",
         default=True,
         help="Clear the existing data/videos/meta under dataset-dir before "
-             "collecting, then write a fresh dataset starting at episode 0 "
-             "(default).",
+        "collecting, then write a fresh dataset starting at episode 0 "
+        "(default).",
     )
     write_mode.add_argument(
         "--append",
         dest="overwrite",
         action="store_false",
         help="Preserve the existing dataset and append new episodes. This "
-             "non-default behavior must be requested explicitly.",
+        "non-default behavior must be requested explicitly.",
     )
     return parser
 
 
 def parse_args(argv=None):
     parser = build_argument_parser()
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    args.tasks = args.tasks or ([args.task] if args.task is not None else [1, 3, 4])
+    if len(args.tasks) != len(set(args.tasks)):
+        parser.error("Each task may be selected only once")
+    if args.num_episodes < 1:
+        parser.error("--num-episodes must be positive")
+    if args.max_attempts is not None and args.max_attempts < 1:
+        parser.error("--max-attempts must be positive")
+    if args.max_steps is not None and args.max_steps < 1:
+        parser.error("--max-steps must be positive")
+    if args.compact_static_frames and any(number != 1 for number in args.tasks):
+        parser.error(
+            "Contact and memory task data must keep the physical control timeline"
+        )
+    return args
 
 
 def main(argv=None):
-    args = parse_args(argv)
+    import sys
 
-    if args.overwrite:
-        removed = []
-        for sub in ("data", "videos", "meta", "mujoco_pickplace"):
-            target = args.dataset_dir / sub
-            if target.exists():
-                shutil.rmtree(target)
-                removed.append(sub)
-        print(
-            f"Overwriting dataset: cleared {removed or 'nothing'} under "
-            f"{args.dataset_dir.resolve()}",
-            flush=True,
-        )
+    sys.path.insert(0, str(PROJECT_ROOT))
+    from mujoco_pickplace.tasks import collection_main
 
-    max_attempts = args.max_attempts
-    if max_attempts is None:
-        max_attempts = max(args.num_episodes * 20, args.num_episodes)
-
-    env = PickPlaceEnv(
-        image_size=args.image_size,
-        randomize_task=args.randomize_task,
-        randomization_scale=args.randomization_scale,
-    )
-    action_period = env.model.opt.timestep * env.CONTROL_NSTEP
-    writer = EpisodeDatasetWriter(
-        args.dataset_dir,
-        fps=1.0 / action_period,
-        image_size=args.image_size,
-        collection_config=build_collection_config(
-            env,
-            randomize_task=args.randomize_task,
-            randomization_scale=args.randomization_scale,
-            compact_static_frames=args.compact_static_frames,
-        ),
-    )
-    saved = 0
-    rejected = 0
-    seed = args.start_seed
-
-    try:
-        with tqdm(total=args.num_episodes, desc="accepted episodes") as progress:
-            for _ in range(max_attempts):
-                if saved >= args.num_episodes:
-                    break
-                trajectory, accepted, quality = collect_attempt(
-                    env, seed=seed, max_steps=args.max_steps
-                )
-                attempt_seed = seed
-                seed += 1
-                if not accepted:
-                    rejected += 1
-                    continue
-
-                if args.compact_static_frames:
-                    compact, removed = remove_redundant_static_frames(trajectory)
-                    # The compacted MP4 is written at a constant FPS, so its
-                    # parquet timestamps must describe that compacted timeline.
-                    compact["timestamps"] = (
-                        np.arange(len(compact["states"]), dtype=np.float64)
-                        * action_period
-                    ).tolist()
-                    quality["timestamps_preserve_control_time"] = False
-                else:
-                    compact = trajectory
-                    removed = 0
-                    quality["timestamps_preserve_control_time"] = True
-                quality["removed_static_frames"] = removed
-                row = writer.write_episode(
-                    states=compact["robot_states"],
-                    actions=compact["actions"],
-                    images=compact["images"],
-                    phases=compact["phases"],
-                    dones=compact["dones"],
-                    seed=attempt_seed,
-                    quality=quality,
-                    success=True,
-                    timestamps=compact["timestamps"],
-                )
-                writer.validate_episode(row["episode_index"])
-                saved += 1
-                progress.update(1)
-    finally:
-        env.renderer.close()
-
-    print(
-        f"Collected {saved} episodes; dataset={args.dataset_dir.resolve()}",
-        flush=True,
-    )
-    if saved < args.num_episodes:
-        raise RuntimeError(
-            f"Only {saved}/{args.num_episodes} episodes passed "
-            f"within {max_attempts} attempts"
-        )
+    return collection_main(args=parse_args(argv))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,38 @@
+<mujoco model="panda_task3">
+  <include file="../../mujoco_menagerie/franka_emika_panda/panda.xml" />
+  <compiler angle="radian" meshdir="../../mujoco_menagerie/franka_emika_panda/assets" autolimits="true" />
+  <option integrator="implicitfast" timestep="0.002" gravity="0 0 -9.81" cone="elliptic" impratio="5" />
+  <asset>
+    <texture name="scene_sky" type="skybox" builtin="gradient" rgb1=".34 .40 .49" rgb2=".76 .80 .85" width="512" height="512" />
+    <mesh name="chopstick_shape" vertex="0.0025 -0.12 0.0 0.001767766952966369 -0.12 0.0017677669529663686 1.5308084989341915e-19 -0.12 0.0025 -0.0017677669529663686 -0.12 0.001767766952966369 -0.0025 -0.12 3.061616997868383e-19 -0.0017677669529663693 -0.12 -0.0017677669529663686 -4.592425496802574e-19 -0.12 -0.0025 0.0017677669529663684 -0.12 -0.0017677669529663693 0.0035 0.12 0.0 0.0024748737341529167 0.12 0.0024748737341529162 2.1431318985078682e-19 0.12 0.0035 -0.0024748737341529162 0.12 0.0024748737341529167 -0.0035 0.12 4.2862637970157364e-19 -0.002474873734152917 0.12 -0.0024748737341529162 -6.429395695523604e-19 0.12 -0.0035 0.002474873734152916 0.12 -0.002474873734152917" />
+  </asset>
+  <worldbody>
+    <light name="scene_key" pos="0.2 -0.7 1.7" dir="0 0 -1" diffuse="0.8 0.8 0.8" ambient="0.3 0.3 0.3" />
+    <geom name="floor" type="plane" pos="0 0 -0.65" size="2 2 .01" rgba=".76 .77 .78 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="table" type="box" pos=".54 0 0.018" size=".40 .34 .012" rgba=".62 .48 .32 1" friction=".7 .01 .001" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="leg_0.18_-0.29" type="box" pos="0.18 -0.29 -0.322" size=".018 .018 0.328" rgba=".2 .22 .24 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="leg_0.18_0.29" type="box" pos="0.18 0.29 -0.322" size=".018 .018 0.328" rgba=".2 .22 .24 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="leg_0.9_-0.29" type="box" pos="0.9 -0.29 -0.322" size=".018 .018 0.328" rgba=".2 .22 .24 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="leg_0.9_0.29" type="box" pos="0.9 0.29 -0.322" size=".018 .018 0.328" rgba=".2 .22 .24 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="robot_pedestal" type="box" pos="0 0 -.385" size=".115 .13 .265" rgba=".22 .24 .27 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="robot_mount" type="box" pos="0 0 -.11" size=".125 .14 .01" rgba=".35 .37 .40 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <body name="view_target" pos="0.42 0 0.18" />
+    <camera name="front" pos="1.02 -1.24 .92" mode="targetbody" target="view_target" fovy="55" />
+    <body name="object" pos=".36 -.10 0.0335">
+      <freejoint name="object_free" />
+      <geom name="object_geom" type="mesh" mesh="chopstick_shape" mass=".008" rgba=".72 .44 .18 1" friction=".8 .01 .001" condim="4" solref=".004 1" solimp=".95 .99 .0005" />
+    </body>
+    <body name="bin" pos=".55 .06 0.033" quat=".70710678 0 0 .70710678">
+      <geom name="bin_bottom" type="box" size=".145 .05 .003" rgba=".15 .42 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom type="box" pos="-.142 0 .018" size=".003 .05 .018" rgba=".18 .48 .43 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom type="box" pos=".142 0 .018" size=".003 .05 .018" rgba=".18 .48 .43 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom type="box" pos="0 -.047 .018" size=".139 .003 .018" rgba=".18 .48 .43 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom type="box" pos="0 .047 .018" size=".139 .003 .018" rgba=".18 .48 .43 1" solref=".004 1" solimp=".95 .99 .0005" />
+    </body>
+    <camera name="overview" pos="1.0 -1.25 .95" mode="targetbody" target="view_target" fovy="60" />
+    <camera name="contact" pos=".12 -.40 .28" mode="targetbody" target="view_target" fovy="48" />
+  </worldbody>
+  <visual>
+    <global offwidth="640" offheight="480" />
+  </visual>
+</mujoco>

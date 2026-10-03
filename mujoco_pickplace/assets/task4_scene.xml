@@ -1,0 +1,98 @@
+<mujoco model="panda_task4">
+  <include file="../../mujoco_menagerie/franka_emika_panda/panda.xml" />
+  <compiler angle="radian" meshdir="../../mujoco_menagerie/franka_emika_panda/assets" autolimits="true" />
+  <option integrator="implicitfast" timestep="0.002" gravity="0 0 -9.81" cone="elliptic" impratio="5" />
+  <asset>
+    <texture name="scene_sky" type="skybox" builtin="gradient" rgb1=".34 .40 .49" rgb2=".76 .80 .85" width="512" height="512" />
+  </asset>
+  <worldbody>
+    <light name="scene_key" pos="0.2 -0.7 1.7" dir="0 0 -1" diffuse="0.8 0.8 0.8" ambient="0.3 0.3 0.3" />
+    <geom name="floor" type="plane" pos="0 0 -0.65" size="2 2 .01" rgba=".76 .77 .78 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="table" type="box" pos=".54 0 0.018" size=".40 .34 .012" rgba=".62 .48 .32 1" friction=".7 .01 .001" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="leg_0.18_-0.29" type="box" pos="0.18 -0.29 -0.322" size=".018 .018 0.328" rgba=".2 .22 .24 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="leg_0.18_0.29" type="box" pos="0.18 0.29 -0.322" size=".018 .018 0.328" rgba=".2 .22 .24 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="leg_0.9_-0.29" type="box" pos="0.9 -0.29 -0.322" size=".018 .018 0.328" rgba=".2 .22 .24 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="leg_0.9_0.29" type="box" pos="0.9 0.29 -0.322" size=".018 .018 0.328" rgba=".2 .22 .24 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="robot_pedestal" type="box" pos="0 0 -.385" size=".115 .13 .265" rgba=".22 .24 .27 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <geom name="robot_mount" type="box" pos="0 0 -.11" size=".125 .14 .01" rgba=".35 .37 .40 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <body name="view_target" pos="0.62 0 0.25" />
+    <camera name="front" pos="-.42 -.90 1.60" mode="targetbody" target="view_target" fovy="48" />
+    <body name="cabinet_assembly" pos="0 -0.1 0">
+      <geom name="cabinet_riser" type="box" pos="0.71 0 0.05" size=".11 .126 0.02" rgba=".52 .39 .26 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="cabinet_left" type="box" pos="0.71 -0.12 0.31" size="0.11 0.006 0.24" rgba=".15 .22 .29 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="cabinet_right" type="box" pos="0.71 0.12 0.31" size="0.11 0.006 0.24" rgba=".15 .22 .29 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="cabinet_back" type="box" pos="0.816 0 0.31" size="0.006 0.114 0.24" rgba=".15 .22 .29 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="cabinet_top" type="box" pos="0.717 0 0.544" size="0.103 0.114 0.006" rgba=".15 .22 .29 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="cabinet_base" type="box" pos="0.717 0 0.07500000000000001" size="0.103 0.114 0.005" rgba=".15 .22 .29 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="separator1" type="box" pos="0.72 0 0.19" size=".09 .114 .003" rgba=".16 .23 .30 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="separator2" type="box" pos="0.72 0 0.31" size=".09 .114 .003" rgba=".16 .23 .30 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="separator3" type="box" pos="0.72 0 0.43" size=".09 .114 .003" rgba=".16 .23 .30 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <body name="drawer0" pos="0.606 0 0.084">
+        <joint name="drawer_slide0" type="slide" axis="-1 0 0" range="0 .18" damping="1.0" frictionloss=".25" armature=".01" />
+        <geom name="drawer_front0" type="box" pos="0 0 .050" size=".006 .112 .055" mass=".12" rgba=".18 .31 .43 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_bottom0" type="box" pos=".096 0 0" size=".09 .107 .003" mass=".08" rgba=".30 .36 .42 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_side_l0" type="box" pos=".096 -.107 .047" size=".09 .003 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_side_r0" type="box" pos=".096 .107 .047" size=".09 .003 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_back0" type="box" pos=".183 0 .047" size=".003 .104 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="handle0" type="capsule" fromto="-.046 -.032 0.07 -.046 .032 0.07" size=".006" mass=".025" rgba=".78 .80 .83 1" friction="1 .01 .001" condim="4" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom type="box" pos="-.027 -0.032 0.07" size=".019 .005 .005" mass=".005" rgba=".78 .80 .83 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom type="box" pos="-.027 0.032 0.07" size=".019 .005 .005" mass=".005" rgba=".78 .80 .83 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_insert0" type="box" pos=".096 0 .018" size=".087 .10 .015" mass=".03" rgba=".34 .38 .42 1" friction=".8 .01 .001" solref=".004 1" solimp=".95 .99 .0005" />
+      </body>
+      <geom name="rail0_-0.11" type="box" pos="0.704 -0.11 0.078" size=".09 .003 .003" rgba=".55 .57 .60 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="rail0_0.11" type="box" pos="0.704 0.11 0.078" size=".09 .003 .003" rgba=".55 .57 .60 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <body name="drawer1" pos="0.606 0 0.20400000000000001">
+        <joint name="drawer_slide1" type="slide" axis="-1 0 0" range="0 .18" damping="1.0" frictionloss=".25" armature=".01" />
+        <geom name="drawer_front1" type="box" pos="0 0 .050" size=".006 .112 .055" mass=".12" rgba=".18 .31 .43 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_bottom1" type="box" pos=".096 0 0" size=".09 .107 .003" mass=".08" rgba=".30 .36 .42 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_side_l1" type="box" pos=".096 -.107 .047" size=".09 .003 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_side_r1" type="box" pos=".096 .107 .047" size=".09 .003 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_back1" type="box" pos=".183 0 .047" size=".003 .104 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="handle1" type="capsule" fromto="-.046 -.032 0.07 -.046 .032 0.07" size=".006" mass=".025" rgba=".78 .80 .83 1" friction="1 .01 .001" condim="4" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom type="box" pos="-.027 -0.032 0.07" size=".019 .005 .005" mass=".005" rgba=".78 .80 .83 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom type="box" pos="-.027 0.032 0.07" size=".019 .005 .005" mass=".005" rgba=".78 .80 .83 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_insert1" type="box" pos=".096 0 .018" size=".087 .10 .015" mass=".03" rgba=".34 .38 .42 1" friction=".8 .01 .001" solref=".004 1" solimp=".95 .99 .0005" />
+      </body>
+      <geom name="rail1_-0.11" type="box" pos="0.704 -0.11 0.198" size=".09 .003 .003" rgba=".55 .57 .60 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="rail1_0.11" type="box" pos="0.704 0.11 0.198" size=".09 .003 .003" rgba=".55 .57 .60 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <body name="drawer2" pos="0.606 0 0.324">
+        <joint name="drawer_slide2" type="slide" axis="-1 0 0" range="0 .18" damping="1.0" frictionloss=".25" armature=".01" />
+        <geom name="drawer_front2" type="box" pos="0 0 .050" size=".006 .112 .055" mass=".12" rgba=".18 .31 .43 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_bottom2" type="box" pos=".096 0 0" size=".09 .107 .003" mass=".08" rgba=".30 .36 .42 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_side_l2" type="box" pos=".096 -.107 .047" size=".09 .003 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_side_r2" type="box" pos=".096 .107 .047" size=".09 .003 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_back2" type="box" pos=".183 0 .047" size=".003 .104 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="handle2" type="capsule" fromto="-.046 -.032 0.07 -.046 .032 0.07" size=".006" mass=".025" rgba=".78 .80 .83 1" friction="1 .01 .001" condim="4" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom type="box" pos="-.027 -0.032 0.07" size=".019 .005 .005" mass=".005" rgba=".78 .80 .83 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom type="box" pos="-.027 0.032 0.07" size=".019 .005 .005" mass=".005" rgba=".78 .80 .83 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_insert2" type="box" pos=".096 0 .018" size=".087 .10 .015" mass=".03" rgba=".34 .38 .42 1" friction=".8 .01 .001" solref=".004 1" solimp=".95 .99 .0005" />
+      </body>
+      <geom name="rail2_-0.11" type="box" pos="0.704 -0.11 0.318" size=".09 .003 .003" rgba=".55 .57 .60 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="rail2_0.11" type="box" pos="0.704 0.11 0.318" size=".09 .003 .003" rgba=".55 .57 .60 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <body name="drawer3" pos="0.606 0 0.444">
+        <joint name="drawer_slide3" type="slide" axis="-1 0 0" range="0 .18" damping="1.0" frictionloss=".25" armature=".01" />
+        <geom name="drawer_front3" type="box" pos="0 0 .050" size=".006 .112 .055" mass=".12" rgba=".18 .31 .43 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_bottom3" type="box" pos=".096 0 0" size=".09 .107 .003" mass=".08" rgba=".30 .36 .42 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_side_l3" type="box" pos=".096 -.107 .047" size=".09 .003 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_side_r3" type="box" pos=".096 .107 .047" size=".09 .003 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_back3" type="box" pos=".183 0 .047" size=".003 .104 .047" mass=".03" rgba=".25 .32 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="handle3" type="capsule" fromto="-.046 -.032 0.07 -.046 .032 0.07" size=".006" mass=".025" rgba=".78 .80 .83 1" friction="1 .01 .001" condim="4" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom type="box" pos="-.027 -0.032 0.07" size=".019 .005 .005" mass=".005" rgba=".78 .80 .83 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom type="box" pos="-.027 0.032 0.07" size=".019 .005 .005" mass=".005" rgba=".78 .80 .83 1" solref=".004 1" solimp=".95 .99 .0005" />
+        <geom name="drawer_insert3" type="box" pos=".096 0 .018" size=".087 .10 .015" mass=".03" rgba=".34 .38 .42 1" friction=".8 .01 .001" solref=".004 1" solimp=".95 .99 .0005" />
+      </body>
+      <geom name="rail3_-0.11" type="box" pos="0.704 -0.11 0.438" size=".09 .003 .003" rgba=".55 .57 .60 1" solref=".004 1" solimp=".95 .99 .0005" />
+      <geom name="rail3_0.11" type="box" pos="0.704 0.11 0.438" size=".09 .003 .003" rgba=".55 .57 .60 1" solref=".004 1" solimp=".95 .99 .0005" />
+    </body>
+    <body name="object" pos="0.665 -0.1 0.137">
+      <freejoint name="object_free" />
+      <geom name="object_geom" type="box" size=".02 .018 .02" mass=".04" rgba=".9 .72 .3 1" friction=".8 .01 .001" condim="4" solref=".004 1" solimp=".95 .99 .0005" />
+    </body>
+    <geom name="receiving_area" type="box" pos=".36 -.26 0.032" size=".07 .06 .002" rgba=".22 .56 .38 1" solref=".004 1" solimp=".95 .99 .0005" />
+    <camera name="overview" pos="1.0 -1.25 .95" mode="targetbody" target="view_target" fovy="60" />
+    <camera name="contact" pos=".12 -.40 .28" mode="targetbody" target="view_target" fovy="48" />
+  </worldbody>
+  <visual>
+    <global offwidth="640" offheight="480" />
+  </visual>
+</mujoco>

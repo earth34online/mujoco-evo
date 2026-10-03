@@ -3,13 +3,13 @@ import mujoco
 from pathlib import Path
 import tempfile
 
-SCENE_XML = Path(__file__).with_name("pick_place_scene.xml")
+SCENE_XML = Path(__file__).parent / "assets" / "pick_place_scene.xml"
 PANDA_DIR = Path(__file__).resolve().parents[1] / "mujoco_menagerie" / "franka_emika_panda"
-PANDA_INCLUDE = "../mujoco_menagerie/franka_emika_panda/panda.xml"
+PANDA_INCLUDE = "../../mujoco_menagerie/franka_emika_panda/panda.xml"
 
 
-def _load_model():
-    scene_xml = SCENE_XML.read_text(encoding="utf-8")
+def _load_model(scene_path=SCENE_XML):
+    scene_xml = Path(scene_path).read_text(encoding="utf-8")
     scene_xml = scene_xml.replace(PANDA_INCLUDE, "panda.xml")
     temporary_path = None
     try:
@@ -102,8 +102,9 @@ class PickPlaceEnv:
         image_size=448,
         randomize_task=False,
         randomization_scale=1.0,
+        scene_path=SCENE_XML,
     ):
-        self.model = _load_model()
+        self.model = _load_model(scene_path)
         self.data = mujoco.MjData(self.model)
         self.renderer = mujoco.Renderer(self.model, image_size, image_size)
         self.randomize_task = bool(randomize_task)
