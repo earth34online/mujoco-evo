@@ -17,3 +17,4 @@ swanlab
 wandb
 av
 fvcore
+mujoco==3.11.0

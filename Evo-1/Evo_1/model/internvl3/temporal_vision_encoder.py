@@ -14,6 +14,7 @@ backbone.
 from __future__ import annotations
 
 import math
+from contextvars import ContextVar
 
 import torch
 import torch.nn.functional as F
@@ -326,6 +327,9 @@ def _composed_space_time_attention(
     return attention.proj_drop(projected)
 
 
+feedback_observer = ContextVar("native_feedback_observer", default=None)
+
+
 def _space_time_layer(
     layer,
     hidden_states: torch.Tensor,
@@ -342,6 +346,8 @@ def _space_time_layer(
         # Exact checkpoint-compatible image path required by MEM.
         return layer(hidden_states)
 
+    observer = feedback_observer.get()
+    before = hidden_states if observer is not None else None
     hidden_states = _space_time_attention_residual(
         layer,
         hidden_states,
@@ -352,7 +358,10 @@ def _space_time_layer(
         temporal_position=temporal_position,
         attention_mode=attention_mode,
     )
-    return _space_time_mlp_residual(layer, hidden_states)
+    result = _space_time_mlp_residual(layer, hidden_states)
+    if observer is not None:
+        observer(layer, before, result, batch_size, num_views)
+    return result
 
 
 def _space_time_attention_residual(

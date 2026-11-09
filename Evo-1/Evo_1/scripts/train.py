@@ -1,13 +1,18 @@
 import sys
 import os
+from pathlib import Path
 import math
+import random
+import signal
+import hashlib
+import numpy as np
 from contextlib import nullcontext
 from torch import amp
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import time
 import torch
-from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.data import DataLoader, Sampler
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 from Evo1 import EVO1
@@ -44,6 +49,22 @@ def get_with_warning(config: dict, key: str, default):
     else:
         warnings.warn(f"'{key}' not found in config, using default: {default!r}")
         return default
+
+
+def masked_velocity_loss(prediction, target, action_mask):
+    """The MINT masked flow MSE, reduced in FP32 under mixed precision.
+
+    Squaring and summing in BF16 rounds the loss before reduction and makes
+    small contact errors depend on batch size. Keep the model forward in its
+    configured dtype while preserving the precision of the loss and gradient.
+    """
+    if prediction.shape != target.shape:
+        raise ValueError("Flow prediction and target shapes differ")
+    mask = action_mask.reshape(prediction.shape).to(dtype=torch.float32)
+    if bool((mask.sum(dim=1) == 0).any()):
+        raise ValueError("Every flow sample must have valid action dimensions")
+    squared_error = (prediction.float() - target.float()).square()
+    return (squared_error * mask).sum() / mask.sum()
 
 
 def inspect_named_submodules(module_dict: dict, verbose: bool = True):
@@ -98,6 +119,7 @@ def custom_collate_fn(batch):
         "state_mask": state_mask,
         "history_mask": history_mask,
         "memory_events": memory_events,
+        "drawer_targets": torch.tensor([item.get("drawer_target", -100) for item in batch]),
         "image_masks": image_masks,
         "embodiment_ids": embodiment_ids
     }
@@ -166,6 +188,56 @@ def init_swanlab(config: dict, accelerator: Accelerator):
             config=config
         )
 
+def resolve_terminal_action_padding(config: dict):
+    """Use the corrected supervision for new runs, preserve exact old resume."""
+    if bool(config.get("resume")) != bool(config.get("resume_path")):
+        raise ValueError("Inconsistent resume configuration: --resume and --resume_path must be set together.")
+    requested = config.get("mask_terminal_action_padding")
+    if requested is None:
+        if config.get("resume") and not config.get("resume_pretrain"):
+            source = os.path.join(config["resume_path"], "config.json")
+            with open(source, encoding="utf-8") as file:
+                recorded = json.load(file)
+            # Checkpoints before this contract supervised repeated tail rows.
+            requested = recorded.get("mask_terminal_action_padding", False)
+        else:
+            requested = True
+    if not isinstance(requested, bool):
+        raise TypeError("mask_terminal_action_padding must be boolean")
+    config["mask_terminal_action_padding"] = requested
+
+
+def resolve_checkpoint_temporal_storage(config: dict):
+    """Exact resume inherits the saved storage contract before construction."""
+    if config.get("resume") and not config.get("resume_pretrain"):
+        with open(os.path.join(config["resume_path"], "config.json"), encoding="utf-8") as file:
+            recorded = json.load(file)
+        field = "checkpoint_fp32_temporal_parameter_names"
+        requested, saved = config.get(field), recorded.get(field)
+        if requested is not None and requested != saved:
+            raise ValueError("Exact resume cannot change checkpoint parameter storage precision")
+        if saved is not None:
+            config[field] = copy.deepcopy(saved)
+
+
+def resolve_frozen_embedder_eval(config: dict):
+    requested = config.get("frozen_embedder_eval")
+    recorded_value = None
+    if config.get("resume") and not config.get("resume_pretrain"):
+        with open(os.path.join(config["resume_path"], "config.json"), encoding="utf-8") as file:
+            recorded_value = json.load(file).get("frozen_embedder_eval", False)
+        if requested is not None and requested != recorded_value:
+            raise ValueError("Exact resume cannot change frozen VLM training mode; use --resume_pretrain for a new run")
+    if requested is None:
+        requested = True if recorded_value is None else recorded_value
+    if not isinstance(requested, bool):
+        raise TypeError("frozen_embedder_eval must be boolean")
+    config["frozen_embedder_eval"] = requested
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
 def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
     dataset_type = get_with_warning(config, "dataset_type", "lerobot")
     image_size = get_with_warning(config, "image_size", 448)
@@ -181,8 +253,12 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
     if dataset_type == "lerobot":
         from dataset.lerobot_dataset_pretrain_mp import LeRobotDataset 
         import yaml
-        with open(config.get("dataset_config_path"), 'r') as f:
+        dataset_config_path = Path(config["dataset_config_path"]).resolve()
+        with dataset_config_path.open(encoding="utf-8") as f:
             dataset_config = yaml.safe_load(f)
+        for group in dataset_config["data_groups"].values():
+            for entry in group.values():
+                entry["path"] = str((dataset_config_path.parent / Path(entry["path"]).expanduser()).resolve())
 
         dataset = LeRobotDataset(
             config=dataset_config,
@@ -196,51 +272,157 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
             memory_frames=memory_frames,
             memory_stride_steps=memory_stride_steps,
             memory_stride_seconds=memory_stride_seconds,
+            cache_num_workers=config.get("cache_num_workers", 1),
+            mask_terminal_action_padding=(
+                True if config.get("mask_terminal_action_padding") is None
+                else config["mask_terminal_action_padding"]
+            ),
         )
     else:
         raise ValueError(f"Unknown dataset_type: {dataset_type}")
+    if config.get("resume_path") and hasattr(dataset, "use_checkpoint_normalization"):
+        stats_path = Path(config["resume_path"]) / "norm_stats.json"
+        stats_bytes = stats_path.read_bytes()
+        checkpoint_stats = json.loads(stats_bytes)
+        active_stats = set(dataset.arm2stats_dict)
+        dataset.use_checkpoint_normalization(checkpoint_stats, preserve_other_tasks=True)
+        with (Path(config["resume_path"]) / "config.json").open(encoding="utf-8") as source:
+            parent_config = json.load(source)
+        active_tasks = set(getattr(dataset, "environment_contracts", {}))
+        config["inherited_task_environment_contracts"] = {
+            key: value for key, value in parent_config.get("task_environment_contracts", {}).items()
+            if key not in active_tasks
+        }
+        inherited_snapshots = dict(parent_config.get("inherited_training_dataset_snapshots", {}))
+        inherited_snapshots.update(parent_config.get("training_dataset_snapshots", {}))
+        config["inherited_training_dataset_snapshots"] = {
+            key: value for key, value in inherited_snapshots.items() if key not in active_tasks
+        }
+        config["normalization_source"] = dict(
+            checkpoint=str(Path(config["resume_path"]).resolve()),
+            sha256=hashlib.sha256(stats_bytes).hexdigest(),
+            active_statistics_keys=sorted(active_stats),
+            inherited_statistics_keys=sorted(set(checkpoint_stats) - active_stats),
+        )
     if accelerator is None or accelerator.is_main_process:
-        logging.info(f"Loaded {len(dataset)} samples from {config['data_paths']} ({dataset_type})")
+        logging.info(f"Loaded {len(dataset)} samples from {config.get('data_paths', config.get('dataset_config_path'))} ({dataset_type})")
     return dataset
+
+
+class ResumableBatchSampler(Sampler):
+    """A deterministic epoch order with a cursor for *trained*, not prefetched batches."""
+    def __init__(self, dataset, batch_size, weights=None, world_size=1):
+        self.size = len(dataset)
+        self.batch_size = batch_size
+        self.world_size = world_size
+        self.weights = None if weights is None else torch.as_tensor(weights, dtype=torch.double)
+        self.seed = torch.initial_seed()
+        self.epoch = 0
+        self.batch_cursor = 0
+        self.total_batches = self.size // batch_size // world_size * world_size
+        if not self.total_batches:
+            raise ValueError("Dataset is smaller than one complete training batch")
+        self.contract = dict(
+            size=self.size, batch_size=batch_size, world_size=world_size,
+            source_signature=getattr(dataset, "source_signature", None),
+            use_augmentation=bool(getattr(dataset, "use_augmentation", False)),
+            weights_sha256=(hashlib.sha256(self.weights.numpy().tobytes()).hexdigest()
+                            if self.weights is not None else None),
+        )
+
+    def __len__(self):
+        return self.total_batches
+
+    def __iter__(self):
+        generator = torch.Generator().manual_seed((self.seed + self.epoch) % (2**63 - 1))
+        order = (torch.randperm(self.size, generator=generator) if self.weights is None else
+                 torch.multinomial(self.weights, self.size, replacement=True, generator=generator))
+        for batch in range(self.batch_cursor, self.total_batches):
+            # Augmentation is tied to an occurrence in the sampled sequence,
+            # so worker scheduling/prefetch cannot change resumed supervision.
+            yield [(int(order[batch*self.batch_size + slot]),
+                    (self.seed + self.epoch*self.size + batch*self.batch_size + slot) % (2**63-1))
+                   for slot in range(self.batch_size)]
+
+    def mark_consumed(self):
+        self.batch_cursor += self.world_size
+
+    def next_epoch(self):
+        self.epoch += 1
+        self.batch_cursor = 0
+
+    def state_dict(self):
+        return dict(contract=self.contract, seed=self.seed, epoch=self.epoch,
+                    batch_cursor=self.batch_cursor)
+
+    def load_state_dict(self, state):
+        if state["contract"] != self.contract:
+            raise ValueError("Full resume requires the same dataset, sampler, batch size and process count; use --resume_pretrain for a new run")
+        cursor = int(state["batch_cursor"])
+        if not 0 <= cursor <= self.total_batches or cursor % self.world_size:
+            raise ValueError("Invalid saved training batch cursor")
+        self.seed, self.epoch, self.batch_cursor = int(state["seed"]), int(state["epoch"]), cursor
 
 
 def prepare_dataloader(dataset, config: dict) -> DataLoader:
     batch_size = get_with_warning(config, "batch_size", 8)
     num_workers = get_with_warning(config, "num_workers", 8)
 
-    sampler = None
-    if get_with_warning(config, "memory_event_sampling", True):
+    weights = None
+    # MINT shuffles all eligible windows together. Event weighting is an
+    # optional local experiment, not a sampling prescription from pi-MEM.
+    if get_with_warning(config, "memory_event_sampling", False):
         if not hasattr(dataset, "memory_event_sampling_weights"):
             raise TypeError(
                 "memory_event_sampling requires a dataset with event-window metadata"
             )
-        weights, event_counts = dataset.memory_event_sampling_weights()
-        sampler = WeightedRandomSampler(
-            weights=weights,
-            num_samples=len(weights),
-            replacement=True,
-        )
+        if config.get("action_head") == "direct":
+            weights, event_counts = dataset.memory_event_sampling_weights(task4_only=True)
+        else:
+            weights, event_counts = dataset.memory_event_sampling_weights()
         if accelerator is None or accelerator.is_main_process:
-            logging.info(
-                "π-MEM adaptive event sampler enabled (inverse-square-root, no "
-                "fixed recovery quota): %s",
-                event_counts,
-            )
+            logging.getLogger(__name__).debug('Optional adaptive event sampler enabled (inverse-square-root, no fixed recovery quota): %s', event_counts)
 
+    sampler = ResumableBatchSampler(dataset, batch_size, weights, accelerator.num_processes)
+    if accelerator.num_processes > 1:
+        # Accelerate shards one global batch order. An independent initial
+        # torch seed per process would duplicate/omit unweighted epoch samples.
+        seed = torch.tensor(sampler.seed % (2**63 - 1), dtype=torch.int64,
+                            device=accelerator.device)
+        torch.distributed.broadcast(seed, src=0)
+        sampler.seed = int(seed.item())
     dataloader = DataLoader(
         dataset,
-        batch_size=batch_size,
-        shuffle=sampler is None,
-        sampler=sampler,
+        batch_sampler=sampler,
+        generator=torch.Generator().manual_seed(sampler.seed),
         num_workers=num_workers,
         pin_memory=True,
         persistent_workers=False,
-        drop_last=True,
         collate_fn=custom_collate_fn
     )
     if accelerator is None or accelerator.is_main_process:
         logging.info(f"Initialized dataloader with batch size {batch_size}")
     return dataloader
+
+
+def save_training_runtime(path, sampler, accelerator):
+    state = dict(sampler=sampler.state_dict(), python=random.getstate(),
+                 numpy=np.random.get_state(), torch=torch.get_rng_state(),
+                 cuda=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None)
+    torch.save(state, os.path.join(path, f"training_state_rank_{accelerator.process_index:02d}.pt"))
+
+
+def restore_training_runtime(path, sampler, accelerator):
+    filename = os.path.join(path, f"training_state_rank_{accelerator.process_index:02d}.pt")
+    if not os.path.isfile(filename):
+        raise ValueError("This older checkpoint has no saved sample cursor/RNG state; exact sample resume is impossible. Use --resume_pretrain explicitly for weights-only initialization.")
+    state = torch.load(filename, map_location="cpu", weights_only=False)
+    sampler.load_state_dict(state["sampler"])
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch"])
+    if state["cuda"] is not None:
+        torch.cuda.set_rng_state_all(state["cuda"])
 
 
 def check_numerical_stability(step: int, **named_tensors) -> bool:
@@ -309,6 +491,7 @@ def save_checkpoint(
     optimizer=None,
     scheduler=None,
     global_step=None,
+    data_sampler=None,
 ):
     tag = f"step_{step}"
     checkpoint_dir = os.path.join(save_dir, tag)
@@ -343,6 +526,10 @@ def save_checkpoint(
             checkpoint,
             os.path.join(checkpoint_dir, "mp_rank_00_model_states.pt"),
         )
+    if data_sampler is not None:
+        accelerator.wait_for_everyone()
+        save_training_runtime(checkpoint_dir, data_sampler, accelerator)
+        accelerator.wait_for_everyone()
     
     if accelerator.is_main_process:
         if config is not None:
@@ -377,6 +564,11 @@ def load_checkpoint_with_deepspeed(
     allow_missing_lora=False,
     optimizer=None,
 ):
+    source_config_path = os.path.join(load_dir, tag, "config.json")
+    if os.path.isfile(source_config_path):
+        with open(source_config_path, encoding="utf-8") as source_file:
+            if json.load(source_file).get("observation_action_decoder") is not None:
+                raise ValueError("Composite observation-decoder bundles cannot be silently loaded into the flow-only training path")
     if not hasattr(model_engine, "load_checkpoint"):
         checkpoint_path = os.path.join(load_dir, tag, "mp_rank_00_model_states.pt")
         try:
@@ -389,7 +581,17 @@ def load_checkpoint_with_deepspeed(
         except TypeError:
             checkpoint = torch.load(checkpoint_path, map_location="cpu")
         module_state = checkpoint.get("module", checkpoint)
-        incompatible = accelerator.unwrap_model(model_engine).load_state_dict(
+        module = accelerator.unwrap_model(model_engine)
+        if resume_pretrain and not allow_missing_lora and hasattr(module, "preserve_checkpoint_temporal_precision"):
+            module.preserve_checkpoint_temporal_precision(module_state)
+        if not resume_pretrain:
+            recorded = (checkpoint.get("client_state") or checkpoint).get("config", {})
+            field = "checkpoint_fp32_temporal_parameter_names"
+            target_config = getattr(module, "config", None)
+            target_storage = target_config.get(field) if isinstance(target_config, dict) else getattr(target_config, field, None)
+            if recorded.get(field) != target_storage:
+                raise ValueError("Checkpoint parameter storage precision differs from the resume configuration")
+        incompatible = module.load_state_dict(
             module_state, strict=not allow_missing_lora
         )
         if allow_missing_lora:
@@ -514,6 +716,27 @@ def build_param_groups(model, wd):
             {"params": no_decay, "weight_decay": 0.0}]
 
 def train(config):
+    if config.get("drawer_intent_supervision") and config.get("action_head") != "direct":
+        raise ValueError("Drawer intent supervision requires --action_head direct")
+    if config.get("drawer_intent_supervision") and config.get("memory_frames", 6) < 2:
+        raise ValueError("Drawer intent supervision requires a temporal observation window")
+    seed = config.get("seed")
+    if seed is not None:
+        if not 0 <= seed < 2**32:
+            raise ValueError("Training seed must be in [0, 2**32)")
+        from accelerate.utils import set_seed
+        set_seed(seed)
+    if config.get("observation_action_decoder") is not None:
+        raise ValueError("Observation-decoder policy bundles are inference-only; flow training would ignore the learned readout")
+    if config.get("resume_path"):
+        source_config_path = os.path.join(config["resume_path"], "config.json")
+        if os.path.isfile(source_config_path):
+            with open(source_config_path, encoding="utf-8") as source_file:
+                if json.load(source_file).get("observation_action_decoder") is not None:
+                    raise ValueError("Cannot resume a composite inference bundle as flow training; use its recorded original backbone checkpoint explicitly")
+    resolve_terminal_action_padding(config)
+    resolve_frozen_embedder_eval(config)
+    resolve_checkpoint_temporal_storage(config)
     # 命令行和直接调用 train(config) 都默认使用普通参数微调。LoRA 只有在
     # 配置或 CLI 明确启用时才注入，避免调用方在没有察觉的情况下改变模型
     # 结构和 checkpoint 契约。
@@ -524,6 +747,20 @@ def train(config):
     config.setdefault("lora_targets", "vision,action")
     config.setdefault("lora_train_bias_norm", True)
     config.setdefault("separate_temporal_lora", True)
+    # Direct train(config) calls and the CLI must save the same defaults used
+    # by the dataset. Missing fields otherwise construct a K=1 model while
+    # loading K=6 training windows, and serving loses the one-second contract.
+    config.setdefault("memory_frames", 6)
+    config.setdefault("memory_stride_steps", 5)
+    config.setdefault("memory_stride_seconds", 1.0)
+    config.setdefault("fp32_temporal_parameters", True)
+    if (config["use_lora"] and int(config.get("memory_frames", 6)) == 1
+            and not config.get("finetune_vlm", False)):
+        # K=1 has no temporal attention execution. New single-frame runs must
+        # adapt the spatial projections, rather than install unused temporal
+        # adapters (vision-only LoRA would otherwise have no gradient).
+        # Saving the resolved flag keeps serving checkpoint topology exact.
+        config["separate_temporal_lora"] = False
     config.setdefault("pi_mem_attention_mode", "composed")
     # New checkpoints use compact language sequences and propagate their
     # validity mask into action-head cross-attention.  Old Stage1 checkpoints
@@ -535,18 +772,7 @@ def train(config):
     save_dir = get_with_warning(config, "save_dir", "checkpoints")
     log_path = setup_logging(save_dir)
     if accelerator.is_main_process:
-        logging.info(
-            "Accelerate runtime: distributed_type=%s, num_processes=%s, "
-            "process_index=%s, local_process_index=%s, "
-            "torch_distributed_initialized=%s, LOCAL_RANK=%s, WORLD_SIZE=%s",
-            accelerator.distributed_type,
-            accelerator.num_processes,
-            accelerator.process_index,
-            accelerator.local_process_index,
-            torch.distributed.is_initialized(),
-            os.environ.get("LOCAL_RANK"),
-            os.environ.get("WORLD_SIZE"),
-        )
+        logging.getLogger(__name__).debug('Accelerate runtime: distributed_type=%s, num_processes=%s, process_index=%s, local_process_index=%s, torch_distributed_initialized=%s, LOCAL_RANK=%s, WORLD_SIZE=%s', accelerator.distributed_type, accelerator.num_processes, accelerator.process_index, accelerator.local_process_index, torch.distributed.is_initialized(), os.environ.get('LOCAL_RANK'), os.environ.get('WORLD_SIZE'))
     if _single_gpu_deepspeed_disabled and accelerator.is_main_process:
         logging.warning(
             "Detected single-GPU LoRA training launched with DeepSpeed; "
@@ -567,9 +793,15 @@ def train(config):
 
     # === Dataset ===
     dataset = prepare_dataset(config)
+    # Provenance comes from collected data, including explicit unknowns for
+    # legacy datasets. Never infer it from today's scene or dataset path.
+    config["task_environment_contracts"] = copy.deepcopy(config.get("inherited_task_environment_contracts", {}))
+    config["task_environment_contracts"].update(copy.deepcopy(getattr(dataset, "environment_contracts", {})))
+    config["training_dataset_snapshots"] = copy.deepcopy(getattr(dataset, "dataset_snapshots", {}))
 
     # === DataLoader ===
     dataloader = prepare_dataloader(dataset, config)
+    data_sampler = dataloader.batch_sampler
 
     # ``resume_pretrain`` 是跨结构初始化（例如单帧基础模型 -> π-MEM
     # LoRA），必须在 DeepSpeed 包装模型之前载入。否则 ZeRO 会依据新模型的
@@ -618,11 +850,7 @@ def train(config):
             allow_missing_lora=get_with_warning(config, "use_lora", False),
         )
         if accelerator.is_main_process:
-            logging.info(
-                "Loaded initialization checkpoint before DeepSpeed wrapping: %s/%s",
-                resume_dir,
-                resume_tag,
-            )
+            logging.getLogger(__name__).debug('Loaded initialization checkpoint before DeepSpeed wrapping: %s/%s', resume_dir, resume_tag)
 
     lr = get_with_warning(config, "lr", 1e-5)
     wd = get_with_warning(config, "weight_decay", 1e-5)
@@ -634,12 +862,7 @@ def train(config):
         fused=fused_adamw,
     )
     if accelerator.is_main_process:
-        logging.info(
-            "Optimizer=AdamW, fused=%s, lr=%s, weight_decay=%s",
-            fused_adamw,
-            lr,
-            wd,
-        )
+        logging.info(f"Optimizer=AdamW, lr={lr}, weight_decay={wd}")
 
 
     model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
@@ -651,12 +874,7 @@ def train(config):
         base_optimizer = getattr(prepared_optimizer, "optimizer", prepared_optimizer)
         zero_stage = getattr(model_engine, "zero_optimization_stage", None)
         zero_stage = zero_stage() if callable(zero_stage) else None
-        logging.info(
-            "Prepared optimizer=%s; base optimizer=%s; DeepSpeed ZeRO stage=%s",
-            type(prepared_optimizer).__name__,
-            type(base_optimizer).__name__,
-            zero_stage,
-        )
+        logging.getLogger(__name__).debug('Prepared optimizer=%s; base optimizer=%s; DeepSpeed ZeRO stage=%s', type(prepared_optimizer).__name__, type(base_optimizer).__name__, zero_stage)
     
     
     # === Warmup + Cosine Scheduler ===
@@ -698,11 +916,7 @@ def train(config):
         best_loss = float("inf")
         step = 0
         if accelerator.is_main_process:
-            logging.info(
-                "Initialized new π-MEM training from %s/%s",
-                resume_dir,
-                resume_tag,
-            )
+            logging.info("Resuming pretraining from scratch, resetting step to 0")
     else:
         step = 0
         if accelerator.is_main_process:
@@ -728,7 +942,9 @@ def train(config):
         ):
             parameter_group["lr"] = current_lr
         if accelerator.is_main_process:
-            logging.info("Restored scheduler state at step %s", step)
+            logging.getLogger(__name__).debug('Restored scheduler state at step %s', step)
+    if resume and not resume_pretrain:
+        restore_training_runtime(os.path.join(resume_dir, resume_tag), data_sampler, accelerator)
 
     if accelerator.is_main_process:
         
@@ -736,23 +952,34 @@ def train(config):
             "vision_model": model.embedder.model.vision_model,
             "language_model": model.embedder.model.language_model,
             "action_head": model.action_head
-        }, verbose=get_with_warning(config, "verbose_parameter_listing", False))
+        }, verbose=get_with_warning(config, "verbose_parameter_listing", True))
 
     # === Training Loop ===
     if accelerator.is_main_process:
-        logging.info(
-            "VLM forward mode=batched: one vision/language forward per physical batch"
-        )
+        logging.getLogger(__name__).debug('VLM forward mode=batched: one vision/language forward per physical batch')
+    stop_requested = [False]
+    def request_training_stop(signum, frame):
+        # Finish the current optimizer update and persist its corresponding
+        # sample cursor. Hard kills/power loss can only resume a saved checkpoint.
+        stop_requested[0] = True
+    previous_handlers = {sig: signal.signal(sig, request_training_stop)
+                         for sig in (signal.SIGINT, signal.SIGTERM)}
+    def training_stop_requested():
+        if accelerator.num_processes > 1:
+            flag = torch.tensor(int(stop_requested[0]), device=accelerator.device)
+            torch.distributed.all_reduce(flag, op=torch.distributed.ReduceOp.MAX)
+            stop_requested[0] = bool(flag.item())
+        return stop_requested[0]
+
     while step < max_steps:
+        if data_sampler.batch_cursor >= data_sampler.total_batches:
+            data_sampler.next_epoch()
         for batch in tqdm(
             dataloader,
             desc="Training",
             disable=not accelerator.is_main_process,
-            miniters=max(1, log_interval),
-            mininterval=0.0,
-            maxinterval=float("inf"),
         ):
-            if step >= max_steps:
+            if step >= max_steps or training_stop_requested():
                 break
             prompts = batch["prompts"]
             images_batch = batch["images"]
@@ -785,7 +1012,7 @@ def train(config):
             )
             with forward_context:
 
-                pred_velocity, noise = model(
+                prediction = model(
                     fused_tokens,
                     state=states,
                     actions_gt=actions_gt,
@@ -795,9 +1022,15 @@ def train(config):
                     fused_mask=fused_mask,
                 )
                 
-            target_velocity = (actions_gt - noise).view(actions_gt.shape[0], -1)
-            
-            assert pred_velocity.shape == target_velocity.shape
+            if config.get("action_head") == "direct":
+                if config.get("drawer_intent_supervision"):
+                    pred_velocity, intent_logits = prediction
+                else:
+                    pred_velocity = prediction
+                target_velocity = actions_gt.float().reshape_as(pred_velocity)
+            else:
+                pred_velocity, noise = prediction
+                target_velocity = (actions_gt.float() - noise.float()).view(actions_gt.shape[0], -1)
 
             valid_actions_per_sample = action_mask.reshape(action_mask.shape[0], -1).sum(dim=1)
             if bool((valid_actions_per_sample == 0).any()):
@@ -807,9 +1040,22 @@ def train(config):
                             f"valid counts: {valid_actions_per_sample.tolist()}")
             
 
-            action_mask = action_mask.view(action_mask.shape[0], -1).to(dtype=pred_velocity.dtype)
-            squared_error = (pred_velocity - target_velocity).square()
-            loss = (squared_error * action_mask).sum() / action_mask.sum().clamp_min(1)
+            if config.get("action_head") == "direct":
+                # Tasks 3 and 4 replan after action zero. Give that supervision
+                # its own reduction while retaining the complete action chunk.
+                first_mask = action_mask[:, 0]
+                loss = masked_velocity_loss(pred_velocity, target_velocity, action_mask)
+                loss = loss + masked_velocity_loss(
+                    pred_velocity.reshape_as(actions_gt)[:, 0], actions_gt[:, 0], first_mask
+                )
+                if config.get("drawer_intent_supervision"):
+                    labels = batch["drawer_targets"]
+                    intent_loss = torch.nn.functional.cross_entropy(
+                        intent_logits.float(), labels, ignore_index=-100, reduction="sum"
+                    )
+                    loss = loss + 0.2 * intent_loss / (labels != -100).sum().clamp_min(1)
+            else:
+                loss = masked_velocity_loss(pred_velocity, target_velocity, action_mask)
 
             # === NaN/Inf check ===
             check_numerical_stability(
@@ -838,6 +1084,7 @@ def train(config):
 
             optimizer.step()
             scheduler.step()
+            data_sampler.mark_consumed()
 
             # === Logging ===
             if step % log_interval == 0:
@@ -880,6 +1127,7 @@ def train(config):
                     optimizer=optimizer,
                     scheduler=scheduler,
                     global_step=step + 1,
+                    data_sampler=data_sampler,
                 )
                 accelerator.print("end to save best checkpoint")
                 if accelerator.is_main_process:
@@ -899,12 +1147,20 @@ def train(config):
                     norm_stats=dataset.arm2stats_dict,
                     optimizer=optimizer,
                     scheduler=scheduler,
+                    data_sampler=data_sampler,
                 )
+            if training_stop_requested():
+                break
+        if stop_requested[0]:
+            break
          
-    # === Save final model ===
+    # A handled stop still has an exact optimizer and sampler cursor, but it
+    # must not replace the last completed run's final checkpoint.
+    completed = step >= max_steps
+    checkpoint_stage = "final" if completed else "interrupted"
     save_checkpoint(
         save_dir,
-        step="final",
+        step=checkpoint_stage,
         model_engine=model_engine,
         loss=best_loss,
         accelerator=accelerator,
@@ -913,8 +1169,18 @@ def train(config):
         optimizer=optimizer,
         scheduler=scheduler,
         global_step=step,
+        data_sampler=data_sampler,
     )
-    logging.info(f"Final model saved to step_final/")
+    if completed:
+        logging.info("Final model saved to step_final/")
+        if accelerator.is_main_process and os.path.isfile(
+            os.path.join(save_dir, "step_best", "mp_rank_00_model_states.pt")
+        ):
+            logging.info("Best checkpoint saved to step_best/ with loss %.6f", best_loss)
+    else:
+        logging.info("Training interrupted at step %s/%s; resume from step_interrupted/", step, max_steps)
+    for sig, handler in previous_handlers.items():
+        signal.signal(sig, handler)
 
 
 if __name__ == "__main__":
@@ -931,7 +1197,7 @@ if __name__ == "__main__":
         default=True,
         help="Use FlashAttention when its compiled extension is importable; otherwise fall back safely.",
     )
-    parser.add_argument("--action_head", type=str, default="flowmatching", choices=["flowmatching"])
+    parser.add_argument("--action_head", type=str, default="flowmatching", choices=["flowmatching", "direct"])
     parser.add_argument("--return_cls_only", action="store_true")
     parser.add_argument("--disable_wandb", action="store_true", help="Disable wandb logging.")
     parser.add_argument("--disable_swanlab", action="store_true", help="Disable SwanLab logging.")
@@ -939,7 +1205,7 @@ if __name__ == "__main__":
     # Dataset
     parser.add_argument("--dataset_type", type=str, default="lerobot")
     parser.add_argument("--data_paths", type=str, required=False)
-    parser.add_argument("--dataset_config_path", type=str, default="/home/user/mujoco+evo/Evo-1/Evo_1/dataset/config.yaml")
+    parser.add_argument("--dataset_config_path", type=str, default=str(PROJECT_ROOT / "Evo-1/Evo_1/dataset/config.yaml"))
     parser.add_argument(
         "--cache_dir",
         type=str,
@@ -1007,6 +1273,13 @@ if __name__ == "__main__":
     )
     parser.add_argument("--binarize_gripper", action="store_true", default=False, help="Whether to binarize gripper state/action (default: False).")
     parser.add_argument("--use_augmentation", action="store_true", help="Enable data augmentation on images")
+    parser.add_argument(
+        "--mask_terminal_action_padding",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=("Exclude fabricated tail actions from new-run supervision. Exact resume "
+              "inherits the checkpoint's setting, including legacy tail supervision."),
+    )
     parser.add_argument("--overwrite_horizon_cache", action="store_true", default=False,
                         help="Force rebuilding the derived training window cache. "
                              "Normally source fingerprints invalidate it automatically.")
@@ -1016,10 +1289,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--memory_event_sampling",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
-            "Adaptively emphasize natural grasp-alignment and post-failure "
-            "correction windows without imposing a fixed data-collection ratio."
+            "Opt into local inverse-square-root event weighting. By default, "
+            "shuffle all eligible windows uniformly, as in MINT."
         ),
     )
 
@@ -1050,11 +1323,12 @@ if __name__ == "__main__":
     # Logging & checkpointing
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--ckpt_interval", type=int, default=1000)
-    parser.add_argument("--save_dir", type=str, default="/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage3")
+    parser.add_argument("--save_dir", type=str, default=str(PROJECT_ROOT / "ckpt/evo1_mujoco_pickplace_stage3_retrain"))
     parser.add_argument(
         "--verbose_parameter_listing",
-        action="store_true",
-        help="Log every individual model parameter instead of module totals only.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show MINT's full parameter listing (default: enabled).",
     )
 
     # Resume
@@ -1100,10 +1374,18 @@ if __name__ == "__main__":
             "Apply vision LoRA only to temporal matching/value mixing and the "
             "composed memory output while leaving Stage1 spatial Q/K frozen "
             "(default: enabled). "
-            "Use --no-separate_temporal_lora only for a shared-LoRA ablation."
+            "K=1 training uses spatial vision LoRA because temporal adapters "
+            "are inactive; K>1 may use --no-separate_temporal_lora for a shared-LoRA ablation."
         ),
     )
     parser.add_argument("--finetune_vlm", action="store_true")
+    parser.add_argument(
+        "--frozen_embedder_eval",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=("Keep an entirely frozen VLM in eval mode during action alignment. "
+              "Exact resume inherits the checkpoint's original behavior."),
+    )
     parser.add_argument(
         "--finetune_temporal_vision",
         action=argparse.BooleanOptionalAction,
@@ -1132,6 +1414,8 @@ if __name__ == "__main__":
     parser.add_argument("--horizon", type=int, default=14)
     parser.add_argument("--num_layers", type=int, default=8)
     parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--cache_num_workers", type=int, default=1,
+                        help="Processes for rebuilding derived windows; 1 runs in the current process.")
     # dropout
     parser.add_argument("--dropout", type=float, default=0.2)
 
@@ -1144,6 +1428,8 @@ if __name__ == "__main__":
         # and retain their legacy additive attention during evaluation.
         pi_mem_attention_mode="composed",
     )
+    parser.add_argument("--seed", type=int, default=None, help="Training RNG seed for independent replicates")
+    parser.add_argument("--drawer_intent_supervision", action="store_true")
     args = parser.parse_args()
     config = vars(args)
 

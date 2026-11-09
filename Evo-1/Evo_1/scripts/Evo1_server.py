@@ -1,3 +1,4 @@
+import logging
 # evo1_server_json.py
 
 import argparse
@@ -9,6 +10,8 @@ import io
 import websockets
 import numpy as np
 import json
+import hashlib
+from contextlib import nullcontext
 import torch
 from PIL import Image
 from pathlib import Path
@@ -16,11 +19,12 @@ from pathlib import Path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from scripts.Evo1 import EVO1
 from model.lora import merge_lora_weights
+from model.action_head.observation_decoder import attach_observation_decoder, backbone_environment_contracts
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CKPT_DIR = (
-    REPO_ROOT / "ckpt" / "evo1_mujoco_pickplace_stage3" / "step_best"
+    REPO_ROOT / "ckpt" / "evo1_mujoco_pickplace_stage3" / "step_final"
 )
 DEFAULT_VLM_REPO_ID = "OpenGVLab/InternVL3-1B"
 
@@ -49,6 +53,7 @@ class Normalizer:
         if not isinstance(stats, dict) or not stats:
             raise ValueError("norm_stats.json must contain at least one statistics key")
         self.stats_by_key = {}
+        self.state_normalization_contracts = {}
         for stats_key, robot_stats in stats.items():
             for feature in ("observation.state", "action"):
                 if (
@@ -64,6 +69,12 @@ class Normalizer:
                 "state_max": pad_to_24(robot_stats["observation.state"]["max"]),
                 "action_min": pad_to_24(robot_stats["action"]["min"]),
                 "action_max": pad_to_24(robot_stats["action"]["max"]),
+            }
+            state_stats = robot_stats["observation.state"]
+            self.state_normalization_contracts[stats_key] = {
+                "contract": state_stats.get("contract", "legacy_minmax_clipped"),
+                "min": state_stats["min"], "max": state_stats["max"],
+                "margin": state_stats.get("margin"),
             }
 
     def _stats(self, task_key=None):
@@ -145,7 +156,7 @@ def _resolve_vlm_name(configured_name, override=None):
     )
 
 
-def load_model_and_normalizer(ckpt_dir, vlm_name=None):
+def load_model_and_normalizer(ckpt_dir, vlm_name=None, feedback_bundle=None):
     ckpt_dir = os.path.abspath(os.path.expanduser(ckpt_dir))
     required_files = (
         "config.json",
@@ -161,10 +172,10 @@ def load_model_and_normalizer(ckpt_dir, vlm_name=None):
             f"Checkpoint directory {ckpt_dir} is missing: {missing_files}"
         )
 
-    with open(os.path.join(ckpt_dir, "config.json"), "r") as config_file:
-        config = json.load(config_file)
-    with open(os.path.join(ckpt_dir, "norm_stats.json"), "r") as stats_file:
-        stats = json.load(stats_file)
+    config_bytes = Path(ckpt_dir, "config.json").read_bytes()
+    stats_bytes = Path(ckpt_dir, "norm_stats.json").read_bytes()
+    config = json.loads(config_bytes)
+    stats = json.loads(stats_bytes)
     config["vlm_name"] = _resolve_vlm_name(config.get("vlm_name"), vlm_name)
     use_state = bool(config.get("use_state", True))
     if not use_state:
@@ -186,29 +197,73 @@ def load_model_and_normalizer(ckpt_dir, vlm_name=None):
     config["legacy_inference_contract"] = legacy_inference_contract
     config["num_inference_timesteps"] = 32 if legacy_inference_contract else 50
     config["device"] = "cuda"
+    if feedback_bundle is not None:
+        if legacy_inference_contract or config.get("observation_action_decoder") is not None:
+            raise ValueError("Native feedback requires the original K6 backbone checkpoint")
+        config["use_flash_attn"] = False
 
-    print("Building EVO_1 module...", flush=True)
+    logging.getLogger(__name__).debug('Building EVO_1 module...')
     model = EVO1(config).eval()
     ckpt_path = os.path.join(ckpt_dir, "mp_rank_00_model_states.pt")
 
-    print(f"Loading checkpoint: {ckpt_path}", flush=True)
+    logging.getLogger(__name__).debug(f'Loading checkpoint: {ckpt_path}')
+    weight_stat = os.stat(ckpt_path)
     try:
         checkpoint = torch.load(
             ckpt_path, map_location="cpu", mmap=True, weights_only=False
         )
     except TypeError:
         checkpoint = torch.load(ckpt_path, map_location="cpu")
-    print("Applying checkpoint weights...", flush=True)
+    logging.getLogger(__name__).debug('Applying checkpoint weights...')
+    # Plain Accelerate saves nested client_state; DeepSpeed merges its client
+    # state into the checkpoint root (engine._save_checkpoint: state.update).
+    progress_state = checkpoint.get("client_state") or checkpoint
+    recorded_config = progress_state.get("config") or {}
+    if recorded_config.get("task_environment_contracts") != backbone_environment_contracts(config):
+        raise ValueError("Environment provenance differs between config.json and checkpoint client_state")
+    if recorded_config.get("training_dataset_snapshots") != config.get("training_dataset_snapshots"):
+        raise ValueError("Dataset snapshots differ between config.json and checkpoint client_state")
+    if recorded_config.get("checkpoint_fp32_temporal_parameter_names") != config.get("checkpoint_fp32_temporal_parameter_names"):
+        raise ValueError("Parameter storage precision differs between config.json and checkpoint client_state")
     model.load_state_dict(checkpoint["module"], strict=True)
+    digest = hashlib.sha256()
+    with open(ckpt_path, "rb") as weights_file:
+        for block in iter(lambda: weights_file.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    final_stat = os.stat(ckpt_path)
+    if (weight_stat.st_ino, weight_stat.st_size, weight_stat.st_mtime_ns) != (
+        final_stat.st_ino, final_stat.st_size, final_stat.st_mtime_ns
+    ):
+        raise RuntimeError("Checkpoint changed while loading; restart with a stable checkpoint")
+    model.checkpoint_identity = {
+        "path": os.path.realpath(ckpt_dir),
+        "step": progress_state.get("step", checkpoint.get("global_steps")),
+        "weights_sha256": digest.hexdigest(),
+        "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+        "norm_stats_sha256": hashlib.sha256(stats_bytes).hexdigest(),
+    }
     if bool(config.get("use_lora", False)):
         merged_count = merge_lora_weights(model)
-        print(
-            f"Merged LoRA weights into {merged_count} modules for inference.",
-            flush=True,
+        logging.getLogger(__name__).debug(f'Merged LoRA weights into {merged_count} modules for inference.')
+    attach_observation_decoder(model, ckpt_dir, config, stats, model.checkpoint_identity)
+    if feedback_bundle is not None:
+        sys.path.insert(0, str(REPO_ROOT))
+        from model.action_head.native_feedback_policy import NativeFeedbackPolicy
+        vision_layers = model.embedder.model.vision_model.encoder.layers
+        model.checkpoint_identity["attention_backend"] = {
+            "vision": "flash_attention_2" if all(
+                bool(getattr(layer.attn, "use_flash_attn", False)) for layer in vision_layers
+            ) else "standard",
+            "language": str(model.embedder.model.language_model.config._attn_implementation),
+        }
+        model.native_feedback_policy = NativeFeedbackPolicy(
+            feedback_bundle, model.checkpoint_identity, stats, "cuda"
         )
-    print("Model is ready on CUDA.", flush=True)
+        model.checkpoint_identity["native_feedback_policy"] = model.native_feedback_policy.identity
+        model.config["task_environment_contracts"] = model.native_feedback_policy.environment_contracts
+    logging.getLogger(__name__).debug('Model is ready on CUDA.')
 
-    print("Loading normalizer...", flush=True)
+    logging.getLogger(__name__).debug('Loading normalizer...')
     normalizer = Normalizer(stats)
     return model, normalizer, use_state
 
@@ -260,7 +315,18 @@ def decode_memory_images(data: dict, image_size: int):
     return [[decode_image_from_list(image, image_size) for image in data["image"]]]
 
 
-def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
+def infer_from_json_dict(data: dict, model, normalizer, use_state: bool, feedback_episode=None):
+    feedback_policy = getattr(model, "native_feedback_policy", None)
+    task_key = data.get("task_key")
+    if feedback_policy is not None:
+        feedback_policy.validate_request(task_key, data.get("prompt"), data.get("action_mask"))
+        if task_key in ("mujoco_chopstick", "mujoco_drawer_memory") and feedback_episode is None:
+            raise ValueError("Native feedback requires an episode session for this task")
+    observation_decoder = getattr(model, "observation_action_decoder", None)
+    if observation_decoder is not None:
+        observation_decoder.validate_request(data.get("task_key"), data.get("prompt"), data.get("action_mask"))
+        if not bool(torch.isfinite(torch.as_tensor(data.get("state"), dtype=torch.float32)).all()):
+            raise ValueError("Composite robot state must be finite before normalization")
     device = "cuda"
     image_size = int(model.config.get("image_size", 448))
 
@@ -343,6 +409,20 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
             ]
         )
     action_mask = torch.tensor([data["action_mask"]], dtype=torch.int32, device=device)
+    print(f"image_mask,{image_mask}")
+    print(f"action_mask,{action_mask}")
+
+    if feedback_episode is not None:
+        if not bool(torch.isfinite(state).all()):
+            raise ValueError("Native feedback requires finite proprioception history")
+        if num_views != 1 or image_mask.tolist() != [True]:
+            raise ValueError("Native feedback expects one valid front-camera view")
+        raw_state = data["state"][-1]
+        image = images[-1][0]
+        normalized = feedback_episode.observe(task_key, raw_state, image)
+        if normalized is not None:
+            values = torch.as_tensor(normalized, device=device)
+            return normalizer.denormalize_action(values, task_key=task_key).cpu().numpy().tolist()
 
     flow_seed = data.get("flow_seed", None, )
     if flow_seed is not None:
@@ -354,23 +434,39 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool):
         torch.cuda.manual_seed_all(flow_seed)
     
     with torch.no_grad(), torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-        action = model.run_inference(
-            images=images,
-            image_mask=image_mask,
-            prompt=prompt,
-            state_input=norm_state,
-            action_mask=action_mask,
-            history_mask=history_mask,
-        )
+        capture = (feedback_policy.capture_intent(model)
+                   if feedback_episode is not None and task_key == "mujoco_drawer_memory"
+                   and feedback_episode.mode is None else nullcontext([]))
+        with capture as captured:
+            decoder = None
+            if feedback_episode is not None:
+                def decoder(fused_tokens, prepared, history, fused_mask, mask):
+                    return feedback_episode.decode(
+                        task_key, raw_state, image, fused_tokens, prepared,
+                        history, fused_mask, mask, captured,
+                    )
+            action = model.run_inference(
+                images=images,
+                image_mask=image_mask,
+                prompt=prompt,
+                state_input=norm_state,
+                action_mask=action_mask,
+                history_mask=history_mask,
+                action_decoder=decoder,
+            )
         action = action.reshape(1, -1, 24)
-        action = normalizer.denormalize_action(
-            action[0], task_key=data.get("task_key")
-        )
+        action = normalizer.denormalize_action(action[0].float(), task_key=task_key)
         return action.cpu().numpy().tolist()
 
 
 async def handle_request(websocket, model, normalizer, use_state):
     print("Client connected", flush=True)
+    feedback = getattr(model, "native_feedback_policy", None)
+    active_episode = None
+    feedback_episode = None
+    last_step = -1
+    last_digest = None
+    last_response = None
     try:
         async for message in websocket:
             json_data = json.loads(message)
@@ -378,10 +474,15 @@ async def handle_request(websocket, model, normalizer, use_state):
                 legacy = bool(getattr(model, "legacy_inference_contract", False))
                 await websocket.send(json.dumps({
                     "type": "model_metadata",
+                    "native_feedback_episode_protocol": 1 if feedback is not None else None,
+                    "checkpoint_identity": getattr(model, "checkpoint_identity", None),
+                    "task_environment_contracts": model.config.get("task_environment_contracts", {}),
+                    "training_dataset_snapshots": model.config.get("training_dataset_snapshots"),
                     "memory_frames": int(getattr(model, "memory_frames", 1)),
                     "memory_stride_seconds": model.config.get('memory_stride_seconds'),
                     "memory_stride_steps": int(model.config.get('memory_stride_steps', 5)),
                     "normalization_keys": list(normalizer.stats_by_key),
+                    "state_normalization_contracts": getattr(normalizer, "state_normalization_contracts", {}),
                     "legacy_inference_contract": legacy,
                     "recommended_execution_horizon": 14 if legacy else 4,
                     "recommended_precision_replan": not legacy,
@@ -389,8 +490,35 @@ async def handle_request(websocket, model, normalizer, use_state):
                 }))
                 continue
             print(f"Received JSON observation")
-            actions = infer_from_json_dict(json_data, model, normalizer, use_state)
-            await websocket.send(json.dumps(actions))
+            episode = None
+            if feedback is not None and json_data.get("task_key") in (
+                "mujoco_chopstick", "mujoco_drawer_memory"
+            ):
+                episode_id = json_data.get("episode_id")
+                step = json_data.get("episode_step")
+                if not isinstance(episode_id, str) or not 0 < len(episode_id) <= 128:
+                    raise ValueError("Native feedback requires an episode_id")
+                if type(step) is not int or step < 0:
+                    raise ValueError("Native feedback requires a nonnegative episode_step")
+                key = (json_data["task_key"], episode_id)
+                if key != active_episode:
+                    if step != 0:
+                        raise ValueError("A new feedback episode must begin at step zero")
+                    active_episode = key
+                    feedback_episode = feedback.new_episode()
+                    last_step = -1
+                digest = hashlib.sha256(message.encode("utf-8")).hexdigest()
+                if step == last_step and digest == last_digest:
+                    await websocket.send(last_response)
+                    continue
+                if step != last_step + 1:
+                    raise ValueError("Feedback requests must advance exactly one episode step")
+                episode = feedback_episode
+            actions = infer_from_json_dict(json_data, model, normalizer, use_state, episode)
+            response = json.dumps(actions)
+            if episode is not None:
+                last_step, last_digest, last_response = step, digest, response
+            await websocket.send(response)
             print("Sent action chunk")
             
     except websockets.exceptions.ConnectionClosed:
@@ -401,7 +529,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serve an Evo-1 checkpoint over websocket.")
     parser.add_argument(
         "--ckpt-dir",
-        default=str(DEFAULT_CKPT_DIR),
+        default=None,
     )
     parser.add_argument(
         "--vlm-name",
@@ -412,20 +540,25 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument("--port", type=int, default=9000)
+    parser.add_argument("--feedback-bundle", help="Optional reviewed native Pi-MEM feedback bundle directory")
     args = parser.parse_args()
-    ckpt_dir = args.ckpt_dir
+    ckpt_dir = args.ckpt_dir or DEFAULT_CKPT_DIR
+    feedback_bundle = args.feedback_bundle
     port = args.port
     
     print("Loading EVO_1 model...")
     model, normalizer, use_state = load_model_and_normalizer(
-        ckpt_dir, vlm_name=args.vlm_name
+        ckpt_dir, vlm_name=args.vlm_name, feedback_bundle=feedback_bundle
     )
     
     async def main():
         print(f"EVO_1 server running at ws://0.0.0.0:{port}")
         async with websockets.serve(
             lambda ws: handle_request(ws, model, normalizer, use_state),
-            "0.0.0.0", port, max_size=100_000_000
+            # Scene initialization/rendering and inference can block the peer
+            # event loop beyond 20 s. Match the client's timeout policy while
+            # retaining keepalive pings and normal TCP disconnect handling.
+            "0.0.0.0", port, max_size=100_000_000, ping_timeout=None
         ):
             await asyncio.Future()
 

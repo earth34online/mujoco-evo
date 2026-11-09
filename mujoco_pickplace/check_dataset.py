@@ -1,8 +1,12 @@
 import argparse
+import os
 import importlib.util
 import json
+import secrets
 import sys
 from pathlib import Path
+
+os.environ.setdefault("MUJOCO_GL", "egl")
 
 import numpy as np
 import pandas as pd
@@ -11,8 +15,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 from mujoco_pickplace.episode_dataset import (
+    contact_source_policy_version,
     validate_contact_quality as check_contact_quality,
     validate_precision_grasp_quality,
+    validate_recorded_environment_contract, compare_environment_contract,
+    validate_collection_snapshot, validate_video_encoding, validate_rgb_video,
+    validate_correction_context,
     MAX_SUCCESSFUL_CLOSE_XY_ERROR,
     MIN_SUCCESSFUL_CLOSE_Z_ABOVE,
     MAX_SUCCESSFUL_CLOSE_Z_ABOVE,
@@ -121,6 +129,18 @@ def check_raw_dataset(
         _require_file(meta_dir / filename, f"metadata file {filename}")
 
     dataset_info = _read_json(meta_dir / "dataset.json")
+    validate_video_encoding(dataset_info)
+    validate_collection_snapshot(dataset_info)
+    recorded = validate_recorded_environment_contract(dataset_info)
+    if recorded is not None:
+        from mujoco_pickplace.tasks import get_task, task_environment_contract
+        settings = dataset_info.get("collection_config", {})
+        current = task_environment_contract(get_task(task_number),
+            randomize_task=settings.get("randomize_task", True),
+            randomization_scale=settings.get("randomization_scale", 1.0))
+        compatibility = compare_environment_contract(recorded, current)
+        if compatibility["status"] == "mismatch":
+            raise ValueError(f"Dataset/current environment mismatch: {compatibility['differences']}")
     tasks = _read_jsonl(meta_dir / "tasks.jsonl")
     episodes = _read_jsonl(meta_dir / "episodes.jsonl")
     episode_stats = _read_jsonl(meta_dir / "episodes_stats.jsonl")
@@ -138,7 +158,7 @@ def check_raw_dataset(
     collection_config = dataset_info.get("collection_config", {})
     source_policy_version = dataset_info.get("source_policy_version")
     if task_number in (3, 4):
-        if source_policy_version != f"task{task_number}-contact-v1":
+        if source_policy_version != contact_source_policy_version(task_number):
             raise AssertionError(
                 f"Task{task_number} requires its native contact expert dataset"
             )
@@ -150,6 +170,14 @@ def check_raw_dataset(
             )
         if state_dim != 8 or action_dim != 7:
             raise AssertionError("Expected the shared Panda 8-state/7-action contract")
+        from mujoco_pickplace.tasks import get_task, collection_config as task_collection_config
+        for key, expected in task_collection_config(get_task(task_number)).items():
+            actual = collection_config.get(key)
+            matches = (actual is not None and np.isclose(actual, expected)
+                       if isinstance(expected, (int, float)) and not isinstance(expected, bool)
+                       else actual == expected)
+            if not matches:
+                raise AssertionError(f"Task{task_number} collection configuration {key}: expected {expected!r}, got {actual!r}")
     if precision_checks:
         if source_policy_version not in PRECISION_POLICY_VERSIONS:
             raise AssertionError(
@@ -246,8 +274,13 @@ def check_raw_dataset(
             video_path = dataset_dir / relative_path
             _require_file(video_path, f"episode {episode_index} {camera} video")
             video_files.add(video_path.resolve())
+            validate_rgb_video(video_path, expected_length,
+                               int(dataset_info["cameras"][camera]["shape"][0]), expected_fps)
 
         frame = pd.read_parquet(parquet_path)
+        if task_number in (3, 4) and "expert.phase" in frame:
+            validate_correction_context(frame["expert.phase"].tolist(),
+                                        episode.get("quality", {}), task_number, frame["timestamp"].to_numpy())
         missing_columns = sorted(required_columns - set(frame.columns))
         if missing_columns:
             raise AssertionError(
@@ -504,6 +537,17 @@ def _replay_drawer_contact(task, episode, frame, predictions):
     for mode in ("expert", "model_translation", "model_translation_rotation"):
         env = task.make_env(seed=episode["seed"], image_size=128, capture_frames=False)
         try:
+            # Replay the recorded common *robot* starting pose, including data
+            # collected before a target-independent observation pose revision.
+            # This is a diagnostic reset, never a policy execution correction.
+            from mujoco_pickplace.task_env import rotation_matrix
+            initial_state = np.asarray(frame.iloc[0]["observation.state"])
+            env.rotation = rotation_matrix(initial_state[3:6])
+            env.arm_target = env.drawer_ik(initial_state[:3])
+            env.data.qpos[env.arm_q] = env.arm_target
+            env.data.qvel[:] = 0.0
+            env.set_controls(env.arm_target, 1.0)
+            mujoco.mj_forward(env.model, env.data)
             list(env.presentation())
             grip = GripperCommandFilter()
             initial = float(
@@ -569,60 +613,81 @@ def _replay_drawer_contact(task, episode, frame, predictions):
     return results
 
 
+def drawer_history_cases(task, memory_frames, stride, seed):
+    """Fresh paired presentations: same nuisance seed/robot, only target varies.
+
+    Diagnostic target overrides are reset conditions, never policy inputs.
+    Recorded randomized training episodes need not contain an identical pair.
+    """
+    from mujoco_pickplace.tasks import ObservationHistory
+    from mujoco_pickplace.task_env import HANDLE_ROTATION, CABINET_ROTATION
+
+    cases = []
+    for target in range(4):
+        env = task.make_env(seed=seed, target=target, capture_frames=False)
+        try:
+            history = ObservationHistory(memory_frames, stride)
+            history.append(env.obs(), env.data.time)
+            joint_samples = {float(env.data.time): env.data.qpos[env.arm_q].copy()}
+            for observation in env.presentation():
+                history.append(observation, env.data.time)
+                joint_samples[float(env.data.time)] = env.data.qpos[env.arm_q].copy()
+            selected, valid = history.selected()
+            times = [row[0] for row in selected]
+            visible = [slot for slot, (t, ok) in enumerate(zip(times, valid))
+                       if ok and any(abs(t - v) < 1e-6 for v in env._target_visible_times)]
+            handle = env.model.geom(f"handle{target}").id
+            pregrasp = (env.data.geom_xpos[handle] - 0.1029 * HANDLE_ROTATION[:, 2]
+                        - 0.02 * HANDLE_ROTATION[:, 2] + CABINET_ROTATION @ env.expert_handle_approach_offset)
+            # Labels are kept outside the payload, solely to score the response.
+            delta = pregrasp - env.data.xpos[env.hand]
+            expert = np.r_[delta * min(1., .012 / max(np.max(np.abs(delta)), 1e-12)), np.zeros(3), 0.25]
+            cases.append(dict(target=target, seed=seed, payload=history.payload(task),
+                              expert=expert.tolist(), simulation_time=float(env.data.time),
+                              history_sim_times=times, visible_slots=visible,
+                              robot_joints=[joint_samples[t].tolist() for t in times]))
+        finally:
+            env.close()
+    anchor = cases[0]
+    if memory_frames > 1 and not anchor["visible_slots"]:
+        raise ValueError("Paired presentation has no visible target in sampled history")
+    for case in cases[1:]:
+        for key in ("history_mask", "image_mask", "action_mask", "prompt", "task_key"):
+            if case["payload"][key] != anchor["payload"][key]:
+                raise ValueError(f"Paired drawer presentations differ in {key}")
+        if (not np.allclose(case["payload"]["state"], anchor["payload"]["state"], rtol=0, atol=1e-7)
+                or not np.allclose(case["robot_joints"], anchor["robot_joints"], rtol=0, atol=1e-9)):
+            raise ValueError("Paired drawer presentations have different robot pose histories")
+        if case["payload"]["memory_images"][-1] != anchor["payload"]["memory_images"][-1]:
+            raise ValueError("Paired closed drawer images are different: possible current-frame leakage")
+        if memory_frames > 1 and not case["visible_slots"]:
+            raise ValueError("Paired presentation has no visible target in sampled history")
+        if memory_frames > 1 and not any(
+                ok and case["payload"]["memory_images"][slot] != anchor["payload"]["memory_images"][slot]
+                for slot, ok in enumerate(anchor["payload"]["history_mask"][:-1])):
+            raise ValueError("Paired presentations have identical valid historical images")
+    return cases
+
+
 async def _check_drawer_history_response(socket, task, path, memory_frames, stride):
     """Hold current vision and all proprioception fixed; vary visual history only.
 
     Target labels annotate results after inference. This is a controlled history
     response check, not evidence of successful drawer selection or manipulation.
     """
-    import av
     import copy
-    from collections import deque
-    from mujoco_pickplace.tasks import ObservationHistory
-    from dataset.lerobot_dataset_pretrain_mp import select_history_indices
+    from mujoco_pickplace.task_env import PandaTaskEnv
 
-    episodes = {}
-    for episode in _read_jsonl(path / "meta/episodes.jsonl"):
-        target = episode["quality"].get("target_drawer_diagnostic_only")
-        if target is not None:
-            episodes.setdefault(int(target), episode)
-    if len(episodes) < 2:
-        return dict(checked=False, available_targets=sorted(episodes))
-    cases, anchor = [], None
-    for target, episode in sorted(episodes.items()):
-        frame = pd.read_parquet(path / episode["data_path"])
-        phases = frame["expert.phase"].astype(str).tolist()
-        index = next(i for i, phase in enumerate(phases) if phase == "approach")
-        timestamps = frame["timestamp"].to_numpy(dtype=np.float64)
-        rows, valid = select_history_indices(
-            timestamps, index, memory_frames, 5, stride
-        )
-        needed = {0, *rows}
-        images = {}
-        with av.open(str(path / episode["video_paths"]["front"])) as container:
-            for j, decoded in enumerate(container.decode(video=0)):
-                if j in needed:
-                    images[j] = decoded.to_ndarray(format="rgb24")
-                if j >= max(needed):
-                    break
-        if set(images) != needed:
-            raise ValueError("Missing source frames for drawer history response check")
-        history = ObservationHistory(memory_frames, stride)
-        history.rows = deque(
-            (
-                float(timestamps[j]),
-                np.asarray(frame.iloc[j]["observation.state"]),
-                images[j],
-            )
-            for j in sorted(needed)
-        )
-        payload = history.payload(task)
-        if anchor is None:
-            anchor = copy.deepcopy(payload)
-        if payload["history_mask"] != anchor["history_mask"]:
-            raise ValueError(
-                "Drawer presentation windows have different validity masks"
-            )
+    if memory_frames < 2:
+        return dict(checked=False, controlled_counterfactual=False,
+                    reason="K=1 has no past visual slots for a target-history comparison")
+
+    seed = _read_jsonl(path / "meta/episodes.jsonl")[0]["seed"]
+    source = drawer_history_cases(task, memory_frames, stride, seed)
+    cases, anchor = [], copy.deepcopy(source[0]["payload"])
+    flow_seed = secrets.randbits(32)
+    for case in source:
+        payload = copy.deepcopy(case["payload"])
         payload["state"] = copy.deepcopy(anchor["state"])
         payload["memory_images"][-1] = copy.deepcopy(anchor["memory_images"][-1])
         for slot, valid in enumerate(payload["history_mask"]):
@@ -630,7 +695,7 @@ async def _check_drawer_history_response(socket, task, path, memory_frames, stri
                 payload["memory_images"][slot] = copy.deepcopy(
                     anchor["memory_images"][slot]
                 )
-        payload["flow_seed"] = 0
+        payload["flow_seed"] = flow_seed
         await socket.send(json.dumps(payload))
         predicted = np.asarray(json.loads(await socket.recv()), dtype=np.float64)
         if (
@@ -642,23 +707,33 @@ async def _check_drawer_history_response(socket, task, path, memory_frames, stri
             raise ValueError(
                 "Invalid policy actions during drawer history response check"
             )
-        expert = np.asarray(frame.iloc[index]["action"])
+        expert = np.asarray(case["expert"])
+        requested = predicted[0, :7].copy()
+        requested[:3] = np.clip(requested[:3], -PandaTaskEnv.MAX_DPOS, PandaTaskEnv.MAX_DPOS)
+        angle = np.linalg.norm(requested[3:6])
+        requested[3:6] *= min(1.0, PandaTaskEnv.MAX_DROT / max(angle, 1e-12))
+        requested[6] = np.clip(requested[6], 0.0, 1.0)
         cases.append(
             dict(
-                target_annotation_only=target,
-                seed=episode["seed"],
+                target_annotation_only=case["target"],
+                seed=case["seed"],
                 expert_first_action=expert.tolist(),
                 policy_first_action=predicted[0, :7].tolist(),
+                requested_first_action=requested.tolist(),
+                requested_first_translation_error_mm=float(np.linalg.norm(requested[:3] - expert[:3]) * 1000),
+                first_vertical_direction_matches_expert=(
+                    bool(requested[2] * expert[2] > 0.0) if abs(expert[2]) >= 0.0005 else None),
                 first_translation_error_mm=float(
                     np.linalg.norm(predicted[0, :3] - expert[:3]) * 1000
                 ),
-                simulation_time=float(timestamps[index]),
-                history_sim_times=timestamps[rows].tolist(),
+                simulation_time=case["simulation_time"],
+                history_sim_times=case["history_sim_times"],
+                target_visible_history_slots=case["visible_slots"],
             )
         )
     current_only = copy.deepcopy(anchor)
     current_only["history_mask"] = [False] * (memory_frames - 1) + [True]
-    current_only["flow_seed"] = 0
+    current_only["flow_seed"] = flow_seed
     await socket.send(json.dumps(current_only))
     without_history = np.asarray(json.loads(await socket.recv()), dtype=np.float64)
     if (
@@ -668,13 +743,34 @@ async def _check_drawer_history_response(socket, task, path, memory_frames, stri
         or not np.isfinite(without_history).all()
     ):
         raise ValueError("Invalid policy actions during current-only drawer check")
+    prototypes = np.asarray([case["expert"][:3] for case in source])
+    separable = all(np.linalg.norm(a - b) > 1e-7 for i, a in enumerate(prototypes)
+                    for b in prototypes[i + 1:])
+    for case, reference in zip(cases, source):
+        masked = without_history[0, :7].copy()
+        masked[:3] = np.clip(masked[:3], -PandaTaskEnv.MAX_DPOS, PandaTaskEnv.MAX_DPOS)
+        case["current_only_first_action"] = without_history[0, :7].tolist()
+        case["current_only_requested_translation_error_mm"] = float(
+            np.linalg.norm(masked[:3] - np.asarray(reference["expert"][:3])) * 1000)
+        distances = np.linalg.norm(prototypes - np.asarray(case["requested_first_action"][:3]), axis=1)
+        nearest = np.flatnonzero(np.isclose(distances, distances.min(), rtol=0, atol=1e-7))
+        case["nearest_first_action_expert_targets"] = [source[i]["target"] for i in nearest]
+        case["first_action_target_classification_ambiguous"] = len(nearest) != 1 or not separable
     return dict(
         checked=True,
+        status="measured_not_certified",
+        source="fresh_simulated_paired_presentations",
+        flow_seed=flow_seed,
+        robot_joint_history_identical=True,
         controlled_counterfactual=True,
         current_image_identical=True,
         all_state_history_identical=True,
         history_mask=anchor["history_mask"],
         task_selection_success_not_measured=True,
+        first_action_separates_all_four_expert_targets=separable,
+        confirmed_drawer_selection_correct=None,
+        current_only_reference_reused_for_identical_current_conditions=True,
+        model_queries=len(source) + 1,
         cases=cases,
         current_only_first_action=without_history[0, :7].tolist(),
         maximum_pairwise_first_translation_difference_mm=float(
@@ -710,10 +806,18 @@ async def check_policy_contact_precision(datasets, policy_url, report_path):
         verified_target_history_indices,
     )
 
-    result = dict(policy_url=policy_url, flow_seed=0, teacher_forced=True, tasks=[])
-    async with websockets.connect(policy_url, max_size=100_000_000) as socket:
+    result = dict(policy_url=policy_url, flow_seed=secrets.randbits(32), teacher_forced=True, tasks=[])
+    async with websockets.connect(policy_url, max_size=100_000_000, proxy=None) as socket:
         metadata = await request_model_metadata(socket)
         result["checkpoint_metadata"] = metadata
+        result["environment_compatibility"] = {}
+        from mujoco_pickplace.tasks import task_environment_contract
+        for task, _, _ in datasets:
+            checked = compare_environment_contract(
+                (metadata.get("task_environment_contracts") or {}).get(task.key), task_environment_contract(task))
+            result["environment_compatibility"][task.key] = checked
+            if checked["status"] == "mismatch":
+                raise ValueError(f"Task{task.number} checkpoint/environment mismatch: {checked['differences']}")
         memory_frames = int(metadata["memory_frames"])
         stride = float(metadata["memory_stride_seconds"])
         required = {task.key for task, _, _ in datasets}
@@ -738,6 +842,7 @@ async def check_policy_contact_precision(datasets, policy_url, report_path):
                     "pull",
                     "safe_wrist_arc",
                     "topdown_orientation",
+                    "object_clearance_lift",
                     "object_approach",
                     "object_descend",
                     "object_close",
@@ -815,9 +920,7 @@ async def check_policy_contact_precision(datasets, policy_url, report_path):
                     raise AssertionError(
                         "Policy and training disagree on history validity"
                     )
-                payload["flow_seed"] = (
-                    0  # Diagnostic noise only; evaluation start_seed is unchanged.
-                )
+                payload["flow_seed"] = result["flow_seed"]
                 await socket.send(json.dumps(payload))
                 actions = np.asarray(json.loads(await socket.recv()), dtype=np.float64)
                 if (
@@ -831,6 +934,14 @@ async def check_policy_contact_precision(datasets, policy_url, report_path):
                     )
                 predicted = actions[0, :7].copy()
                 predicted *= np.asarray(task.action_mask)
+                raw_predicted = predicted.copy()
+                # Report the action the formal environment will request, not
+                # an unclipped output that its motion limits cannot execute.
+                if task.number in (3, 4):
+                    predicted[:3] = np.clip(predicted[:3], -0.012, 0.012)
+                    length = np.linalg.norm(predicted[3:6])
+                    predicted[3:6] *= min(1.0, 0.10 / max(length, 1e-12))
+                predicted[6] = np.clip(predicted[6], 0.0, 1.0)
                 expert = np.asarray(frame.iloc[index]["action"])
                 predictions[index] = predicted
                 difference = predicted - expert
@@ -851,6 +962,7 @@ async def check_policy_contact_precision(datasets, policy_url, report_path):
                         rotation_error_degrees=float(np.rad2deg(rotation_error)),
                         gripper_absolute_error=float(abs(difference[6])),
                         expert_action=expert.tolist(),
+                        raw_policy_action=raw_predicted.tolist(),
                         policy_action=predicted.tolist(),
                         valid_history_sim_times=[
                             float(timestamps[j]) for j, ok in zip(rows, valid) if ok
@@ -938,7 +1050,8 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         "--require-evo",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Fail when Evo interface dependencies are unavailable.",
     )
     parser.add_argument(
@@ -948,7 +1061,8 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         "--require-strict-grasp-quality",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Require Task1 stable-grasp-v3 evidence and new tasks' strict contact evidence.",
     )
     parser.add_argument(
@@ -982,6 +1096,8 @@ def parse_args(argv=None):
         parser.error("Memory stride seconds must be finite and positive")
     if args.raw_only and args.require_evo:
         parser.error("--raw-only and --require-evo cannot be combined")
+    if args.require_evo is None:
+        args.require_evo = not args.raw_only
     return args
 
 

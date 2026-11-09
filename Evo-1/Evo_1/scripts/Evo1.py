@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 from model.internvl3.internvl3_embedder import InternVL3Embedder
 from model.action_head.flow_matching import FlowmatchingActionHead
+from model.action_head.direct_action import DirectActionHead
 from model.lora import (
     LoRALinear,
     LoRAMultiheadAttention,
@@ -89,6 +90,13 @@ class EVO1(nn.Module):
                 num_inference_timesteps=config.get("num_inference_timesteps", 50),
                 num_categories=config.get("num_categories", 1)
             )).to(self._device)
+        elif action_head_type == "direct":
+            if config.get("use_lora"):
+                raise ValueError("The direct action head does not support LoRA")
+            self.horizon = config["horizon"] = config.get("action_horizon", config.get("horizon", 16))
+            self.per_action_dim = config.setdefault("per_action_dim", 7)
+            config["action_dim"] = self.horizon * self.per_action_dim
+            self.action_head = DirectActionHead(config).to(self._device)
         else:
             raise NotImplementedError(f"Unknown action_head: {action_head_type}")
 
@@ -98,6 +106,81 @@ class EVO1(nn.Module):
         self.lora_module_names = []
         if self.use_lora:
             self._configure_lora()
+        # Preserve the precision declared by a saved training configuration
+        # before copying its state dict. Otherwise loading into BF16 first
+        # rounds the trained FP32 memory weights irreversibly at serving time.
+        if config.get("fp32_temporal_parameters", False):
+            self._prepare_temporal_parameter_precision()
+        self._restore_checkpoint_temporal_storage()
+
+    def _checkpoint_temporal_storage_parameters(self):
+        """Exact parameter whitelist, independent of the current trainable flags."""
+        parameters = {}
+        prefix = "embedder.model.vision_model.encoder.layers"
+        for index, layer in enumerate(self.embedder.model.vision_model.encoder.layers):
+            for child_name in ("norm1", "attn"):
+                for name, parameter in getattr(layer, child_name).named_parameters():
+                    parameters[f"{prefix}.{index}.{child_name}.{name}"] = parameter
+            if isinstance(layer.ls1, nn.Parameter):
+                parameters[f"{prefix}.{index}.ls1"] = layer.ls1
+        return parameters
+
+    def _restore_checkpoint_temporal_storage(self):
+        names = self.config.get("checkpoint_fp32_temporal_parameter_names", [])
+        if not isinstance(names, list) or any(not isinstance(name, str) for name in names):
+            raise ValueError("checkpoint_fp32_temporal_parameter_names must be a list of parameter names")
+        if not names:
+            return
+        if self.use_lora:
+            raise ValueError("Explicit temporal storage names require the original non-LoRA parameter layout")
+        allowed = self._checkpoint_temporal_storage_parameters()
+        unknown = sorted(set(names) - allowed.keys())
+        if unknown or len(names) != len(set(names)):
+            raise ValueError(f"Invalid checkpoint temporal FP32 storage names: {unknown or 'duplicates'}")
+        for name in names:
+            allowed[name].data = allowed[name].data.float()
+
+    def preserve_checkpoint_temporal_precision(self, state_dict):
+        """Retain actual FP32 source values when initializing a new frozen run.
+
+        The normal training flag selects gradients; it must not make loading
+        an already trained FP32 attention round that source through BF16.
+        Older checkpoints without an explicit storage declaration retain
+        their existing constructor/inference behavior.
+        """
+        if self.use_lora or not self.config.get("fp32_temporal_parameters", False):
+            return 0
+        allowed = self._checkpoint_temporal_storage_parameters()
+        names = []
+        for name, parameter in allowed.items():
+            source = state_dict.get(name)
+            if source is not None and source.dtype == torch.float32:
+                if source.shape != parameter.shape:
+                    raise ValueError(f"Checkpoint temporal parameter shape differs: {name}")
+                names.append(name)
+        if not names:
+            return 0
+        names = sorted(set(names) | set(self.config.get("checkpoint_fp32_temporal_parameter_names", [])))
+        self.config["checkpoint_fp32_temporal_parameter_names"] = names
+        self._restore_checkpoint_temporal_storage()
+        return len(names)
+
+    def _prepare_temporal_parameter_precision(self):
+        if (self.use_lora or self.memory_frames <= 1
+                or self.config.get("finetune_vlm", False)
+                or not self.config.get("finetune_temporal_vision", True)
+                or not self.config.get("fp32_temporal_parameters", True)):
+            return
+        for index, layer in enumerate(self.embedder.model.vision_model.encoder.layers):
+            if (index + 1) % self.temporal_layer_interval:
+                continue
+            if (self.temporal_drop_past_after_layer is not None
+                    and int(self.temporal_drop_past_after_layer) > 0
+                    and index + 1 > int(self.temporal_drop_past_after_layer)):
+                continue
+            layer.norm1.float()
+            layer.attn.float()
+            layer.ls1.data = layer.ls1.data.float()
 
     def _configure_lora(self):
         rank = int(self.config.get("lora_rank", 8))
@@ -384,6 +467,10 @@ class EVO1(nn.Module):
         fused_mask: torch.Tensor = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         
+        if isinstance(self.action_head, DirectActionHead) and actions_gt is not None:
+            return self.action_head(fused_tokens, state=state, action_mask=action_mask,
+                                    history_mask=history_mask, fused_mask=fused_mask,
+                                    return_intent=bool(self.config.get("drawer_intent_supervision", False)))
         if actions_gt is None:
             return self.action_head.get_action(
                 fused_tokens,
@@ -415,6 +502,7 @@ class EVO1(nn.Module):
         return_cls_only: Union[bool, None] = None,
         action_mask: Union[torch.Tensor, None] = None,
         history_mask: Union[torch.Tensor, None] = None,
+        action_decoder=None,
     ) -> torch.Tensor:
 
         fused_tokens, fused_mask = self.get_vl_embeddings(
@@ -439,6 +527,25 @@ class EVO1(nn.Module):
             )
             if history_mask.ndim == 1:
                 history_mask = history_mask.unsqueeze(0)
+
+        if action_decoder is not None:
+            action = action_decoder(
+                fused_tokens, state_tensor, history_mask, fused_mask, action_mask
+            )
+            if action is not None:
+                return action
+
+        observation_decoder = getattr(self, "observation_action_decoder", None)
+        if self.config.get("observation_action_decoder") is not None and observation_decoder is None:
+            raise RuntimeError("Configured observation decoder was not loaded; use the checkpoint inference loader")
+        if observation_decoder is not None:
+            action = observation_decoder.predict(
+                self, images=images, image_mask=image_mask, prompt=prompt,
+                state=state_tensor, action_mask=action_mask, history_mask=history_mask,
+                fused_tokens=fused_tokens, fused_mask=fused_mask,
+            )
+            if action is not None:
+                return action
         
         return self.predict_action(
             fused_tokens,
@@ -459,6 +566,8 @@ class EVO1(nn.Module):
         history_mask=None,
         fused_mask=None,
     ):
+        if self.config.get("observation_action_decoder") is not None:
+            raise ValueError("Composite observation-decoder bundles use the frozen inference backend, not flow-training forward")
    
 
         return self.predict_action(
@@ -476,6 +585,22 @@ class EVO1(nn.Module):
         for p in module.parameters():
             p.requires_grad = False
 
+    def _sync_embedder_training_mode(self):
+        # Freezing parameters alone leaves stochastic depth active. Keep a
+        # fully frozen VLM deterministic during action-expert alignment, as in
+        # the official LeRobot EVO1 implementation. Old configs retain their
+        # historical training behavior unless they explicitly opt in.
+        frozen = not any(parameter.requires_grad for parameter in self.embedder.parameters())
+        keep_eval = frozen and self.config.get("frozen_embedder_eval", False)
+        self.embedder.train(bool(self.training and not keep_eval))
+
+    def train(self, mode: bool = True):
+        if mode and self.config.get("observation_action_decoder") is not None:
+            raise ValueError("This composite observation-decoder checkpoint is inference-only; flow training would discard its learned policy")
+        super().train(mode)
+        self._sync_embedder_training_mode()
+        return self
+
     def set_finetune_flags(self):
         config = self.config  
         if self.use_lora:
@@ -489,11 +614,8 @@ class EVO1(nn.Module):
             if adapter_trainable == 0:
                 raise RuntimeError("LoRA 已启用，但没有可训练的 LoRA 参数")
             support_trainable = self._enable_lora_support_parameters()
-            print(
-                f"LoRA enabled: {len(self.lora_module_names)} modules, "
-                f"{adapter_trainable / 1e6:.2f}M adapter parameters + "
-                f"{support_trainable / 1e6:.2f}M bias/norm parameters..."
-            )
+            logging.getLogger(__name__).debug(f'LoRA enabled: {len(self.lora_module_names)} modules, {adapter_trainable / 1000000.0:.2f}M adapter parameters + {support_trainable / 1000000.0:.2f}M bias/norm parameters...')
+            self._sync_embedder_training_mode()
             return
 
         if not config.get("finetune_vlm", False):
@@ -522,26 +644,24 @@ class EVO1(nn.Module):
                         for parameter in module.parameters():
                             parameter.requires_grad = True
                     layer.ls1.requires_grad = True
-                    if config.get("fp32_temporal_parameters", True):
-                        # Plain AdamW has no FP32 master copy for BF16 weights;
-                        # at lr=1e-5 an update can round to exactly zero forever.
-                        # Keeping only the active trainable temporal blocks in
-                        # FP32 is inexpensive and works with or without
-                        # DeepSpeed. Autocast still performs BF16 matmuls.
-                        layer.norm1.float()
-                        layer.attn.float()
-                        layer.ls1.data = layer.ls1.data.float()
                     trainable_layer_count += 1
-                print(
-                    "Finetuning reused attention weights in "
-                    f"{trainable_layer_count} temporal vision layers..."
-                )
+                self._prepare_temporal_parameter_precision()
+                logging.getLogger(__name__).debug(f'Finetuning reused attention weights in {trainable_layer_count} temporal vision layers...')
                 if config.get("fp32_temporal_parameters", True):
-                    print("Keeping trainable temporal weights in FP32...")
+                    logging.getLogger(__name__).debug('Keeping trainable temporal weights in FP32...')
         else:
+            for parameter in self.embedder.parameters():
+                parameter.requires_grad = True
             print("Finetuning VLM (InternVL3)...")
 
         if not config.get("finetune_action_head", False):
             self._freeze_module(self.action_head, "Action Head")
         else:
+            for parameter in self.action_head.parameters():
+                parameter.requires_grad = True
+            if (not self.action_head.use_state
+                    and self.action_head.state_encoder is not None):
+                for parameter in self.action_head.state_encoder.parameters():
+                    parameter.requires_grad = False
             print("Finetuning Action Head...")
+        self._sync_embedder_training_mode()

@@ -185,6 +185,9 @@ Evo-1/Evo_1/model/action_head/*
 
 !Evo-1/Evo_1/model/action_head/__init__.py
 !Evo-1/Evo_1/model/action_head/flow_matching.py
+!Evo-1/Evo_1/model/action_head/observation_decoder.py
+!Evo-1/Evo_1/model/action_head/native_feedback_policy.py
+!Evo-1/Evo_1/model/action_head/direct_action.py
 
 
 # internvl3

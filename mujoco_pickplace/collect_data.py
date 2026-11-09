@@ -1,6 +1,9 @@
 from pathlib import Path
 import argparse
+import os
 import sys
+
+os.environ.setdefault("MUJOCO_GL", "egl")
 
 import numpy as np
 
@@ -436,7 +439,8 @@ def build_argument_parser():
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--tasks", type=int, nargs="+", choices=(1, 3, 4))
     selection.add_argument("--task", type=int, choices=(1, 3, 4))
-    parser.add_argument("--num-episodes", type=int, default=NUM_EPISODES)
+    parser.add_argument("--num-episodes", type=int, default=None,
+                        help="Accepted episodes per task; default: 200 normally, all eligible recorded corrections in recovery mode.")
     parser.add_argument(
         "--max-steps",
         type=int,
@@ -445,6 +449,22 @@ def build_argument_parser():
     )
     parser.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS)
     parser.add_argument("--start-seed", type=int, default=None)
+    parser.add_argument(
+        "--paired-drawer-histories",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Try all four Task4 presentations per scene seed (opt-in).",
+    )
+    parser.add_argument(
+        "--recovery-actions", type=Path, default=None,
+        help=("Task3/Task4: actual evaluation actions.jsonl used to reproduce safe empty "
+              "grasps or early handle deviations, then record expert corrections. Policy-prefix observations are "
+              "history only; their failed actions are excluded from training targets."),
+    )
+    parser.add_argument(
+        "--recovery-kind", choices=("object_empty_grasp", "handle_approach_deviation", "handle_contact_loss", "handle_policy_state"),
+        default=None, help="Optional recorded correction type; default: all eligible failures.",
+    )
     parser.add_argument("--image-size", type=int, default=448)
     parser.add_argument(
         "--randomize-task",
@@ -477,15 +497,13 @@ def build_argument_parser():
         action="store_true",
         default=True,
         help="Clear the existing data/videos/meta under dataset-dir before "
-        "collecting, then write a fresh dataset starting at episode 0 "
-        "(default).",
+        "collecting, then write a fresh dataset starting at episode 0 (default).",
     )
     write_mode.add_argument(
         "--append",
         dest="overwrite",
         action="store_false",
-        help="Preserve the existing dataset and append new episodes. This "
-        "non-default behavior must be requested explicitly.",
+        help="Preserve the existing dataset and append new episodes.",
     )
     return parser
 
@@ -496,8 +514,18 @@ def parse_args(argv=None):
     args.tasks = args.tasks or ([args.task] if args.task is not None else [1, 3, 4])
     if len(args.tasks) != len(set(args.tasks)):
         parser.error("Each task may be selected only once")
-    if args.num_episodes < 1:
+    if args.paired_drawer_histories and (4 not in args.tasks or args.recovery_actions is not None):
+        parser.error("--paired-drawer-histories requires Task4 in normal collection")
+    if args.recovery_kind is not None and args.recovery_actions is None:
+        parser.error("--recovery-kind requires --recovery-actions")
+    if args.num_episodes is None and args.recovery_actions is None:
+        args.num_episodes = NUM_EPISODES
+    if args.num_episodes is not None and args.num_episodes < 1:
         parser.error("--num-episodes must be positive")
+    if args.recovery_actions is not None and (args.tasks not in ([3], [4]) or args.start_seed is not None):
+        parser.error("--recovery-actions requires --task 3 or --task 4 and uses recorded seeds; omit --start-seed")
+    if args.recovery_actions is not None and args.dataset_dir is None and args.overwrite:
+        parser.error("Use --append for recovery data at the normal dataset path, or specify a separate --dataset-dir")
     if args.max_attempts is not None and args.max_attempts < 1:
         parser.error("--max-attempts must be positive")
     if args.max_steps is not None and args.max_steps < 1:
@@ -511,11 +539,21 @@ def parse_args(argv=None):
 
 def main(argv=None):
     import sys
+    import signal
 
     sys.path.insert(0, str(PROJECT_ROOT))
     from mujoco_pickplace.tasks import collection_main
 
-    return collection_main(args=parse_args(argv))
+    def terminate(signum, frame):
+        # Let the collector persist its interrupted attempt and close MuJoCo.
+        # SIGKILL/power loss cannot be handled; their running marker remains
+        # an explicitly unfinished snapshot, rejected by check/training.
+        raise SystemExit(128 + signum)
+    previous = signal.signal(signal.SIGTERM, terminate)
+    try:
+        return collection_main(args=parse_args(argv))
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":

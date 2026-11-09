@@ -22,22 +22,26 @@ import multiprocessing as mp
 import logging
 import pickle
 from collections import Counter
+from contextlib import nullcontext
 
-CACHE_INDEX_VERSION = 7
+CACHE_INDEX_VERSION = 11
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 MEMORY_EVENT_ROUTINE = "routine"
 MEMORY_EVENT_GRASP_ALIGNMENT = "grasp_alignment"
 MEMORY_EVENT_POST_FAILURE_CORRECTION = "post_failure_correction"
+MEMORY_EVENT_POLICY_STATE_CONTINUATION = "policy_state_continuation"
 MEMORY_EVENT_PROBE = "memory_probe"
 GRASP_PHASES = {
     "approach", "descend", "close", "handle_approach", "handle_close", "pull",
     "object_descend", "object_close",
+    "topdown_orientation", "object_clearance_lift", "object_approach", "object_lift",
 }
 CONTACT_PRECISION_PHASES = {
     "descend", "close", "handle_approach", "handle_close", "pull",
     "object_descend", "object_close",
+    "topdown_orientation", "object_clearance_lift", "object_approach", "object_lift",
 }
 CORRECTION_PHASES = {"recover", "approach", "descend", "close"}
 
@@ -132,7 +136,8 @@ def select_history_indices(
 
 
 def classify_memory_event(
-    phases, history_indices, current_index, history_valid=None, verified_visible_indices=()
+    phases, history_indices, current_index, history_valid=None, verified_visible_indices=(),
+    correction_kind=None,
 ):
     """Label windows whose current action can use visible short-term history.
 
@@ -156,20 +161,32 @@ def classify_memory_event(
         for index, valid in zip(history_indices, history_valid)
         if valid and 0 <= int(index) <= current_index
     }
-    if current_phase in CORRECTION_PHASES and "recover" in visible_phases:
-        return MEMORY_EVENT_POST_FAILURE_CORRECTION
-    # Drawer selection uses history during approach. Once the fingers close or
-    # pull, contact precision takes precedence even if presentation is visible.
     target_visible = "observe_target" in visible_phases or any(
         valid and int(index) in verified_visible_indices
         for index, valid in zip(history_indices, history_valid)
     )
+    if (correction_kind is not None and "recover" in visible_phases
+            and current_phase in {"approach", "handle_approach"} and target_visible):
+        event = (MEMORY_EVENT_POLICY_STATE_CONTINUATION
+                 if correction_kind == "handle_policy_state" else MEMORY_EVENT_POST_FAILURE_CORRECTION)
+        return f"{event}/{MEMORY_EVENT_PROBE}"
+    if correction_kind == "object_empty_grasp" and current_phase not in {
+        "observe_target", "presentation_close", "policy_context"
+    }:
+        return f"{MEMORY_EVENT_POST_FAILURE_CORRECTION}/{current_phase}"
+    if current_phase in CORRECTION_PHASES and "recover" in visible_phases:
+        if correction_kind == "handle_policy_state":
+            return MEMORY_EVENT_POLICY_STATE_CONTINUATION
+        return MEMORY_EVENT_POST_FAILURE_CORRECTION
+    # Drawer selection uses history during approach. Once the fingers close or
+    # pull, contact precision takes precedence even if presentation is visible.
     if current_phase in {"approach", "handle_approach"} and target_visible:
+        if current_index > 0 and phases[current_index - 1] in {"observe_target", "presentation_close"}:
+            return f"initial/{MEMORY_EVENT_PROBE}"
         return MEMORY_EVENT_PROBE
     if current_phase in GRASP_PHASES:
-        # Short contact phases must not be diluted by long approach trajectories.
-        # Keep the existing inverse-frequency sampler; these are training labels,
-        # never privileged phase inputs to the policy.
+        # Distinguish short contact phases for diagnostics and optional event
+        # weighting. These labels never become privileged policy inputs.
         if current_phase in CONTACT_PRECISION_PHASES:
             return f"{MEMORY_EVENT_GRASP_ALIGNMENT}/{current_phase}"
         return MEMORY_EVENT_GRASP_ALIGNMENT
@@ -217,6 +234,27 @@ def compute_lerobot_normalization_stats_from_minmax(jsonl_path):
         "observation.state": {"min": state_min_global, "max": state_max_global},
         "action": {"min": action_min_global, "max": action_max_global}
     }
+
+def state_neighborhood_stats(stats, margin):
+    """New-run state bounds only; source/action statistics are unchanged."""
+    import copy
+
+    result = copy.deepcopy(stats)
+    if margin is None:
+        return result
+    low = np.asarray(result["observation.state"]["min"], dtype=np.float64)
+    high = np.asarray(result["observation.state"]["max"], dtype=np.float64)
+    margin = np.asarray(margin, dtype=np.float64)
+    if (margin.shape != low.shape or not np.isfinite(margin).all()
+            or (margin < 0).any()):
+        raise ValueError("state_normalization_margin must be finite, nonnegative and match state dimensions")
+    result["observation.state"].update(
+        min=(low - margin).tolist(), max=(high + margin).tolist(),
+        contract="minmax_clipped_neighborhood_v1", margin=margin.tolist(),
+        expert_min=low.tolist(), expert_max=high.tolist(),
+    )
+    return result
+
 
 def merge_lerobot_stats(stats_list: List[Dict[str, Dict[str, List[float]]]]) -> Dict:
     state_mins = [np.array(d["observation.state"]["min"]) for d in stats_list]
@@ -325,6 +363,7 @@ def _process_parquet_file_worker(args):
             json.loads(metadata_path.read_text(encoding="utf-8"))
             if metadata_path.is_file() else {}
         )
+        correction_kind = None
         if metadata.get("format") == "mujoco-evo-episodes":
             episode_path = Path(dataset_path) / "meta/episodes.jsonl"
             records = [
@@ -338,6 +377,7 @@ def _process_parquet_file_worker(args):
             if len(records) != 1:
                 raise ValueError(f"Native parquet has no unique accepted manifest record: {parquet_path}")
             record = records[0]
+            correction_kind = (record.get("quality", {}).get("correction_source") or {}).get("kind")
             if (len(source_df) != int(record["length"])
                     or not np.all(
                         source_df["episode_index"].to_numpy() == int(record["episode_index"])
@@ -369,6 +409,14 @@ def _process_parquet_file_worker(args):
             else []
         )
         sample_indices = list(range(len(source_df)))
+        if source_phases and metadata.get("format") == "mujoco-evo-episodes":
+            if "policy_context" in source_phases:
+                from mujoco_pickplace.episode_dataset import validate_correction_context
+                validate_correction_context(source_phases, record.get("quality", {}),
+                                            metadata.get("collection_config", {}).get("task_id"), source_timestamps)
+            # A failed policy prefix is causal history for a corrective expert,
+            # never an expert action target. The whole video timeline remains.
+            sample_indices = [i for i in sample_indices if source_phases[i] != "policy_context"]
         verified_visible_indices = set()
         if metadata_path.is_file():
             if (metadata.get("format") == "mujoco-evo-episodes"
@@ -404,7 +452,8 @@ def _process_parquet_file_worker(args):
             if cache_filepath.exists():
                 episode_files.append(str(cache_filepath))
                 episode_events.append(
-                    classify_memory_event(source_phases, history_indices, i, history_valid, verified_visible_indices)
+                    classify_memory_event(source_phases, history_indices, i, history_valid, verified_visible_indices,
+                                          correction_kind=correction_kind)
                     if source_phases
                     else MEMORY_EVENT_ROUTINE
                 )
@@ -414,7 +463,8 @@ def _process_parquet_file_worker(args):
             sub_df = df.iloc[i: i + action_horizon]
             history_df = source_df.iloc[history_indices]
             memory_event = (
-                classify_memory_event(source_phases, history_indices, i, history_valid, verified_visible_indices)
+                classify_memory_event(source_phases, history_indices, i, history_valid, verified_visible_indices,
+                                      correction_kind=correction_kind)
                 if source_phases
                 else MEMORY_EVENT_ROUTINE
             )
@@ -483,8 +533,13 @@ class LeRobotDataset(Dataset):
         memory_frames: int = 6,
         memory_stride_steps: int = 5,
         memory_stride_seconds: Union[float, None] = 1.0,
+        cache_num_workers: int = 1,
+        mask_terminal_action_padding: bool = True,
     ):
         self.config = config
+        if isinstance(cache_num_workers, bool) or not isinstance(cache_num_workers, int) or cache_num_workers < 1:
+            raise ValueError("cache_num_workers must be a positive integer")
+        self.cache_num_workers = cache_num_workers
 
         sorted_datasets = sorted(self.config['data_groups'].keys())
         self.arm_to_embodiment_id = {key: i for i, key in enumerate(sorted_datasets)}
@@ -510,6 +565,9 @@ class LeRobotDataset(Dataset):
         self.max_samples_per_file = max_samples_per_file
         self.binarize_gripper = binarize_gripper
         self.use_augmentation = use_augmentation
+        if not isinstance(mask_terminal_action_padding, bool):
+            raise TypeError("mask_terminal_action_padding must be boolean")
+        self.mask_terminal_action_padding = mask_terminal_action_padding
         self.preserve_spatial_calibration = bool(
             self.config.get("preserve_spatial_calibration", False)
         )
@@ -518,6 +576,11 @@ class LeRobotDataset(Dataset):
             raise ValueError("normalization_scope must be 'arm' or 'dataset'")
         if self.dataset_action_masks and self.normalization_scope != 'dataset':
             raise ValueError('Per-dataset action masks require dataset normalization')
+        if self.normalization_scope != "dataset" and any(
+            item.get("state_normalization_margin") is not None
+            for group in self.config["data_groups"].values() for item in group.values()
+        ):
+            raise ValueError("State neighborhood margins require dataset normalization")
         self.memory_frames = int(memory_frames)
         self.memory_stride_steps = int(memory_stride_steps)
         self.memory_stride_seconds = memory_stride_seconds
@@ -561,6 +624,12 @@ class LeRobotDataset(Dataset):
             self.video_backend_kwargs = {"ctx": "cpu"}  
 
         self._load_metadata()
+        # Cached observations/actions are unchanged. The training mask is
+        # derived from episode lengths, so preserve the old cache identity
+        # while distinguishing the effective supervision for exact resume.
+        self.cache_source_signature = self._compute_source_signature(
+            include_action_padding_contract=False
+        )
         self.source_signature = self._compute_source_signature()
         self._load_trajectories()
 
@@ -599,6 +668,10 @@ class LeRobotDataset(Dataset):
      
         self.episodes = []
         self.tasks = {}
+        self.environment_contracts = {}
+        self.dataset_snapshots = {}
+        self._episode_lengths = {}
+        self._drawer_targets = {}
         norm_stats_list = []
 
         # for arms
@@ -619,10 +692,49 @@ class LeRobotDataset(Dataset):
                 required_source_policy_version = dataset_config.get(
                     "required_source_policy_version"
                 )
+                if dataset_config.get("required_quality_schema") == "mujoco-panda-contact":
+                    project_root = Path(__file__).resolve().parents[3]
+                    if str(project_root) not in sys.path:
+                        sys.path.insert(0, str(project_root))
+                    from mujoco_pickplace.episode_dataset import (
+                        CONTACT_QUALITY_VERSION, contact_source_policy_version,
+                    )
+                    native_version = contact_source_policy_version(required_collection_config.get("task_id"))
+                    if (dataset_config.get("required_quality_schema_version") != CONTACT_QUALITY_VERSION
+                            or required_source_policy_version not in (None, native_version)):
+                        raise ValueError("Native contact configuration disagrees with the current expert schema")
+                    required_source_policy_version = native_version
                 dataset_metadata = {}
                 dataset_metadata_path = dataset_path / "meta" / "dataset.json"
                 if dataset_metadata_path.is_file():
                     dataset_metadata = json.loads(dataset_metadata_path.read_text(encoding="utf-8"))
+                if dataset_metadata.get("format") == "mujoco-evo-episodes":
+                    project_root = Path(__file__).resolve().parents[3]
+                    if str(project_root) not in sys.path:
+                        sys.path.insert(0, str(project_root))
+                    from mujoco_pickplace.episode_dataset import (
+                        validate_collection_snapshot, validate_video_encoding,
+                    )
+                    validate_video_encoding(dataset_metadata)
+                    snapshot = validate_collection_snapshot(dataset_metadata)
+                    self.dataset_snapshots[dataset_name] = dict(
+                        path=str(dataset_path),
+                        total_episodes=dataset_metadata.get("total_episodes"),
+                        total_frames=dataset_metadata.get("total_frames"),
+                        collection=snapshot,
+                        metadata_sha256=hashlib.sha256(dataset_metadata_path.read_bytes()).hexdigest(),
+                        episodes_sha256=hashlib.sha256((dataset_path / "meta/episodes.jsonl").read_bytes()).hexdigest(),
+                    )
+                contract = dataset_metadata.get("environment_contract")
+                if contract is not None:
+                    project_root = Path(__file__).resolve().parents[3]
+                    if str(project_root) not in sys.path:
+                        sys.path.insert(0, str(project_root))
+                    from mujoco_pickplace.episode_dataset import validate_recorded_environment_contract
+                    validate_recorded_environment_contract(dataset_metadata)
+                if dataset_name in self.environment_contracts and self.environment_contracts[dataset_name] != contract:
+                    raise ValueError(f"Conflicting environment contracts for dataset key {dataset_name}")
+                self.environment_contracts[dataset_name] = contract
                 if required_collection_config or required_source_policy_version:
                     dataset_metadata_path = dataset_path / "meta" / "dataset.json"
                     if not dataset_metadata_path.is_file():
@@ -682,6 +794,17 @@ class LeRobotDataset(Dataset):
                     dataset_episodes = pd.read_json(
                         episodes_path, lines=True
                     ).to_dict("records")
+                    for episode in dataset_episodes:
+                        key = (arm_name, dataset_name, int(episode["episode_index"]))
+                        length = int(episode["length"])
+                        if length < 1 or key in self._episode_lengths:
+                            raise ValueError(f"Invalid or duplicate episode length: {key}")
+                        self._episode_lengths[key] = length
+                        if required_collection_config.get("task_id") == 4:
+                            quality = episode.get("quality") or {}
+                            target = quality.get("target_drawer_diagnostic_only")
+                            if episode.get("success") and type(target) is int and 0 <= target < 4:
+                                self._drawer_targets[key] = target
                     required_quality_schema = dataset_config.get(
                         "required_quality_schema"
                     )
@@ -713,13 +836,18 @@ class LeRobotDataset(Dataset):
                                 if str(project_root) not in sys.path:
                                     sys.path.insert(0, str(project_root))
                                 from mujoco_pickplace.episode_dataset import (
-                                    validate_contact_quality,
+                                    validate_contact_quality, validate_correction_context,
                                 )
                                 try:
                                     validate_contact_quality(
                                         quality, required_collection_config.get("task_id")
                                     )
-                                except (AssertionError, TypeError, AttributeError) as exc:
+                                    if quality.get("correction_source") is not None:
+                                        context = pd.read_parquet(dataset_path / episode["data_path"],
+                                                                  columns=["expert.phase", "timestamp"])
+                                        validate_correction_context(context["expert.phase"].tolist(), quality,
+                                            required_collection_config.get("task_id"), context["timestamp"].to_numpy())
+                                except (AssertionError, ValueError, TypeError, AttributeError) as exc:
                                     raise ValueError(
                                         f"{dataset_path} episode {episode.get('episode_index')} "
                                         f"fails contact quality: {exc}"
@@ -787,7 +915,10 @@ class LeRobotDataset(Dataset):
                         raise ValueError(
                             f"Dataset normalization key is ambiguous: {dataset_name}"
                         )
-                    self.arm2stats_dict[dataset_name] = merge_lerobot_stats([stats])
+                    self.arm2stats_dict[dataset_name] = state_neighborhood_stats(
+                        merge_lerobot_stats([stats]),
+                        dataset_config.get("state_normalization_margin"),
+                    )
             
             if self.normalization_scope == "dataset":
                 stats_targets = [
@@ -812,13 +943,27 @@ class LeRobotDataset(Dataset):
             if self.normalization_scope == "arm":
                 self.arm2stats_dict[arm_name] = stats_targets[0]
 
-    def _compute_source_signature(self) -> str:
-        """Fingerprint source metadata, parquet and videos using cheap stat data."""
+    def _compute_source_signature(self, *, include_action_padding_contract=True) -> str:
+        """Fingerprint sources and the input/window contract for caches and resume."""
         digest = hashlib.sha256()
         digest.update(
             json.dumps(
                 {
                     "video_alignment_version": CACHE_INDEX_VERSION,
+                    "cache_window_order_version": 1,
+                    "input_preprocessing": {
+                        "version": 1,
+                        "image_size": getattr(self, "image_size", None),
+                        "resize_interpolation": "bicubic",
+                        "tensor_conversion": "rgb_uint8_to_float_0_1",
+                        "use_augmentation": getattr(self, "use_augmentation", False),
+                        "preserve_spatial_calibration": getattr(self, "preserve_spatial_calibration", False),
+                        "augmentation_probability": 0.5,
+                        "augmentation_pipeline_version": 2,
+                        "binarize_gripper": getattr(self, "binarize_gripper", False),
+                        "video_backend": getattr(self, "video_backend", None),
+                        "video_backend_kwargs": getattr(self, "video_backend_kwargs", {}),
+                    },
                     "window_contract": {
                         "action_horizon": getattr(self, "action_horizon", None),
                         "memory_frames": getattr(self, "memory_frames", None),
@@ -865,6 +1010,8 @@ class LeRobotDataset(Dataset):
                             "utf-8"
                         )
                     )
+        if include_action_padding_contract and self.mask_terminal_action_padding:
+            digest.update(b"terminal_action_padding_mask_v1")
         return digest.hexdigest()
 
     def _write_cache_index(self) -> None:
@@ -878,7 +1025,7 @@ class LeRobotDataset(Dataset):
             json.dump(
                 {
                     "version": CACHE_INDEX_VERSION,
-                    "source_signature": self.source_signature,
+                    "source_signature": self.cache_source_signature,
                     "files": relative_files,
                     "memory_events": self.memory_events,
                 },
@@ -912,12 +1059,11 @@ class LeRobotDataset(Dataset):
                         f"cache index references {len(missing_files)} missing files"
                     )
                 if (
-                    index_data.get("source_signature") != self.source_signature
+                    index_data.get("source_signature") != self.cache_source_signature
                 ):
                     raise ValueError("source dataset fingerprint changed")
-                print(
-                    f"Loaded {len(self.data)} cached windows from {index_path}"
-                )
+                self._sort_cached_windows()
+                logging.getLogger(__name__).debug(f'Loaded {len(self.data)} cached windows from {index_path}')
                 return
             except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 logging.warning("Rebuilding invalid cache index %s: %s", index_path, exc)
@@ -967,17 +1113,23 @@ class LeRobotDataset(Dataset):
             )
         
    
-        num_processes = min(16, len(parquet_process_units))
+        num_processes = min(self.cache_num_workers, len(parquet_process_units))
 
         print(f"Using {num_processes} processes for concurrent processing")
         
  
-        with mp.Pool(processes=num_processes) as pool:
+        # Serial cache construction must not create a child which imports or
+        # inherits the entire Torch/data stack. Extra workers are explicit and
+        # independent of the training DataLoader's num_workers setting.
+        pool_context = mp.Pool(processes=num_processes) if num_processes > 1 else nullcontext(None)
+        with pool_context as pool:
             
             total_episodes = 0
             failed_files = []
             with tqdm(total=len(parquet_process_units), desc="Processing Parquet files to cache") as pbar:
-                for episode_files, episode_events, error in pool.imap_unordered(_process_parquet_file_worker, parquet_process_units):
+                results = (pool.imap_unordered(_process_parquet_file_worker, parquet_process_units)
+                           if pool is not None else map(_process_parquet_file_worker, parquet_process_units))
+                for episode_files, episode_events, error in results:
                     if error:
                         logging.error(error)
                         failed_files.append(error)
@@ -997,10 +1149,60 @@ class LeRobotDataset(Dataset):
                 f"first error: {failed_files[0]}"
             )
         
+        self._sort_cached_windows()
         print(f"Data processing completed, total {len(self.data)} files generated")
         self._write_cache_index()
 
-    def memory_event_sampling_weights(self):
+    def _sort_cached_windows(self):
+        """A rebuilt cache must map sampler indices to the same supervision.
+
+        imap_unordered completion and filesystem enumeration are not stable.
+        Keep each event attached to its window while ordering episode paths
+        and numeric frame indices, both on cache construction and reload.
+        """
+        if len(self.data) != len(self.memory_events):
+            raise ValueError("Cache windows and memory events are not aligned")
+        root = self.cache_dir.resolve()
+        def key(pair):
+            relative = Path(pair[0]).resolve().relative_to(root)
+            return relative.parent.as_posix(), int(relative.stem.split("_")[0])
+        ordered = sorted(zip(self.data, self.memory_events), key=key)
+        if len({key(pair) for pair in ordered}) != len(ordered):
+            raise ValueError("Duplicate episode/frame in cached training windows")
+        self.data = [pair[0] for pair in ordered]
+        self.memory_events = [pair[1] for pair in ordered]
+
+    def use_checkpoint_normalization(self, checkpoint_stats, preserve_other_tasks=False):
+        """Keep an initialized policy's input/output scale while adding new data."""
+        changed = False
+        for key, current in self.arm2stats_dict.items():
+            if key not in checkpoint_stats:
+                continue
+            for feature in ("observation.state", "action"):
+                count = len(current[feature]["min"])
+                source = checkpoint_stats[key][feature]
+                low = np.asarray(source["min"], dtype=float)
+                high = np.asarray(source["max"], dtype=float)
+                if (len(low) < count or low.shape != high.shape
+                        or not np.isfinite(low).all() or not np.isfinite(high).all()
+                        or np.any(low > high)):
+                    raise ValueError(f"Invalid checkpoint normalization: {key}/{feature}")
+                for bound, values in (("min", low), ("max", high)):
+                    values = values[:count].tolist()
+                    changed |= values != current[feature][bound]
+                    current[feature][bound] = values
+        if preserve_other_tasks:
+            for key in checkpoint_stats.keys() - self.arm2stats_dict.keys():
+                # These tasks are not loaded or trained in this stage. Keep
+                # their exact saved serving scale instead of deleting it.
+                self.arm2stats_dict[key] = json.loads(json.dumps(checkpoint_stats[key]))
+                changed = True
+        if changed:
+            payload = json.dumps(dict(source_signature=self.source_signature,
+                                      normalization=self.arm2stats_dict), sort_keys=True)
+            self.source_signature = hashlib.sha256(payload.encode()).hexdigest()
+
+    def memory_event_sampling_weights(self, task4_only=False):
         # Balance the naturally occurring event types inside each dataset, not
         # just globally.  Otherwise a large Task1 dataset can drown out every
         # Task3 window even though both belong to the same Panda embodiment.
@@ -1016,6 +1218,20 @@ class LeRobotDataset(Dataset):
             dataset_key = relative.parts[1]
             labels.append(f"{dataset_key}/{event}")
         weights, counts = adaptive_memory_event_weights(labels)
+        if task4_only:
+            # Preserve each task's total exposure and keep the proven tasks
+            # uniform while balancing the short drawer contact phases.
+            drawer_datasets = {key[:2] for key in self._drawer_targets}
+            groups = {}
+            for index, cache_file in enumerate(self.data):
+                relative = Path(cache_file).resolve().relative_to(cache_root)
+                key = tuple(relative.parts[:2])
+                groups.setdefault(key, []).append(index)
+            for key, indices in groups.items():
+                if key in drawer_datasets:
+                    weights[indices] /= weights[indices].mean()
+                else:
+                    weights[indices] = 1.0
         return torch.as_tensor(weights, dtype=torch.double), counts
 
 
@@ -1107,6 +1323,8 @@ class LeRobotDataset(Dataset):
                             ):
                                 frames[target_index][view_index] = last_image.copy()
                                 target_index += 1
+                            if target_index == len(timestamps):
+                                break
                         if last_image is None:
                             raise ValueError(f"Video contains no decodable frames: {path}")
                         if target_index < len(timestamps):
@@ -1130,7 +1348,9 @@ class LeRobotDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-
+        occurrence_seed = None
+        if isinstance(idx, tuple):
+            idx, occurrence_seed = idx
         cache_filepath = self.data[idx]
         
         try:
@@ -1154,8 +1374,9 @@ class LeRobotDataset(Dataset):
                 f"Cannot decode video frames for dataset sample {self.data[idx]}"
             ) from e
 
-        apply_augmentation = self.use_augmentation and random.random() < 0.5
-        augmentation_seed = random.randrange(2**31)
+        augmentation_rng = random if occurrence_seed is None else random.Random(occurrence_seed)
+        apply_augmentation = self.use_augmentation and augmentation_rng.random() < 0.5
+        augmentation_seed = augmentation_rng.randrange(2**31)
         images = []
         for timestep_frames in frames:
             transformed_timestep = []
@@ -1164,7 +1385,10 @@ class LeRobotDataset(Dataset):
                     # Reset the transform RNG so crop/rotation/color jitter are
                     # identical across time and cannot manufacture fake motion.
                     with torch.random.fork_rng(devices=[]):
-                        torch.manual_seed(augmentation_seed)
+                        # Transforms use the CPU generator. torch.manual_seed
+                        # would also reset CUDA flow/dropout RNGs when data is
+                        # loaded in the training process (num_workers=0).
+                        torch.random.default_generator.manual_seed(augmentation_seed)
                         transformed = self.aug_transform(image)
                 else:
                     transformed = self.basic_transform(image)
@@ -1229,8 +1453,30 @@ class LeRobotDataset(Dataset):
             active[:len(active_mask)] = active_mask.to(action_mask.device)
             action_mask = action_mask & active
 
+        if self.mask_terminal_action_padding:
+            # Repeated terminal rows fill the tensor shape, but they are not
+            # expert decisions. Match LeRobot EVO1's action_is_pad contract.
+            # Derive this for old caches too, without rewriting their files.
+            path = Path(cache_filepath)
+            episode_index = int(path.parent.name.removeprefix("episode_"))
+            start_index = int(path.stem.split("_")[0])
+            length = self._episode_lengths[(arm_key, dataset_key, episode_index)]
+            if not 0 <= start_index < length:
+                raise ValueError(f"Cached window starts outside its episode: {path}")
+            in_episode = (
+                torch.arange(action_mask.shape[0], device=action_mask.device)
+                + start_index < length
+            )
+            action_mask = action_mask & in_episode.unsqueeze(-1)
+
         prompt = item["prompt"] if item["prompt"] is not None else ""
         
+        drawer_target = -100
+        if (self.memory_events[idx] == MEMORY_EVENT_PROBE
+                or self.memory_events[idx].endswith(f"/{MEMORY_EVENT_PROBE}")):
+            episode_index = int(Path(cache_filepath).parent.name.removeprefix("episode_"))
+            drawer_target = self._drawer_targets.get((arm_key, dataset_key, episode_index), -100)
+
         return {
             "images": images,
             "image_mask": image_mask,
@@ -1239,6 +1485,7 @@ class LeRobotDataset(Dataset):
             "state_mask": state_mask,
             "history_mask": torch.tensor(item["history_mask"], dtype=torch.bool),
             "memory_event": item.get("memory_event", MEMORY_EVENT_ROUTINE),
+            "drawer_target": drawer_target,
             "action": action_padded.to(dtype=torch.bfloat16),
             "action_mask": action_mask,
             "embodiment_id": torch.tensor(embodiment_id, dtype=torch.long)

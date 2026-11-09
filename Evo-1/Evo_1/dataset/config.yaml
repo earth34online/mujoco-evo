@@ -8,7 +8,7 @@ preserve_spatial_calibration: true
 data_groups:
   mujoco_panda:
     mujoco_pickplace:
-      path: /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
+      path: ../../../Mujoco_training_dataset/cache/mujoco_pickplace
       active_action_mask: [1, 1, 1, 0, 0, 0, 1]
       required_source_policy_version: precision-grasp-stable-v3
       required_quality_schema: precision-grasp-stable-v3
@@ -20,31 +20,57 @@ data_groups:
       view_map:
         image_1: observation.images.front
     mujoco_chopstick:
-      path: /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_chopstick
+      state_normalization_margin: [0.03, 0.03, 0.03, 0.15, 0.15, 0.15, 0.005, 0.005]
+      path: ../../../Mujoco_training_dataset/cache/mujoco_chopstick
       active_action_mask: [1, 1, 1, 0, 0, 0, 1]
       required_collection_config:
         task_id: 3
+        gripper_open_required_steps: 1
+        expert_close_rule: continuous_two_finger_contact_40ms
         robot_state_convention: mujoco_hand_quaternion_axis_angle
         action_convention: world_delta_pose_m_rad_gripper_0_close_1_open
         compact_static_frames: false
+        chopstick_length_m: 0.24
+        chopstick_diameter_min_m: 0.008
+        chopstick_diameter_max_m: 0.010
+        chopstick_rest_height_m: 0.012
+        expert_object_grasp_hand_z_offset_m: 0.1047
       required_quality_schema: mujoco-panda-contact
-      required_quality_schema_version: 1
+      required_quality_schema_version: 3
       view_map:
         image_1: observation.images.front
     mujoco_drawer_memory:
-      path: /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_drawer_memory
+      state_normalization_margin: [0.03, 0.03, 0.03, 0.15, 0.15, 0.15, 0.005, 0.005]
+      path: ../../../Mujoco_training_dataset/cache/mujoco_drawer_memory
       active_action_mask: [1, 1, 1, 1, 1, 1, 1]
       required_collection_config:
         task_id: 4
+        control_period_seconds: 0.1
+        expert_close_rule: continuous_two_finger_contact_40ms
         robot_state_convention: mujoco_hand_quaternion_axis_angle
         action_convention: world_delta_pose_m_rad_gripper_0_close_1_open
         compact_static_frames: false
         drawer_pitch_m: 0.12
         drawer_insert_height_m: 0.03
+        drawer_inner_width_m: 0.248
+        drawer_object_xy_jitter_m: [0.006, 0.010]
+        scene_light_mode: fixed
         handle_axis: horizontal
+        cabinet_position_m: [0.6580384757729336, -0.03, 0.03]
+        cabinet_yaw_radians: 0.5235987755982988
+        expert_transfer_path: local_turn_symmetric_grasp_clear_workspace_v2
+        expert_object_grasp_hand_z_offset_m: 0.104
+        expert_handle_approach_offset_frame: cabinet
+        common_observation_hand_position_m: [0.29, -0.13, 0.42]
+        observation_hand_xyz_jitter_m: [0.008, 0.012, 0.010]
+        common_execution_hand_position_m: [0.34, -0.13, 0.34]
+        execution_hand_xyz_jitter_m: [0.008, 0.012, 0.010]
+        expert_handle_approach_xyz_jitter_m: [0.003, 0.004, 0.004]
+        presentation_close_duration_seconds: 1.2
+        presentation_closed_at_joint_stop: true
         memory_frames: 6
         memory_stride_seconds: 1.0
       required_quality_schema: mujoco-panda-contact
-      required_quality_schema_version: 1
+      required_quality_schema_version: 3
       view_map:
         image_1: observation.images.front

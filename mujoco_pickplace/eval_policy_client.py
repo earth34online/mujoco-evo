@@ -10,6 +10,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+os.environ.setdefault("MUJOCO_GL", "egl")
+
 import numpy as np
 import websockets
 from PIL import Image
@@ -20,8 +22,8 @@ from mujoco_pickplace.pick_place_env import PickPlaceEnv
 SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
 TASK_KEY = "mujoco_pickplace"
-NUM_EPISODES = 20
-MAX_STEPS = 250
+NUM_EPISODES = 10
+MAX_STEPS = 200
 MODEL_ACTION_HORIZON = 14
 DEFAULT_EXECUTION_HORIZON = 4
 LEGACY_EXECUTION_HORIZON = 14
@@ -29,7 +31,7 @@ ACTIVE_ACTION_MASK = [1, 1, 1, 0, 0, 0, 1] + [0] * 17
 TASK_ID = 1
 TASK_NAME = "task1"
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
-DEFAULT_VIDEO_DIR = Path("outputs/eval_videos") / RUN_ID
+DEFAULT_VIDEO_DIR = Path(__file__).resolve().parent / "outputs/eval_videos" / RUN_ID
 VIDEO_FPS = 20
 FRAMES_PER_STEP = 4
 MEMORY_FRAMES = 6
@@ -261,7 +263,7 @@ def parse_args(argv=None):
         "--max-steps",
         type=int,
         default=None,
-        help="Control step limit; omitted: use each task definition.",
+        help="Control step limit; may shorten the Task1/3/4 limits of 200/250/600.",
     )
     parser.add_argument(
         "--horizon",
@@ -291,7 +293,8 @@ def parse_args(argv=None):
         default=2,
         help=(
             "Consecutive strong open predictions required before release "
-            "(default: 2; closing remains immediate as in success_random)."
+            "for Task1 (default: 2; closing remains immediate as in success_random). "
+            "Task3 uses immediate binary transitions to match its expert; Task4 is continuous."
         ),
     )
     parser.add_argument(
@@ -306,6 +309,12 @@ def parse_args(argv=None):
     )
     parser.add_argument("--render", action="store_true", help="Show the front view.")
     parser.add_argument("--video-dir", default=str(DEFAULT_VIDEO_DIR))
+    parser.add_argument(
+        "--recovery-observation-steps", type=int, default=0,
+        help=("Optional limit of N further steps after a quality failure; "
+              "0 continues to physical completion or the task step budget. "
+              "Strict failure remains recorded; deep/forceful collisions stop execution."),
+    )
     parser.add_argument(
         "--diagnostics-jsonl",
         default=None,
@@ -360,6 +369,8 @@ def parse_args(argv=None):
         parser.error("--num-episodes must be positive")
     if args.max_steps is not None and args.max_steps < 1:
         parser.error("--max-steps must be positive")
+    if args.recovery_observation_steps < 0:
+        parser.error("--recovery-observation-steps must be nonnegative")
     if args.horizon is not None and args.horizon < 1:
         parser.error("--horizon must be at least 1")
     if args.horizon is not None and args.horizon > MODEL_ACTION_HORIZON:
@@ -424,9 +435,9 @@ def save_video(frames, path, fps=VIDEO_FPS):
         return
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    import imageio.v2 as imageio
+    from mujoco_pickplace.episode_dataset import write_rgb_video
 
-    imageio.mimsave(path, frames, fps=fps, macro_block_size=1)
+    write_rgb_video(path, frames, fps)
 
 
 def clear_episode_videos(video_root, task_name=TASK_NAME):

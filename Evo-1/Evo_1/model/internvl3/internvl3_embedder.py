@@ -146,11 +146,7 @@ class InternVL3Embedder(nn.Module):
         )
         language_flash = language_backend == "flash_attention_2"
         self.flash_attention_active = vision_flash and language_flash
-        logging.info(
-            "Attention backend: vision=%s, language=%s",
-            "flash-attn" if vision_flash else "standard",
-            language_backend,
-        )
+        logging.getLogger(__name__).debug('Attention backend: vision=%s, language=%s', 'flash-attn' if vision_flash else 'standard', language_backend)
         if self.flash_attention_requested and use_flash_attn and not self.flash_attention_active:
             logging.warning(
                 "FlashAttention imported but was not activated for both InternVL towers"
