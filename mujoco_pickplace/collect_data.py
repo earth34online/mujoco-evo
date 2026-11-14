@@ -13,7 +13,7 @@ from mujoco_pickplace.episode_dataset import CAMERAS
 from mujoco_pickplace.pick_place_env import PickPlaceEnv, ScriptedExpertPolicy
 
 DATASET_DIR = PROJECT_ROOT / "Mujoco_training_dataset" / "cache" / "mujoco_pickplace"
-NUM_EPISODES = 200
+NUM_EPISODES = 150
 MAX_ATTEMPTS = 20000
 MAX_STEPS = 250
 MIN_LEN = 20
@@ -437,10 +437,10 @@ def build_argument_parser():
         help="Suite data root; default: Mujoco_training_dataset/cache. For one selected task, this is its dataset directory.",
     )
     selection = parser.add_mutually_exclusive_group()
-    selection.add_argument("--tasks", type=int, nargs="+", choices=(1, 3, 4))
-    selection.add_argument("--task", type=int, choices=(1, 3, 4))
+    selection.add_argument("--tasks", type=int, nargs="+", choices=(1, 2, 3))
+    selection.add_argument("--task", type=int, choices=(1, 2, 3))
     parser.add_argument("--num-episodes", type=int, default=None,
-                        help="Accepted episodes per task; default: 200 normally, all eligible recorded corrections in recovery mode.")
+                        help="Accepted episodes per task; default: 150 normally, all eligible recorded corrections in recovery mode.")
     parser.add_argument(
         "--max-steps",
         type=int,
@@ -453,18 +453,21 @@ def build_argument_parser():
         "--paired-drawer-histories",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Try all four Task4 presentations per scene seed (opt-in).",
+        help="Try all four Task3 presentations per scene seed (opt-in).",
     )
     parser.add_argument(
         "--recovery-actions", type=Path, default=None,
-        help=("Task3/Task4: actual evaluation actions.jsonl used to reproduce safe empty "
+        help=("Task2/Task3: actual evaluation actions.jsonl used to reproduce safe empty "
               "grasps or early handle deviations, then record expert corrections. Policy-prefix observations are "
               "history only; their failed actions are excluded from training targets."),
     )
     parser.add_argument(
-        "--recovery-kind", choices=("object_empty_grasp", "handle_approach_deviation", "handle_contact_loss", "handle_policy_state"),
+        "--recovery-kind", choices=("object_empty_grasp", "object_policy_state", "object_release_timing",
+                 "handle_approach_deviation",
+                 "handle_contact_loss", "handle_policy_state"),
         default=None, help="Optional recorded correction type; default: all eligible failures.",
     )
+    parser.add_argument("--recovery-episode", type=int, help="Select one recorded episode by index.")
     parser.add_argument("--image-size", type=int, default=448)
     parser.add_argument(
         "--randomize-task",
@@ -511,19 +514,21 @@ def build_argument_parser():
 def parse_args(argv=None):
     parser = build_argument_parser()
     args = parser.parse_args(argv)
-    args.tasks = args.tasks or ([args.task] if args.task is not None else [1, 3, 4])
+    args.tasks = args.tasks or ([args.task] if args.task is not None else [1, 2, 3])
     if len(args.tasks) != len(set(args.tasks)):
         parser.error("Each task may be selected only once")
-    if args.paired_drawer_histories and (4 not in args.tasks or args.recovery_actions is not None):
-        parser.error("--paired-drawer-histories requires Task4 in normal collection")
+    if args.paired_drawer_histories and (3 not in args.tasks or args.recovery_actions is not None):
+        parser.error("--paired-drawer-histories requires Task3 in normal collection")
     if args.recovery_kind is not None and args.recovery_actions is None:
         parser.error("--recovery-kind requires --recovery-actions")
+    if args.recovery_episode is not None and (args.recovery_actions is None or args.recovery_episode < 0):
+        parser.error("--recovery-episode requires --recovery-actions and a nonnegative index")
     if args.num_episodes is None and args.recovery_actions is None:
         args.num_episodes = NUM_EPISODES
     if args.num_episodes is not None and args.num_episodes < 1:
         parser.error("--num-episodes must be positive")
-    if args.recovery_actions is not None and (args.tasks not in ([3], [4]) or args.start_seed is not None):
-        parser.error("--recovery-actions requires --task 3 or --task 4 and uses recorded seeds; omit --start-seed")
+    if args.recovery_actions is not None and (args.tasks not in ([2], [3]) or args.start_seed is not None):
+        parser.error("--recovery-actions requires --task 2 or --task 3 and uses recorded seeds; omit --start-seed")
     if args.recovery_actions is not None and args.dataset_dir is None and args.overwrite:
         parser.error("Use --append for recovery data at the normal dataset path, or specify a separate --dataset-dir")
     if args.max_attempts is not None and args.max_attempts < 1:

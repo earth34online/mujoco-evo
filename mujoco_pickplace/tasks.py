@@ -21,6 +21,7 @@ from tqdm import tqdm
 from .episode_dataset import (
     EpisodeDatasetWriter, contact_source_policy_version, compare_environment_contract,
     CONTACT_QUALITY_SCHEMA, CONTACT_QUALITY_VERSION, SOURCE_POLICY_VERSION, _atomic_json,
+    OBJECT_CORRECTION_KINDS,
 )
 from .task_env import (
     trajectory_quality, DRAWER_START_JITTER, DRAWER_APPROACH_JITTER,
@@ -178,8 +179,11 @@ TASKS = {
         ROOT / "mujoco_pickplace/assets/task4_scene.xml",
         max_steps=600,
         evaluation_max_steps=600,
-        gripper_mode="continuous",
+        # Expert labels are open/closed only. Immediate binary execution, as
+        # in the chopstick task, removes slow mid-aperture drifts that closed early at the
+        # handle or dropped the object before a legal release.
         execution_horizon=1,
+        gripper_open_required_steps=1,
     ),
 }
 
@@ -188,7 +192,16 @@ def get_task(number):
     try:
         return TASKS[int(number)]
     except KeyError as error:
-        raise ValueError("Supported tasks are 1, 3 and 4") from error
+        raise ValueError("Unknown persisted task ID") from error
+
+
+# Dataset and checkpoint IDs are persisted in physical provenance contracts.
+# CLI numbering is independent so existing models and demonstrations stay valid.
+PUBLIC_TASK_IDS = {1: 1, 2: 3, 3: 4}
+
+
+def public_task_id(number):
+    return next(public for public, stored in PUBLIC_TASK_IDS.items() if stored == number)
 
 
 class ObservationHistory:
@@ -275,13 +288,17 @@ def collection_config(task):
             handle_axis="horizontal",
             cabinet_position_m=CABINET_POSITION.tolist(),
             cabinet_yaw_radians=float(CABINET_YAW),
-            expert_transfer_path="local_turn_symmetric_grasp_clear_workspace_v2",
+            expert_transfer_path="open_hand_corrective_approach_v3",
             expert_handle_approach_offset_frame="cabinet",
             common_observation_hand_position_m=DRAWER_OBSERVATION_HAND_POSITION.tolist(),
             observation_hand_xyz_jitter_m=DRAWER_START_JITTER.tolist(),
             common_execution_hand_position_m=DRAWER_EXECUTION_HAND_POSITION.tolist(),
             execution_hand_xyz_jitter_m=DRAWER_START_JITTER.tolist(),
-            expert_handle_approach_xyz_jitter_m=DRAWER_APPROACH_JITTER.tolist(),
+            expert_handle_pregrasp_offset_low_m=TASK4_HANDLE_PREGRASP_LOW_M.tolist(),
+            expert_handle_pregrasp_offset_high_m=TASK4_HANDLE_PREGRASP_HIGH_M.tolist(),
+            expert_handle_approach_gripper=TASK4_HANDLE_APPROACH_GRIPPER,
+            expert_object_approach_xyz_jitter_m=TASK4_OBJECT_APPROACH_JITTER_M.tolist(),
+            gripper_execution="binary_immediate",
             presentation_close_duration_seconds=1.2,
             presentation_closed_at_joint_stop=True,
             presentation="simulated human placement and closure; force disabled during execution",
@@ -373,6 +390,19 @@ class RecoveryContextRejected(ValueError):
     """A valid recorded episode cannot supply a safe correction prefix here."""
 
 
+def _recorded_policy_action(task, row):
+    """Re-execute a recorded policy step exactly as the evaluator executed it.
+
+    Replay the pre-control gripper request. The applied aperture may already
+    include collision backtracking and must not be backtracked a second time.
+    """
+    action = task.prepare_action(row["raw_action"], None) if task.gripper_mode == "continuous" else (
+        np.asarray(row["raw_action"], dtype=np.float32) * np.asarray(task.action_mask, dtype=np.float32))
+    tracking = row.get("pose_tracking") or {}
+    action[6] = np.float32(tracking.get("requested_gripper_target", row["executed_action"][6]))
+    return action
+
+
 def _recorded_empty_grasp_sources(path):
     """Select real empty-closure episodes, without synthesizing a failure quota."""
     return _recorded_recovery_sources(path, 3)
@@ -381,15 +411,18 @@ def _recorded_empty_grasp_sources(path):
 def _recorded_recovery_sources(path, task_number, source_kind=None):
     """Select certified real prefixes; expert diagnostics never enter policy input."""
     if task_number not in (3, 4):
-        raise ValueError("Recorded correction sources require Task3 or Task4")
+        raise ValueError("Recorded correction sources require Task2 or Task3")
     path = Path(path).resolve()
     summary = json.loads((path.parent / "summary.json").read_text())
-    by_episode = {row["episode"]: row for row in summary if row["task"] == task_number}
+    public_number = public_task_id(task_number)
+    if any(row.get("task_key") != get_task(task_number).key for row in summary):
+        raise ValueError("Recovery requires a per-task summary from the current evaluator")
+    by_episode = {row["episode"]: row for row in summary if row["task"] == public_number}
     groups = {}
     action_bytes = path.read_bytes()
     for line in action_bytes.decode("utf-8").splitlines():
         row = json.loads(line)
-        if row.get("kind") == "action" and row.get("task") == task_number:
+        if row.get("kind") == "action" and row.get("task") == public_number:
             groups.setdefault(row["episode"], []).append(row)
     result = []
     digest = hashlib.sha256(action_bytes).hexdigest()
@@ -400,13 +433,23 @@ def _recorded_recovery_sources(path, task_number, source_kind=None):
         if [r["step"] for r in rows] != list(range(1, len(rows) + 1)):
             raise ValueError("Recovery action steps must be complete and contiguous")
         if task_number == 4:
-            if (source_kind == "handle_policy_state"
-                    or source_kind is None and record.get("drawer_selection_status") == "wrong"):
-                # This is a safe policy-state continuation, not a fabricated
-                # failure. Intervene before a wrong-shelf approach reaches it.
-                prefix = rows[:5]
-                safe = (len(prefix) == 5 and not record["success"]
-                        and record.get("drawer_selection_status") == "wrong"
+            if record["success"]:
+                continue
+            selection = record.get("drawer_selection_status")
+            if source_kind in (None, "handle_policy_state") and selection in ("wrong", "not_selected"):
+                # Use the observed command before a premature closure, rather
+                # than rewinding all later wrong-drawer outcomes to step five.
+                close = next((row["step"] for row in rows[:40]
+                              if row["executed_action"][6] < .15
+                              and row["physics_contacts"]["handle_axial_tracking_error_m"] >= .012),
+                             None)
+                if close is not None:
+                    prefix = rows[:close - 1]
+                else:
+                    # A later approach deviation may leave too little visible
+                    # history to finish alignment. Use an early safe policy state.
+                    prefix = rows[:5]
+                safe = (len(prefix) >= 2
                         and all(not row["outcome"].get("failure_events")
                             and row["outcome"].get("first_selected_drawer") is None
                             and not row["physics_contacts"]["two_finger_handle_contact"]
@@ -416,12 +459,14 @@ def _recorded_recovery_sources(path, task_number, source_kind=None):
                     result.append(dict(seed=record["seed"], episode=episode, rows=rows,
                         path=str(path), sha256=digest, run_id=record["run_id"],
                         kind="handle_policy_state", intervention_step=len(prefix)))
+                    continue
+            if source_kind == "handle_policy_state":
                 continue
             from .task_env import HANDLE_ROTATION, OBJECT_ROTATION, rotation_matrix, rotation_vector
             # A real empty closure after opening a correct drawer needs
             # object-stage labels, not another handle demonstration.
             object_failure = next((row for row in rows
-                if not record["success"]
+                if source_kind in (None, "object_empty_grasp")
                 and row["outcome"].get("drawer_selection_status") == "correct"
                 and row["outcome"].get("opened_drawer") == row["outcome"].get("first_selected_drawer")
                 and row["outcome"].get("opened_drawer") is not None
@@ -439,12 +484,67 @@ def _recorded_recovery_sources(path, task_number, source_kind=None):
                                    path=str(path), sha256=digest, run_id=record["run_id"],
                                    kind="object_empty_grasp", intervention_step=object_failure["step"]))
                 continue
+            if record["drawer_selection_status"] == "correct" and record["opened_drawer"] is not None:
+                if (source_kind in (None, "object_release_timing")
+                        and record.get("termination_status") == "physical_complete_terminal_pending"):
+                    # Resume while the object is still held, before descent
+                    # takes the hand below the expert's safe release pose.
+                    terminal_lower = []
+                    for row in reversed(rows):
+                        outcome = row["outcome"]
+                        if (outcome["failure_events"]
+                                or not outcome["quality_checks"]["object_lifted"]):
+                            break
+                        if (row["physics_contacts"]["two_finger_contact"]
+                                and row["executed_action"][6] <= .2):
+                            if row["state_after"][2] >= row["state_before"][2]:
+                                if terminal_lower:
+                                    break
+                            else:
+                                terminal_lower.append(row)
+                    if terminal_lower:
+                        intervention = terminal_lower[-1]["step"]
+                        result.append(dict(seed=record["seed"], episode=episode, rows=rows,
+                            path=str(path), sha256=digest, run_id=record["run_id"],
+                            kind="object_release_timing", intervention_step=intervention))
+                        continue
+                if source_kind in (None, "object_release_timing") and record.get("transport_drop"):
+                    for previous, released in zip(rows, rows[1:]):
+                        outcome = previous["outcome"]
+                        if (outcome["quality_checks"]["object_lifted"]
+                                and not outcome["failure_events"]
+                                and previous["physics_contacts"]["two_finger_contact"]
+                                and previous["executed_action"][6] <= .2
+                                and .2 < released["executed_action"][6] <= .5
+                                and not released["physics_contacts"]["two_finger_contact"]
+                                and released["outcome"]["placement"]["supported"]):
+                            result.append(dict(seed=record["seed"], episode=episode, rows=rows,
+                                path=str(path), sha256=digest, run_id=record["run_id"],
+                                kind="object_release_timing", intervention_step=previous["step"]))
+                            break
+                # Teach the transition from the actual opened pose, before a
+                # missed withdrawal/lift can put the arm beyond the expert route.
+                if source_kind in (None, "object_policy_state") and not record["object_lifted"]:
+                    for row in rows:
+                        outcome = row["outcome"]
+                        if (outcome["drawer_selection_status"] == "correct"
+                                and outcome["opened_drawer"] is not None
+                                and row["physics_contacts"]["drawer_positions"][outcome["opened_drawer"]] >= .165
+                                and not outcome["failure_events"]
+                                and not row["physics_contacts"]["two_finger_contact"]):
+                            result.append(dict(seed=record["seed"], episode=episode, rows=rows,
+                                path=str(path), sha256=digest, run_id=record["run_id"],
+                                kind="object_policy_state", intervention_step=row["step"]))
+                            break
+                continue
+            if source_kind in OBJECT_CORRECTION_KINDS:
+                continue
             # Correct only a measured early reversal, while target history is
             # still available. Later stalled episodes cannot supply that cue.
             closest = np.full(3, np.inf)
             had_handle_contact = False
             observed_opening = 0.0
-            # Four seconds at Task4's 10 Hz leaves only a short chance to
+            # Four seconds at the drawer task's 10 Hz leaves only a short chance to
             # intervene. Actual replay and final selection must still pass
             # the existing five-second visible-history qualification.
             for row in rows[:40]:
@@ -517,7 +617,7 @@ def _replay_handle_deviation_context(task, env, source):
         if max_state_error > 1e-4:
             raise RecoveryContextRejected("Recorded handle prefix does not match the current physical state")
         env.phase = "policy_context"
-        env.step(task.prepare_action(row["raw_action"], None))
+        env.step(_recorded_policy_action(task, row))
         max_state_error = max(max_state_error, float(np.max(
             np.abs(env.robot_state() - np.asarray(row["state_after"])))))
         if max_state_error > 1e-4:
@@ -558,10 +658,10 @@ def _replay_handle_deviation_context(task, env, source):
     # Withdraw before changing height: a policy may approach the wrong shelf.
     # A diagonal move from that near-cabinet pose can hit the closed front.
     if not contact_loss and not env.move(
-        env.data.xpos[env.hand] - .04 * HANDLE_ROTATION[:, 2], .25, "recover"
+        env.data.xpos[env.hand] - .04 * HANDLE_ROTATION[:, 2], TASK4_HANDLE_APPROACH_GRIPPER, "recover"
     ):
         raise RecoveryContextRejected("Safe handle withdrawal failed")
-    if not env.orient(HANDLE_ROTATION, 0.25, "recover"):
+    if not env.orient(HANDLE_ROTATION, TASK4_HANDLE_APPROACH_GRIPPER, "recover"):
         raise RecoveryContextRejected("Safe handle orientation recovery failed")
     return count
 
@@ -605,7 +705,7 @@ def _replay_handle_policy_state_context(task, env, source):
                 raise RecoveryContextRejected("Policy-state prefix start does not reproduce")
             max_state_error = max(max_state_error, error)
             env.phase = "policy_context"
-            env.step(task.prepare_action(row["raw_action"], None))
+            env.step(_recorded_policy_action(task, row))
             error = float(np.max(np.abs(env.robot_state() - np.asarray(row["state_after"]))))
             if not np.isfinite(error) or error > 1e-4:
                 raise RecoveryContextRejected("Policy-state prefix end does not reproduce")
@@ -629,15 +729,14 @@ def _replay_handle_policy_state_context(task, env, source):
         recorded_prefix_physics_substeps=int(substeps),
         recorded_physics_substeps_per_control=int(env.CONTROL_NSTEP))
     count = len(env.samples)
-    if not env.orient(HANDLE_ROTATION, 0.25, "recover"):
+    if not env.orient(HANDLE_ROTATION, TASK4_HANDLE_APPROACH_GRIPPER, "recover"):
         raise RecoveryContextRejected("Safe policy-state orientation recovery failed")
     return count
 
 
-def _replay_object_empty_grasp_context(task, env, source):
+def _replay_drawer_object_context(task, env, source):
     """Replay a certified drawer prefix and expose only corrective expert labels."""
-    from .eval_policy_client import GripperCommandFilter
-    grip = GripperCommandFilter(required_steps=1)
+    placing = source["kind"] == "object_release_timing"
     replay_error = 0.0
     for row in source["rows"][:source["intervention_step"]]:
         replay_error = max(replay_error, float(np.max(
@@ -645,37 +744,42 @@ def _replay_object_empty_grasp_context(task, env, source):
         if replay_error > 1e-4:
             raise RecoveryContextRejected("Recorded object prefix start does not reproduce")
         env.phase = "policy_context"
-        env.step(task.prepare_action(row["raw_action"], grip))
+        env.step(_recorded_policy_action(task, row))
         replay_error = max(replay_error, float(np.max(
             np.abs(env.robot_state() - np.asarray(row["state_after"])))))
-        if replay_error > 1e-4 or env.failure_events or env.was_lifted:
-            raise RecoveryContextRejected("Object correction requires a safe, unlifted physical prefix")
+        if replay_error > 1e-4 or env.failure_events or (env.was_lifted and not placing):
+            raise RecoveryContextRejected("Object correction requires a reproducible, safe prefix")
     opening = float(env.data.qpos[env.model.joint(
         f"drawer_slide{env.target}").qposadr[0]])
     aperture = float(sum(env.robot_state()[6:8]))
-    if (env.first_selected_drawer != env.target or opening < .165
-            or env.contacts()[0] or aperture >= .006 or env.gripper > .2):
-        raise RecoveryContextRejected("Recorded object empty grasp did not physically reproduce")
+    empty_grasp = source["kind"] == "object_empty_grasp"
+    contact = bool(env.contacts()[0])
+    if (env.first_selected_drawer != env.target or opening < .165 or contact != placing
+            or (placing and (not env.was_lifted or env.gripper > .2))
+            or (empty_grasp and (aperture >= .006 or env.gripper > .2))):
+        raise RecoveryContextRejected("Recorded post-opening state did not physically reproduce")
     env._recorded_object_failure = dict(
-        safe_object_empty_grasp_reproduced=True,
+        safe_object_empty_grasp_reproduced=empty_grasp,
+        safe_object_policy_state_reproduced=source["kind"] == "object_policy_state",
+        safe_object_release_state_reproduced=placing,
         recorded_intervention_sim_time=float(env.data.time),
         recorded_replay_max_state_error=replay_error,
         recorded_selected_drawer=int(env.first_selected_drawer),
         recorded_drawer_open_m=opening,
         recorded_aperture_m=aperture,
         recorded_gripper_command=float(env.gripper),
-        recorded_object_contact=False,
+        recorded_object_contact=contact,
     )
     context_length = len(env.samples)
-    env.hold(1, 1.0, "recover")
+    env.hold(1, 0.0 if placing else 1.0, "recover")
     return context_length
 
 
-def _continue_drawer_object_expert(env):
-    """Collect the ordinary object/placement stages from an actual empty grasp."""
+def _continue_drawer_object_expert(env, orientation_phase="recover"):
+    """Collect object and placement labels from a verified post-opening state."""
     from .task_env import OBJECT_ROTATION, OBJECT_GRASP_HAND_Z_OFFSETS_M
     receiving_xy = env.data.geom_xpos[env.model.geom("receiving_area").id, :2].copy()
-    if not env.orient(OBJECT_ROTATION, 1.0, "recover"):
+    if not env.orient(OBJECT_ROTATION, 1.0, orientation_phase):
         return False
     obj = env.data.xpos[env.obj].copy()
     for pose, phase in [
@@ -692,12 +796,95 @@ def _continue_drawer_object_expert(env):
         (obj + [-.03, 0, .205], "object_lift"),
         ([receiving_xy[0] - .02, receiving_xy[1], obj[2] + .205], "clear_drawer"),
         ([*receiving_xy, env.height + .26], "transport"),
-        ([*receiving_xy, env.height + .15], "lower"),
     ]:
         if not env.move(pose, 0.0, phase):
             return False
+    return _continue_drawer_placement(env)
+
+
+def _continue_drawer_after_opening(env):
+    from .task_env import CABINET_ROTATION
+
+    env.hold(round(1.0 / (env.model.opt.timestep * env.CONTROL_NSTEP)), 1.0, "handle_release")
+    withdraw = env.data.xpos[env.hand] + CABINET_ROTATION @ np.array([-0.01, -0.08, 0])
+    if not env.move(withdraw, 1.0, "handle_withdraw"):
+        return False
+    if not env.move(env.data.xpos[env.hand] + [0, 0, 0.09], 1.0, "handle_clearance_lift"):
+        return False
+    return _continue_drawer_object_expert(env, orientation_phase="topdown_orientation")
+
+
+# Drawer expert offsets in the cabinet frame (axial, lateral, vertical), metres.
+# Policy failures stalled with 7-15 mm vertical handle error; a fully open hand
+# measured +/-26 mm insertion tolerance versus +/-8 mm at the old 0.25 aperture.
+# Offset pregrasps make the recorded insertion correct visible errors.
+TASK4_HANDLE_APPROACH_GRIPPER = 1.0
+TASK4_HANDLE_PREGRASP_LOW_M = np.array([-0.006, -0.008, -0.015])
+TASK4_HANDLE_PREGRASP_HIGH_M = np.array([0.0, 0.008, 0.015])
+TASK4_OBJECT_APPROACH_JITTER_M = np.array([0.015, 0.015, 0.010])
+
+
+def run_task4_tolerant_expert(env):
+    """Drawer expert with an open-hand handle approach and corrective waypoints.
+
+    Scene, physics, controller and judging are unchanged; this only selects
+    expert waypoints and the commanded aperture. Gripper labels are binary.
+    """
+    from .task_env import (HANDLE_ROTATION, CABINET_ROTATION, OBJECT_ROTATION,
+                           OBJECT_GRASP_HAND_Z_OFFSETS_M)
+    rng = np.random.default_rng(np.random.SeedSequence(env.seed, spawn_key=(5,)))
+    handle = env.model.geom(f"handle{env.target}").id
+    grasp = env.data.geom_xpos[handle].copy() - 0.1029 * HANDLE_ROTATION[:, 2]
+    offset = rng.uniform(TASK4_HANDLE_PREGRASP_LOW_M, TASK4_HANDLE_PREGRASP_HIGH_M)
+    pregrasp = grasp - 0.02 * HANDLE_ROTATION[:, 2] + CABINET_ROTATION @ offset
+    for pose, phase, tolerance in [(pregrasp, "approach", 0.002), (grasp, "handle_approach", 0.0003)]:
+        if not env.move(pose, TASK4_HANDLE_APPROACH_GRIPPER, phase, tolerance=tolerance):
+            return False
+    env.rotation = HANDLE_ROTATION.copy()
+    if not env.close_gripper("handle_close", handle, grasp):
+        env.motion_failures.append({"phase": "handle_close", "reason": "missing two-finger contact"})
+        return False
+    if not env.move(grasp - 0.178 * HANDLE_ROTATION[:, 2], 0.0, "pull"):
+        return False
+    if env.data.qpos[env.model.joint(f"drawer_slide{env.target}").qposadr[0]] < 0.165:
+        return False
+    env.hold(round(1.0 / (env.model.opt.timestep * env.CONTROL_NSTEP)), 1.0, "handle_release")
+    withdraw = env.data.xpos[env.hand] + CABINET_ROTATION @ np.array([-0.01, -0.08, 0])
+    if not env.move(withdraw, 1.0, "handle_withdraw"):
+        return False
+    if not env.move(env.data.xpos[env.hand] + [0, 0, 0.09], 1.0, "handle_clearance_lift"):
+        return False
+    if not env.orient(OBJECT_ROTATION, 1.0, "topdown_orientation"):
+        return False
+    obj = env.data.xpos[env.obj].copy()
+    jitter = rng.uniform(-TASK4_OBJECT_APPROACH_JITTER_M, TASK4_OBJECT_APPROACH_JITTER_M)
+    for pose, phase in [
+        ([*env.data.xpos[env.hand, :2], obj[2] + 0.19], "object_clearance_lift"),
+        (obj + [0, 0, 0.19] + jitter, "object_approach"),
+        (obj + [0, 0, OBJECT_GRASP_HAND_Z_OFFSETS_M[4]], "object_descend"),
+    ]:
+        if not env.move(pose, 1.0, phase):
+            return False
+    if not env.close_gripper("object_close"):
+        env.motion_failures.append({"phase": "object_close", "reason": "missing two-finger contact"})
+        return False
+    receiving_xy = env.data.geom_xpos[env.model.geom("receiving_area").id, :2].copy()
+    for pose, phase in [
+        (obj + [-0.03, 0, 0.205], "object_lift"),
+        ([receiving_xy[0] - 0.02, receiving_xy[1], obj[2] + 0.205], "clear_drawer"),
+        ([*receiving_xy, env.height + 0.26], "transport"),
+    ]:
+        if not env.move(pose, 0.0, phase):
+            return False
+    return _continue_drawer_placement(env)
+
+
+def _continue_drawer_placement(env):
+    receiving_xy = env.data.geom_xpos[env.model.geom("receiving_area").id, :2].copy()
+    if not env.move([*receiving_xy, env.height + 0.15], 0.0, "lower"):
+        return False
     env.hold(round(1.0 / (env.model.opt.timestep * env.CONTROL_NSTEP)), 1.0, "release")
-    if not env.move([*receiving_xy, env.height + .26], 1.0, "retreat"):
+    if not env.move([*receiving_xy, env.height + 0.26], 1.0, "retreat"):
         return False
     return env.settle()
 
@@ -767,7 +954,7 @@ def collect_episode(task, env, seed, max_steps, compact_static_frames=False, rec
     else:
         if task.number == 4:
             list(env.presentation())
-            from .task_env import run_task4_expert as run_expert
+            run_expert = run_task4_tolerant_expert
         else:
             from .task_env import run_task3_expert as run_expert
         from .task_env import CollectionStepLimit
@@ -778,15 +965,20 @@ def collect_episode(task, env, seed, max_steps, compact_static_frames=False, rec
             if recovery_context is not None:
                 if task.number == 3:
                     replay = _replay_empty_grasp_context
-                elif recovery_context.get("kind") == "object_empty_grasp":
-                    replay = _replay_object_empty_grasp_context
+                elif recovery_context.get("kind") in OBJECT_CORRECTION_KINDS:
+                    replay = _replay_drawer_object_context
                 else:
                     replay = _replay_handle_deviation_context
                 context_length = replay(task, env, recovery_context)
-            succeeded = (_continue_drawer_object_expert(env)
-                         if recovery_context is not None
-                         and recovery_context.get("kind") == "object_empty_grasp"
-                         else run_expert(env))
+            kind = recovery_context.get("kind") if recovery_context is not None else None
+            if kind == "object_policy_state":
+                succeeded = _continue_drawer_after_opening(env)
+            elif kind == "object_release_timing":
+                succeeded = _continue_drawer_placement(env)
+            elif kind == "object_empty_grasp":
+                succeeded = _continue_drawer_object_expert(env)
+            else:
+                succeeded = run_expert(env)
             if context_length:
                 if recovery_context.get("kind") == "handle_policy_state":
                     env.policy_state_continuations = getattr(env, "policy_state_continuations", 0) + 1
@@ -813,8 +1005,8 @@ def collect_episode(task, env, seed, max_steps, compact_static_frames=False, rec
                         env.samples[context_length]["timestamp"] - env._recorded_failed_grasp_time)
                         if context_length else 0.0,
                 )
-            elif recovery_context.get("kind") == "object_empty_grasp":
-                source_record.update(kind="object_empty_grasp",
+            elif recovery_context.get("kind") in OBJECT_CORRECTION_KINDS:
+                source_record.update(kind=recovery_context["kind"],
                     intervention_step=recovery_context["intervention_step"],
                     **env._recorded_object_failure)
             elif recovery_context.get("kind") == "handle_policy_state":
@@ -837,7 +1029,7 @@ def collect_episode(task, env, seed, max_steps, compact_static_frames=False, rec
                     source_record.update(safe_handle_contact_loss_reproduced=bool(context_length),
                                          **env._recorded_handle_loss_evidence)
             quality["correction_source"] = source_record
-            if recovery_context.get("kind") == "object_empty_grasp":
+            if recovery_context.get("kind") in OBJECT_CORRECTION_KINDS:
                 # The policy opened the drawer in the excluded history. The
                 # expert suffix contains object stages, not handle stages.
                 quality["policy_context_checks"] = {
@@ -874,14 +1066,17 @@ def collection_main(argv=None, args=None):
     from .collect_data import parse_args, build_collection_config
 
     args = args if args is not None else parse_args(argv)
+    numbers = [PUBLIC_TASK_IDS[number] for number in args.tasks]
     recovery_sources = (_recorded_recovery_sources(
-                            args.recovery_actions, args.tasks[0],
+                            args.recovery_actions, numbers[0],
                             source_kind=getattr(args, "recovery_kind", None))
                         if getattr(args, "recovery_actions", None) is not None else None)
     if recovery_sources is not None and getattr(args, "recovery_kind", None) is not None:
         recovery_sources = [source for source in recovery_sources if source.get("kind") == args.recovery_kind]
+    if recovery_sources is not None and getattr(args, "recovery_episode", None) is not None:
+        recovery_sources = [source for source in recovery_sources if source["episode"] == args.recovery_episode]
     if recovery_sources is not None and not args.overwrite:
-        destination = args.dataset_dir or get_task(args.tasks[0]).dataset
+        destination = args.dataset_dir or get_task(numbers[0]).dataset
         manifest = Path(destination) / "meta/episodes.jsonl"
         existing = [json.loads(line) for line in manifest.read_text().splitlines()] if manifest.exists() else []
         known = {
@@ -906,7 +1101,7 @@ def collection_main(argv=None, args=None):
         seed = recovery_sources[0]["seed"]
     reports = []
     if (
-        len(args.tasks) > 1
+        len(numbers) > 1
         and args.dataset_dir is not None
         and args.dataset_dir.resolve() in {t.dataset.resolve() for t in TASKS.values()}
     ):
@@ -914,14 +1109,14 @@ def collection_main(argv=None, args=None):
             "For multiple tasks, --dataset-dir is the suite root, not one task dataset"
         )
     destinations = {}
-    for number in args.tasks:
+    for number in numbers:
         task = get_task(number)
         dataset = (
             task.dataset
             if args.dataset_dir is None
             else (
                 args.dataset_dir
-                if len(args.tasks) == 1
+                if len(numbers) == 1
                 else args.dataset_dir / task.dataset.name
             )
         ).resolve()
@@ -945,7 +1140,7 @@ def collection_main(argv=None, args=None):
         if "mujoco_fridge" in str(dataset):
             raise ValueError("Fridge data cannot be used by this task suite")
         destinations[number] = dataset
-    for number in args.tasks:
+    for number in numbers:
         task = get_task(number)
         dataset = destinations[number]
         paired = (
@@ -1016,7 +1211,7 @@ def collection_main(argv=None, args=None):
                     run_id=collection_run_id, process_id=os.getpid(),
                     started_at=collection_started_at,
                     updated_at=datetime.now(timezone.utc).isoformat(),
-                    task=number, saved=saved, rejected=rejected, dataset=str(dataset),
+                    task=public_task_id(number), saved=saved, rejected=rejected, dataset=str(dataset),
                     attempts=len(attempt_results), status=status,
                     rejected_episodes=rejected_episodes, attempt_results=attempt_results,
                 ))
@@ -1109,7 +1304,7 @@ def collection_main(argv=None, args=None):
                         persist_collection(attempt_result["status"])
                         raise
             report = dict(
-                task=number, saved=saved, rejected=rejected, dataset=str(dataset)
+                task=public_task_id(number), saved=saved, rejected=rejected, dataset=str(dataset)
             )
             reports.append(report)
             persist_collection("completed" if saved >= args.num_episodes else "attempt_limit")
@@ -1131,7 +1326,7 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
     from . import eval_policy_client as client
 
     args = args if args is not None else client.parse_args(argv)
-    numbers = list(args.tasks if numbers is None else numbers)
+    numbers = [PUBLIC_TASK_IDS[number] for number in args.tasks] if numbers is None else numbers
     seed = (
         args.start_seed
         if args.start_seed is not None
@@ -1179,30 +1374,40 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                 (metadata.get("task_environment_contracts") or {}).get(task.key), current)
             compatibility[task.key] = checked
             if checked["status"] == "mismatch":
-                raise ValueError(f"Task{number} checkpoint/environment mismatch: {checked['differences']}")
+                raise ValueError(f"Task{public_task_id(number)} checkpoint/environment mismatch: {checked['differences']}")
             if checked["status"] == "unverified":
-                client.log.warning("Task%s checkpoint/environment compatibility unverified: %s", number, checked["reason"])
+                client.log.warning("Task%s checkpoint/environment compatibility unverified: %s", public_task_id(number), checked["reason"])
         run_state["environment_compatibility"] = compatibility
         execution_horizon, precision_replan = client.resolve_execution_policy(
             args, metadata
         )
+        for number in numbers:
+            task = get_task(number)
+            directory = output / f"task{public_task_id(number)}"
+            existing_summary = directory / "summary.json"
+            if existing_summary.is_file() and any(
+                row.get("task_key") != task.key
+                for row in json.loads(existing_summary.read_text())
+            ):
+                raise ValueError(f"{directory} contains a prior evaluation; choose a fresh --video-dir")
         output.mkdir(parents=True, exist_ok=True)
         run_state["started"] = True
         _persist_evaluation_summary(run_state, "running")
         for number in numbers:
             task = get_task(number)
+            public_number = public_task_id(number)
             client.log.info(
-                f"\n========= Start task{number}: {task.instruction} ========="
+                f"\n========= Start task{public_number}: {task.instruction} ========="
             )
-            directory = output / f"task{number}"
+            directory = output / f"task{public_number}"
             directory.mkdir(parents=True, exist_ok=True)
-            removed_videos = client.clear_episode_videos(output, f"task{number}")
+            removed_videos = client.clear_episode_videos(output, f"task{public_number}")
             if removed_videos:
                 client.log.info(
                     "Removed %s stale episode videos from %s/%s",
                     removed_videos,
                     output,
-                    f"task{number}",
+                    f"task{public_number}",
                 )
             # One report per selected task is regenerated, leaving all other tasks intact.
             _atomic_json(directory / "summary.json", [])
@@ -1210,7 +1415,7 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
             action_trace.write_text("")
             for episode in range(args.num_episodes):
                 episode_seed = seed + episode
-                run_state["active_episode"] = dict(task=number, episode=episode,
+                run_state["active_episode"] = dict(task=public_number, episode=episode,
                                                    seed=episode_seed, steps=0, stage="initialization")
                 _persist_evaluation_summary(run_state, "running")
                 env = task.make_env(
@@ -1256,7 +1461,7 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                             False,
                         )
                     print(
-                        f"\n===== Task {number} | Episode {episode + 1} =====",
+                        f"\n===== Task {public_number} | Episode {episode + 1} =====",
                         flush=True,
                     )
                     print(task.instruction, flush=True)
@@ -1317,11 +1522,13 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                             dict(
                                 kind="decision",
                                 run_id=run_state["run_id"],
-                                task=number,
+                                task=public_number,
                                 episode=episode,
                                 simulation_time=float(env.data.time),
                                 history_times=[r[0] for r in history.selected()[0]],
                                 execution_horizon=horizon,
+                                **({"predicted_gripper_chunk": chunk[:, 6].tolist()}
+                                   if number == 4 else {}),
                             ),
                         )
                         for action in chunk[:horizon]:
@@ -1344,7 +1551,7 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                             run_state["active_episode"].update(steps=step, stage="execution")
                             if number == 1:
                                 action_record = dict(
-                                    kind="action", run_id=run_state["run_id"], task=number,
+                                    kind="action", run_id=run_state["run_id"], task=public_number,
                                     episode=episode, step=step,
                                     simulation_time=float(env.data.time),
                                     history_times=[r[0] for r in history.selected()[0]],
@@ -1375,7 +1582,7 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                                     action_record := dict(
                                         kind="action",
                                         run_id=run_state["run_id"],
-                                        task=number,
+                                        task=public_number,
                                         episode=episode,
                                         step=step,
                                         simulation_time=float(env.data.time),
@@ -1453,7 +1660,8 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                             break
                     report = dict(
                         run_id=run_state["run_id"],
-                        task=number,
+                        task=public_number,
+                        task_key=task.key,
                         episode=episode,
                         seed=episode_seed,
                         success=bool(done),
@@ -1514,7 +1722,7 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                         macro_block_size=1,
                     )
                     reports.append(report)
-                    _atomic_json(directory / "summary.json", [r for r in reports if r["task"] == number])
+                    _atomic_json(directory / "summary.json", [r for r in reports if r["task"] == public_number])
                     run_state["active_episode"] = None
                     _persist_evaluation_summary(run_state, "running")
                     if args.render:
@@ -1525,14 +1733,14 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                     total_steps += step
                     result_text = "✅ Success" if done else "❌ Fail"
                     client.log.info(
-                        f"Task {number} | Episode {episode + 1}: {result_text}"
+                        f"Task {public_number} | Episode {episode + 1}: {result_text}"
                     )
                 finally:
                     history.clear()
                     env.renderer.close()
-            task_success = sum(r["success"] for r in reports if r["task"] == number)
+            task_success = sum(r["success"] for r in reports if r["task"] == public_number)
             client.log.info(
-                f"========= Task {number} Summary: {task_success}/{args.num_episodes} Successful ========="
+                f"========= Task {public_number} Summary: {task_success}/{args.num_episodes} Successful ========="
             )
     summary = _persist_evaluation_summary(run_state, "completed")
     client.log.info("\n========= Overall Task Summary =========")
@@ -1552,9 +1760,10 @@ async def evaluate_tasks(numbers=None, argv=None, args=None):
     """Keep durable progress on ordinary errors, cancellation and interruption."""
     from .eval_policy_client import parse_args
     args = args if args is not None else parse_args(argv)
-    selected = list(args.tasks if numbers is None else numbers)
+    public_numbers = list(args.tasks if numbers is None else numbers)
+    selected = [PUBLIC_TASK_IDS[number] for number in public_numbers]
     state = dict(run_id=uuid.uuid4().hex, started_utc=datetime.now(timezone.utc).isoformat(),
-                 tasks=selected, requested_episodes_per_task=args.num_episodes,
+                 tasks=public_numbers, requested_episodes_per_task=args.num_episodes,
                  output=Path(args.video_dir).resolve(), episodes=[], started=False)
     try:
         return await _evaluate_tasks(selected, args=args, run_state=state)

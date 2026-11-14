@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import json
 import os
+import shutil
 from pathlib import Path
 import uuid
 
@@ -296,7 +297,7 @@ def validate_contact_quality(quality, task_number):
                 "selection_within_history",
             }
         )
-    if (task_number == 4 and (quality.get("correction_source") or {}).get("kind") == "object_empty_grasp"):
+    if (task_number == 4 and (quality.get("correction_source") or {}).get("kind") in OBJECT_CORRECTION_KINDS):
         history_checks = {"horizontal_handle_approach", "handle_contact_through_pull"}
         recorded = quality.get("policy_context_checks", {})
         if set(recorded) != history_checks or any(type(value) is not bool for value in recorded.values()):
@@ -386,6 +387,9 @@ def merge_feature_stats(rows, key):
     }
 
 
+OBJECT_CORRECTION_KINDS = ("object_empty_grasp", "object_policy_state", "object_release_timing")
+
+
 def validate_correction_context(phases, quality, task_number, timestamps=None):
     """Only a certified, contiguous policy prefix can be history-only data."""
     source = quality.get("correction_source")
@@ -424,7 +428,7 @@ def _validate_handle_correction_context(phases, quality, timestamps):
     if not isinstance(source, dict):
         raise ValueError("Invalid handle correction source")
     policy_state = source.get("kind") == "handle_policy_state"
-    object_failure = source.get("kind") == "object_empty_grasp"
+    object_failure = source.get("kind") in OBJECT_CORRECTION_KINDS
     if object_failure:
         _validate_object_failure_source(source, quality)
     elif policy_state:
@@ -481,20 +485,28 @@ def _validate_object_failure_source(source, quality):
     values = [source.get(name) for name in (
         "recorded_intervention_sim_time", "recorded_replay_max_state_error",
         "recorded_drawer_open_m", "recorded_aperture_m", "recorded_gripper_command")]
-    if (source.get("safe_object_empty_grasp_reproduced") is not True
-            or source.get("recorded_object_contact") is not False
+    empty_grasp = source["kind"] == "object_empty_grasp"
+    placing = source["kind"] == "object_release_timing"
+    certificate = {
+        "object_empty_grasp": "safe_object_empty_grasp_reproduced",
+        "object_policy_state": "safe_object_policy_state_reproduced",
+        "object_release_timing": "safe_object_release_state_reproduced",
+    }[source["kind"]]
+    if (source.get(certificate) is not True
+            or source.get("recorded_object_contact") is not placing
             or type(source.get("recorded_selected_drawer")) is not int
             or source["recorded_selected_drawer"] != quality.get("target_drawer_diagnostic_only")
             or any(isinstance(v, bool) or not isinstance(v, (int, float))
                    or not np.isfinite(v) for v in values)
             or values[0] < 0 or not 0 <= values[1] <= 1e-4
-            or values[2] < .165 or not -.001 <= values[3] < .006
-            or not 0 <= values[4] <= .2
+            or values[2] < .165
+            or (empty_grasp and (not -.001 <= values[3] < .006 or not 0 <= values[4] <= .2))
+            or (not empty_grasp and not 0 <= values[4] <= (.2 if placing else 1.0))
             or type(source.get("intervention_step")) is not int
             or source["intervention_step"] < 2
             or len(str(source.get("sha256", ""))) != 64
             or not source.get("run_id") or quality.get("natural_corrections", 0) < 1):
-        raise ValueError("Uncertified recorded drawer object empty grasp")
+        raise ValueError("Uncertified recorded drawer object continuation")
 
 
 def _validate_handle_failure_source(source, quality):
@@ -752,6 +764,7 @@ class EpisodeDatasetWriter:
         quality,
         success=True,
         timestamps=None,
+        encoded_videos=None,
     ):
         states = np.asarray(states, dtype=np.float32)
         actions = np.asarray(actions, dtype=np.float32)
@@ -786,12 +799,18 @@ class EpisodeDatasetWriter:
             raise ValueError(
                 "Timestamps must be finite and strictly increasing"
             )
-        for camera in CAMERAS:
-            if camera not in images or len(images[camera]) != length:
-                raise ValueError(f"Camera {camera} does not have {length} frames")
-            if any(np.asarray(image).shape != (self.image_size, self.image_size, 3)
-                   or np.asarray(image).dtype != np.uint8 for image in images[camera]):
-                raise ValueError(f"Camera {camera} frames must match the declared uint8 RGB resolution")
+        if encoded_videos is not None:
+            if images is not None or set(encoded_videos) != set(CAMERAS):
+                raise ValueError("Provide encoded video paths for all cameras instead of images")
+            for path in encoded_videos.values():
+                validate_rgb_video(path, length, self.image_size, self.fps)
+        else:
+            for camera in CAMERAS:
+                if camera not in images or len(images[camera]) != length:
+                    raise ValueError(f"Camera {camera} does not have {length} frames")
+                if any(np.asarray(image).shape != (self.image_size, self.image_size, 3)
+                       or np.asarray(image).dtype != np.uint8 for image in images[camera]):
+                    raise ValueError(f"Camera {camera} frames must match the declared uint8 RGB resolution")
 
         episode_index = self.next_episode_index
         chunk_index, data_path, video_paths = self._paths(episode_index)
@@ -835,7 +854,10 @@ class EpisodeDatasetWriter:
                     f".{video_path.stem}.{uuid.uuid4().hex}.tmp.mp4"
                 )
                 temporary_paths.append((video_temp, video_path))
-                write_rgb_video(video_temp, images[camera], self.fps)
+                if encoded_videos is None:
+                    write_rgb_video(video_temp, images[camera], self.fps)
+                else:
+                    shutil.copyfile(encoded_videos[camera], video_temp)
 
             for temporary, final in temporary_paths:
                 os.replace(temporary, final)
@@ -922,3 +944,133 @@ class EpisodeDatasetWriter:
             "columns": list(table.columns),
             "videos": row["video_paths"],
         }
+
+
+def _same_task4_controller(base, source, snapshots):
+    """Contracts may differ only in collection-only Task4 expert functions."""
+    import ast
+    import hashlib
+
+    if base == source:
+        return True
+    if snapshots is None:
+        return False
+    keys = {"controller_sha256", "controller_sources_sha256"}
+    if {k: v for k, v in base.items() if k not in keys} != {
+            k: v for k, v in source.items() if k not in keys}:
+        return False
+    source_maps = [contract["controller_sources_sha256"] for contract in (base, source)]
+    if {k: v for k, v in source_maps[0].items() if k != "task_env.py"} != {
+            k: v for k, v in source_maps[1].items() if k != "task_env.py"}:
+        return False
+    expert_functions = {"run_task4_expert", "run_task4_after_opening", "run_task4_placement"}
+    control_trees = []
+    for contract, hashes in zip((base, source), source_maps):
+        aggregate = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+        if aggregate != contract["controller_sha256"]:
+            return False
+        digest = hashes["task_env.py"]
+        content = (Path(snapshots) / f"{digest}.py").read_bytes()
+        if hashlib.sha256(content).hexdigest() != digest:
+            return False
+        tree = ast.parse(content)
+        tree.body = [node for node in tree.body if not (
+            isinstance(node, ast.FunctionDef) and node.name in expert_functions)]
+        control_trees.append(ast.dump(tree))
+    return control_trees[0] == control_trees[1]
+
+
+def build_task4_correction_candidate(sources, output, controller_sources=None):
+    """Build a Task4 training candidate from base data and certified corrections."""
+    import tempfile
+    import yaml
+
+    base_config = Path(__file__).resolve().parents[1] / "Evo-1/Evo_1/dataset/config.yaml"
+    config = yaml.safe_load(base_config.read_text())
+    tasks = config["data_groups"]["mujoco_panda"]
+    for task in tasks.values():
+        task["path"] = str((base_config.parent / task["path"]).resolve())
+    drawer = tasks["mujoco_drawer_memory"]
+    base = Path(drawer["path"])
+    read_metadata = lambda dataset: json.loads((dataset / "meta/dataset.json").read_text())
+    read_episodes = lambda dataset: [json.loads(line) for line in
+                                     (dataset / "meta/episodes.jsonl").read_text().splitlines()]
+    metadata = read_metadata(base)
+    validate_collection_snapshot(metadata)
+    if output.exists():
+        raise FileExistsError(output)
+    existing_seeds = {row["seed"] for row in read_episodes(base)}
+    corrections = []
+    for source in sources:
+        info = read_metadata(source)
+        validate_collection_snapshot(info)
+        for key in ("video_encoding", "fps", "cameras", "task", "source_policy_version",
+                    "collection_config"):
+            if info[key] != metadata[key]:
+                raise ValueError(f"{source} differs from the base dataset in {key}")
+        source_contract = info["environment_contract"]
+        if not _same_task4_controller(metadata["environment_contract"], source_contract, controller_sources):
+            raise ValueError(f"{source} uses a different control environment")
+        for row in read_episodes(source):
+            if not row["success"] or not row["quality"].get("correction_source"):
+                raise ValueError(f"{source} contains an uncertified correction")
+            if row["seed"] in existing_seeds:
+                raise ValueError(f"Duplicate scene seed in candidate data: {row['seed']}")
+            existing_seeds.add(row["seed"])
+            row["quality"]["correction_source"]["source_environment_contract"] = source_contract
+            corrections.append((source, row))
+    if not corrections:
+        raise ValueError("No correction episodes to append")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".task4-candidate-", dir=output.parent) as temporary:
+        staging = Path(temporary) / output.name
+        dataset = staging / "dataset"
+        dataset.mkdir(parents=True)
+        shutil.copytree(base / "meta", dataset / "meta")
+        for folder in ("data", "videos"):
+            shutil.copytree(base / folder, dataset / folder, copy_function=os.link)
+        writer = EpisodeDatasetWriter(
+            dataset, fps=metadata["fps"], image_size=metadata["cameras"]["front"]["shape"][0],
+            chunk_size=metadata["chunk_size"], collection_config=metadata["collection_config"],
+            task_description=metadata["task"], source_policy=metadata["source_policy"],
+            source_policy_version=metadata["source_policy_version"],
+            environment_contract=metadata["environment_contract"],
+        )
+        accepted = []
+        for source, row in corrections:
+            frame = pd.read_parquet(source / row["data_path"])
+            added = writer.write_episode(
+                states=frame["observation.state"].tolist(), actions=frame["action"].tolist(),
+                phases=frame["expert.phase"].tolist(), dones=frame["next.done"].tolist(),
+                timestamps=frame["timestamp"].tolist(), images=None,
+                encoded_videos={camera: source / path for camera, path in row["video_paths"].items()},
+                seed=row["seed"], quality=row["quality"],
+            )
+            writer.validate_episode(added["episode_index"])
+            accepted.append(dict(status="accepted", episode_index=added["episode_index"], seed=row["seed"]))
+        writer.record_collection_report(dict(
+            run_id=uuid.uuid4().hex, status="completed", kind="qualified_correction_import",
+            saved=len(accepted), rejected=0, attempts=len(accepted), attempt_results=accepted,
+        ))
+        drawer["path"] = str(output / "dataset")
+        config["cache_namespace"] += "_task4_corrections"
+        (staging / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+        staging.rename(output)
+    return len(accepted)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Build a Task4 training candidate from base data and certified corrections.")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--controller-sources", type=Path,
+                        help="Hash-named task_env.py snapshots for proving expert-only differences.")
+    parser.add_argument("sources", nargs="+", type=Path)
+    args = parser.parse_args()
+    output = args.output.resolve()
+    count = build_task4_correction_candidate(
+        [source.resolve() for source in args.sources], output, args.controller_sources)
+    print(f"Added {count} certified corrections; training config: {output / 'config.yaml'}")

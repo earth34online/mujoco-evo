@@ -24,7 +24,7 @@ import pickle
 from collections import Counter
 from contextlib import nullcontext
 
-CACHE_INDEX_VERSION = 11
+CACHE_INDEX_VERSION = 13
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -37,11 +37,13 @@ GRASP_PHASES = {
     "approach", "descend", "close", "handle_approach", "handle_close", "pull",
     "object_descend", "object_close",
     "topdown_orientation", "object_clearance_lift", "object_approach", "object_lift",
+    "handle_release", "handle_withdraw", "lower", "release", "retreat",
 }
 CONTACT_PRECISION_PHASES = {
     "descend", "close", "handle_approach", "handle_close", "pull",
     "object_descend", "object_close",
     "topdown_orientation", "object_clearance_lift", "object_approach", "object_lift",
+    "handle_release", "handle_withdraw", "lower", "release", "retreat",
 }
 CORRECTION_PHASES = {"recover", "approach", "descend", "close"}
 
@@ -137,7 +139,7 @@ def select_history_indices(
 
 def classify_memory_event(
     phases, history_indices, current_index, history_valid=None, verified_visible_indices=(),
-    correction_kind=None,
+    correction_kind=None, *, drawer_task=False,
 ):
     """Label windows whose current action can use visible short-term history.
 
@@ -170,7 +172,21 @@ def classify_memory_event(
         event = (MEMORY_EVENT_POLICY_STATE_CONTINUATION
                  if correction_kind == "handle_policy_state" else MEMORY_EVENT_POST_FAILURE_CORRECTION)
         return f"{event}/{MEMORY_EVENT_PROBE}"
-    if correction_kind == "object_empty_grasp" and current_phase not in {
+    # Only the first release frame teaches the switch before the hand opens.
+    # Remaining frames teach the open hold/withdrawal after the transition.
+    if (drawer_task and correction_kind == "object_policy_state"
+            and current_phase == "recover" and current_index + 1 < len(phases)
+            and phases[current_index + 1] == "handle_release"):
+        return f"{MEMORY_EVENT_POST_FAILURE_CORRECTION}/handle_release_start"
+    previous_phase = phases[current_index - 1] if current_index > 0 else None
+    if drawer_task and (
+        (current_phase == "handle_release" and previous_phase == "pull")
+        or (current_phase == "release" and previous_phase == "lower")
+    ):
+        prefix = (MEMORY_EVENT_GRASP_ALIGNMENT if correction_kind is None
+                  else MEMORY_EVENT_POST_FAILURE_CORRECTION)
+        return f"{prefix}/{current_phase}_start"
+    if correction_kind in {"object_empty_grasp", "object_policy_state", "object_release_timing"} and current_phase not in {
         "observe_target", "presentation_close", "policy_context"
     }:
         return f"{MEMORY_EVENT_POST_FAILURE_CORRECTION}/{current_phase}"
@@ -453,7 +469,8 @@ def _process_parquet_file_worker(args):
                 episode_files.append(str(cache_filepath))
                 episode_events.append(
                     classify_memory_event(source_phases, history_indices, i, history_valid, verified_visible_indices,
-                                          correction_kind=correction_kind)
+                                          correction_kind=correction_kind,
+                                          drawer_task=dataset_name == "mujoco_drawer_memory")
                     if source_phases
                     else MEMORY_EVENT_ROUTINE
                 )
@@ -464,7 +481,8 @@ def _process_parquet_file_worker(args):
             history_df = source_df.iloc[history_indices]
             memory_event = (
                 classify_memory_event(source_phases, history_indices, i, history_valid, verified_visible_indices,
-                                      correction_kind=correction_kind)
+                                      correction_kind=correction_kind,
+                                      drawer_task=dataset_name == "mujoco_drawer_memory")
                 if source_phases
                 else MEMORY_EVENT_ROUTINE
             )
@@ -672,6 +690,7 @@ class LeRobotDataset(Dataset):
         self.dataset_snapshots = {}
         self._episode_lengths = {}
         self._drawer_targets = {}
+        self._drawer_corrections = set()
         norm_stats_list = []
 
         # for arms
@@ -802,6 +821,8 @@ class LeRobotDataset(Dataset):
                         self._episode_lengths[key] = length
                         if required_collection_config.get("task_id") == 4:
                             quality = episode.get("quality") or {}
+                            if quality.get("correction_source"):
+                                self._drawer_corrections.add(key)
                             target = quality.get("target_drawer_diagnostic_only")
                             if episode.get("success") and type(target) is int and 0 <= target < 4:
                                 self._drawer_targets[key] = target
@@ -1010,7 +1031,7 @@ class LeRobotDataset(Dataset):
                             "utf-8"
                         )
                     )
-        if include_action_padding_contract and self.mask_terminal_action_padding:
+        if include_action_padding_contract and getattr(self, "mask_terminal_action_padding", False):
             digest.update(b"terminal_action_padding_mask_v1")
         return digest.hexdigest()
 
@@ -1208,28 +1229,31 @@ class LeRobotDataset(Dataset):
         # Task3 window even though both belong to the same Panda embodiment.
         # This changes no collection quota and duplicates no trajectories.
         labels = []
+        groups = {}
+        original_counts = Counter()
+        drawer_datasets = {key[:2] for key in self._drawer_targets} if task4_only else set()
         cache_root = self.cache_dir.resolve()
-        for cache_file, event in zip(self.data, self.memory_events):
+        for index, (cache_file, event) in enumerate(zip(self.data, self.memory_events)):
             relative = Path(cache_file).resolve().relative_to(cache_root)
             if len(relative.parts) < 2:
-                raise ValueError(
-                    f"Unexpected cache layout for sampling: {cache_file}"
-                )
-            dataset_key = relative.parts[1]
-            labels.append(f"{dataset_key}/{event}")
+                raise ValueError(f"Unexpected cache layout for sampling: {cache_file}")
+            key = tuple(relative.parts[:2])
+            labels.append(f"{key[1]}/{event}")
+            if task4_only:
+                groups.setdefault(key, []).append(index)
+                if key in drawer_datasets:
+                    episode = int(relative.parent.name.removeprefix("episode_"))
+                    if (*key, episode) not in self._drawer_corrections:
+                        original_counts[key] += 1
         weights, counts = adaptive_memory_event_weights(labels)
         if task4_only:
-            # Preserve each task's total exposure and keep the proven tasks
-            # uniform while balancing the short drawer contact phases.
-            drawer_datasets = {key[:2] for key in self._drawer_targets}
-            groups = {}
-            for index, cache_file in enumerate(self.data):
-                relative = Path(cache_file).resolve().relative_to(cache_root)
-                key = tuple(relative.parts[:2])
-                groups.setdefault(key, []).append(index)
+            # Corrections redistribute Task4's existing quota. Adding windows
+            # must not reduce the exposure of the other tasks at a fixed step budget.
             for key, indices in groups.items():
                 if key in drawer_datasets:
                     weights[indices] /= weights[indices].mean()
+                    if 0 < original_counts[key] < len(indices):
+                        weights[indices] *= original_counts[key] / len(indices)
                 else:
                     weights[indices] = 1.0
         return torch.as_tensor(weights, dtype=torch.double), counts
@@ -1312,20 +1336,32 @@ class LeRobotDataset(Dataset):
                 import av
                 try:
                     with av.open(path) as container:
+                        stream = container.streams.video[0]
+                        # Match the existing first-frame-at-or-after rule, but
+                        # start at the preceding keyframe of the history window.
+                        # A one-tick margin keeps an exact target on its near side.
+                        if timestamps[0] > 0:
+                            container.seek(
+                                max(0, int(timestamps[0] / stream.time_base) - 1),
+                                stream=stream, backward=True, any_frame=False,
+                            )
                         target_index = 0
-                        last_image = None
-                        for frame in container.decode(video=0):
-                            last_image = Image.fromarray(frame.to_ndarray(format='rgb24'))
+                        frame_time = None
+                        for frame in container.decode(stream):
                             frame_time = float(frame.time or 0.0)
+                            if frame_time + 1e-6 < timestamps[target_index]:
+                                continue
+                            # Skipped frames need no RGB conversion or PIL copy.
+                            image = Image.fromarray(frame.to_ndarray(format='rgb24'))
                             while (
                                 target_index < len(timestamps)
                                 and frame_time + 1e-6 >= timestamps[target_index]
                             ):
-                                frames[target_index][view_index] = last_image.copy()
+                                frames[target_index][view_index] = image.copy()
                                 target_index += 1
                             if target_index == len(timestamps):
                                 break
-                        if last_image is None:
+                        if frame_time is None:
                             raise ValueError(f"Video contains no decodable frames: {path}")
                         if target_index < len(timestamps):
                             raise ValueError(
@@ -1486,6 +1522,7 @@ class LeRobotDataset(Dataset):
             "history_mask": torch.tensor(item["history_mask"], dtype=torch.bool),
             "memory_event": item.get("memory_event", MEMORY_EVENT_ROUTINE),
             "drawer_target": drawer_target,
+            "drawer_task": dataset_key == "mujoco_drawer_memory",
             "action": action_padded.to(dtype=torch.bfloat16),
             "action_mask": action_mask,
             "embodiment_id": torch.tensor(embodiment_id, dtype=torch.long)

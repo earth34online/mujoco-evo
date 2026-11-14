@@ -455,7 +455,15 @@ def infer_from_json_dict(data: dict, model, normalizer, use_state: bool, feedbac
                 action_decoder=decoder,
             )
         action = action.reshape(1, -1, 24)
-        action = normalizer.denormalize_action(action[0].float(), task_key=task_key)
+        action = action[0].float()
+        binary_gripper = (
+            task_key == "mujoco_drawer_memory"
+            and model.config.get("task4_binary_gripper_supervision", False)
+        )
+        grip_open = action[:, 6] > 0 if binary_gripper else None
+        action = normalizer.denormalize_action(action, task_key=task_key)
+        if grip_open is not None:
+            action[:, 6] = grip_open.to(action.dtype)
         return action.cpu().numpy().tolist()
 
 

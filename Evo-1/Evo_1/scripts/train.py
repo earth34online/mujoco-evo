@@ -51,7 +51,7 @@ def get_with_warning(config: dict, key: str, default):
         return default
 
 
-def masked_velocity_loss(prediction, target, action_mask):
+def masked_velocity_loss(prediction, target, action_mask, binary_gripper_rows=None):
     """The MINT masked flow MSE, reduced in FP32 under mixed precision.
 
     Squaring and summing in BF16 rounds the loss before reduction and makes
@@ -61,9 +61,20 @@ def masked_velocity_loss(prediction, target, action_mask):
     if prediction.shape != target.shape:
         raise ValueError("Flow prediction and target shapes differ")
     mask = action_mask.reshape(prediction.shape).to(dtype=torch.float32)
-    if bool((mask.sum(dim=1) == 0).any()):
+    if bool((mask.flatten(start_dim=1).sum(dim=1) == 0).any()):
         raise ValueError("Every flow sample must have valid action dimensions")
     squared_error = (prediction.float() - target.float()).square()
+    if binary_gripper_rows is not None:
+        # Task4 has only open/closed expert commands. Keep the existing
+        # per-coordinate reduction and replace just its gripper error.
+        grip_logits = prediction.float()[..., 6] * 4.0
+        grip_target = (target.float()[..., 6] > 0).float()
+        grip_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            grip_logits, grip_target, reduction="none"
+        )
+        grip_error = torch.where(binary_gripper_rows, grip_loss, squared_error[..., 6])
+        squared_error = torch.cat((squared_error[..., :6], grip_error.unsqueeze(-1),
+                                   squared_error[..., 7:]), dim=-1)
     return (squared_error * mask).sum() / mask.sum()
 
 
@@ -119,6 +130,7 @@ def custom_collate_fn(batch):
         "state_mask": state_mask,
         "history_mask": history_mask,
         "memory_events": memory_events,
+        "drawer_task_rows": torch.tensor([item.get("drawer_task", False) for item in batch]),
         "drawer_targets": torch.tensor([item.get("drawer_target", -100) for item in batch]),
         "image_masks": image_masks,
         "embodiment_ids": embodiment_ids
@@ -735,6 +747,11 @@ def train(config):
                 if json.load(source_file).get("observation_action_decoder") is not None:
                     raise ValueError("Cannot resume a composite inference bundle as flow training; use its recorded original backbone checkpoint explicitly")
     resolve_terminal_action_padding(config)
+    binary_gripper = config.get("action_head") == "direct" and bool(config.get("drawer_intent_supervision"))
+    if config.get("resume") and not config.get("resume_pretrain"):
+        with open(os.path.join(config["resume_path"], "config.json"), encoding="utf-8") as source:
+            binary_gripper = bool(json.load(source).get("task4_binary_gripper_supervision", False))
+    config["task4_binary_gripper_supervision"] = binary_gripper
     resolve_frozen_embedder_eval(config)
     resolve_checkpoint_temporal_storage(config)
     # 命令行和直接调用 train(config) 都默认使用普通参数微调。LoRA 只有在
@@ -1044,10 +1061,21 @@ def train(config):
                 # Tasks 3 and 4 replan after action zero. Give that supervision
                 # its own reduction while retaining the complete action chunk.
                 first_mask = action_mask[:, 0]
-                loss = masked_velocity_loss(pred_velocity, target_velocity, action_mask)
-                loss = loss + masked_velocity_loss(
-                    pred_velocity.reshape_as(actions_gt)[:, 0], actions_gt[:, 0], first_mask
-                )
+                chunk_prediction = pred_velocity.reshape_as(actions_gt)
+                chunk_target = target_velocity.reshape_as(actions_gt)
+                if binary_gripper:
+                    drawer_rows = batch["drawer_task_rows"].to(device=pred_velocity.device)
+                    loss = masked_velocity_loss(
+                        chunk_prediction, chunk_target, action_mask, drawer_rows[:, None]
+                    )
+                    loss = loss + masked_velocity_loss(
+                        chunk_prediction[:, 0], chunk_target[:, 0], first_mask, drawer_rows
+                    )
+                else:
+                    loss = masked_velocity_loss(pred_velocity, target_velocity, action_mask)
+                    loss = loss + masked_velocity_loss(
+                        chunk_prediction[:, 0], actions_gt[:, 0], first_mask
+                    )
                 if config.get("drawer_intent_supervision"):
                     labels = batch["drawer_targets"]
                     intent_loss = torch.nn.functional.cross_entropy(

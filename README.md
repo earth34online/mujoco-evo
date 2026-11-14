@@ -1,6 +1,6 @@
-## Task1：拾取放置演示
+## Task1：π-MEM 方块拾取放置
 
-当前默认运行整个 Task1、Task3、Task4 任务集合：一次采集、一次联合训练、同一个模型服务依次评估全部任务。Task1 是集合中的普通任务。下方保留已有阶段的命令与路径；当前多任务训练和评估命令见最后一节。
+当前默认运行整个 Task1、Task2、Task3 任务集合：一次采集、一次联合训练、同一个模型服务依次评估全部任务。Task1 为方块拾放，Task2 为筷子入盒，Task3 为记忆抽屉取物。下方保留已有阶段的命令与路径；当前多任务训练和评估命令见最后一节。
 
 ```text
 MuJoCo 拾取放置任务
@@ -15,9 +15,11 @@ MuJoCo 拾取放置任务
 
 - 数据集根目录：`/home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace`
 - 训练默认读取 `Evo-1/Evo_1/dataset/config.yaml` 中的全部任务数据，单卡直接运行 `python scripts/train.py`。
-- 训练入口默认不启用 LoRA，且本 task 不需要启动 LoRA；π-MEM 正式参数和关闭 LoRA 的兼容方式见下方 Task2。
+- 训练入口默认不启用 LoRA，且本 task 不需要启动 LoRA；π-MEM 正式参数和关闭 LoRA 的兼容方式见下方 π-MEM 章节。
 - 当前共享服务默认 checkpoint：`/home/user/mujoco+evo/ckpt/evo1_mujoco_pickplace_stage3/step_best`；已有 Task1 权重仍可通过 `--ckpt-dir` 显式加载。
-- 评估默认依次执行 Task1、Task3、Task4，视频保存在 `mujoco_pickplace/outputs/eval_videos/<时间戳>/taskN/`，并保存集合汇总。
+- 评估默认依次执行 Task1、Task2、Task3，视频保存在 `mujoco_pickplace/outputs/eval_videos/<时间戳>/taskN/`，并保存集合汇总。
+
+旧评估日志保留原编号。新评估、纠正采集与开环比较使用当前编号；已有数据和权重通过原有数据集键及物理契约读取。
 
 ### 仓库结构
 
@@ -36,9 +38,9 @@ cd /home/user/mujoco+evo/mujoco_pickplace
 python collect_data.py
 ```
 
-采集默认遍历 Task1、Task3、Task4，并分别清理所选数据集中的 `data/`、`videos/`、`meta/` 后重写。不会删除整个 cache 根目录。每个任务默认采集 250 条通过严格验收的轨迹；`--num-episodes` 指定每个任务的数量。保留现有 episode 并继续编号时使用 `python collect_data.py --append`。
+采集默认遍历 Task1、Task2、Task3，并分别清理所选数据集中的 `data/`、`videos/`、`meta/` 后重写。不会删除整个 cache 根目录。每个任务默认采集 150 条通过严格验收的轨迹；`--num-episodes` 指定每个任务的数量。保留现有 episode 并继续编号时使用 `python collect_data.py --append`。
 
-Task1 数据继续写成 LeRobot 风格 episode，保存在原路径；Task3、Task4 由同一次采集自动写入同一 cache 根目录中配置的数据集：
+Task1 数据继续写成 LeRobot 风格 episode，保存在原路径；Task2、Task3 由同一次采集自动写入同一 cache 根目录中配置的数据集：
 
 ```text
 /home/user/mujoco+evo/Mujoco_training_dataset/cache/mujoco_pickplace
@@ -59,7 +61,7 @@ images: [6, 3, 3, 448, 448]
 state: [6, 24]
 action: [14, 24]
 state mask sum: 8 per valid history frame
-action mask sum: 56 for Task1/Task3, 98 for Task4
+action mask sum: 56 for Task1/Task2, 98 for Task3
 ```
 
 ### 3. 使用 Evo-1 训练
@@ -106,7 +108,7 @@ cd /home/user/mujoco+evo/mujoco_pickplace
 MUJOCO_GL=egl python eval_policy_client.py
 ```
 
-## Task2：π-MEM K=6 短期记忆
+## π-MEM K=6 短期记忆（Task1 与联合任务共用）
 
 
 ```text
@@ -125,7 +127,7 @@ MUJOCO_GL=egl python eval_policy_client.py
 - 语言主干：完整保留并运行 `14` 层，只关闭无用的 hidden-state 收集和 KV cache。
 - 输入：`images [B,6,3,3,448,448]`、`state [B,6,24]`、`history_mask [B,6]`。
 - 输出：`14 × 24` 动作；自由空间和抬升/搬运阶段默认执行前 4 步，接近抓取平面或即将由开变闭时每步重新规划。
-- 夹爪：Task1 保留 0.4/0.6 滞回、闭合立即执行、开爪连续 2 步强信号的 `success_random` 行为；Task3 的二值开闭立即执行，与专家时序一致；Task4 保留连续开度。
+- 夹爪：Task1 保留 0.4/0.6 滞回、闭合立即执行、开爪连续 2 步强信号的 `success_random` 行为；Task2 的二值开闭立即执行，与专家时序一致；Task3 同样使用立即二值开闭。
 - 缓存：窗口索引版本 8；除源 parquet、视频和关键 meta 指纹外，还保存每个窗口的短期记忆事件标签；真实失败后的纠正示范保留历史前缀，但不把失败动作作为训练目标。
 - 微调：训练入口默认不启用 LoRA。显式 `--use_lora` 时使用 `rank=8`、`alpha=16`；动作头使用普通 LoRA，五个时间 ViT 层使用独立低秩残差。
 - 批处理：物理 batch 直接执行一次 batched ViT 和一次 batched 语言主干前向，不再把 batch 8 拆成 8 次 B=1 VLM。
@@ -244,7 +246,7 @@ cd /home/user/mujoco+evo/mujoco_pickplace
 MUJOCO_GL=egl python eval_policy_client.py
 ```
 
-## Task3、Task4
+## Task2、Task3 与三任务联合训练
 
 ```text
 任务定义中的场景与语言指令
@@ -259,8 +261,8 @@ MUJOCO_GL=egl python eval_policy_client.py
 | 任务 | 指令与环境 | 数据目录（不覆盖 Task1） | 动作 |
 | --- | --- | --- | --- |
 | Task1 | 原有 50 mm Cube pick-and-place | `Mujoco_training_dataset/cache/mujoco_pickplace`
-| Task3 | 实体筷架上的筷子抓取入盒，桌高随机 | `Mujoco_training_dataset/cache/mujoco_chopstick`
-| Task4 | 观察目标、关闭抽屉、记住位置、拉开取物并放置 | `Mujoco_training_dataset/cache/mujoco_drawer_memory`
+| Task2 | 实体筷架上的筷子抓取入盒，桌高随机 | `Mujoco_training_dataset/cache/mujoco_chopstick`
+| Task3 | 观察目标、关闭抽屉、记住位置、拉开取物并放置 | `Mujoco_training_dataset/cache/mujoco_drawer_memory`
 
 ### 1. 采集 MuJoCo
 
@@ -275,8 +277,8 @@ MUJOCO_GL=egl python collect_data.py
 ```bash
 conda activate mujoco
 cd /home/user/mujoco+evo/mujoco_pickplace
-MUJOCO_GL=egl python collect_data.py --task 3 --append --num-episodes 2 \
-  --recovery-actions outputs/step_best/task3/actions.jsonl
+MUJOCO_GL=egl python collect_data.py --task 2 --append --num-episodes 2 \
+  --recovery-actions outputs/step_best/task2/actions.jsonl
 ```
 
 ### 2. 检查数据

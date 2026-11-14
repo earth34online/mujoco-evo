@@ -231,8 +231,8 @@ def load_episode(root, row, metadata, task):
     context = np.flatnonzero(phases == "policy_context")
     if len(context) or row["quality"].get("correction_source") is not None:
         from mujoco_pickplace.episode_dataset import validate_correction_context
-        # The data contract distinguishes empty-grasp recovery (Task3) from
-        # an early handle-approach intervention after presentation (Task4).
+        # The data contract distinguishes empty-grasp recovery (Task2) from
+        # an early handle-approach intervention after presentation (Task3).
         # Physical reproduction is checked separately during replay below.
         validate_correction_context(phases, row["quality"], task.number, times)
         evidence = row["quality"].get("correction_source", {})
@@ -348,7 +348,7 @@ def action_metrics(prediction, target, active, low, high, *, continuous_gripper=
     signed = moving & pred_moving
     cosine = (np.sum(pred[signed, :3] * truth[signed, :3], axis=1)
               / (np.linalg.norm(pred[signed, :3], axis=1) * np.linalg.norm(truth[signed, :3], axis=1)))
-    # Task4's 0.25 aperture is a position target, not a closed-hand label.
+    # Task3's 0.25 aperture is a position target, not a closed-hand label.
     # Keep binary hysteresis semantics for Tasks 1/3 and count only actual
     # endpoint targets for the continuous gripper. Its MAE still scores every
     # requested aperture, including handle approach.
@@ -454,7 +454,7 @@ def recorded_drawer_target(row, task_number):
     if task_number != 4:
         return None
     target = row.get("quality", {}).get("target_drawer_diagnostic_only")
-    require(type(target) is int and target in range(4), "Task4 episode lacks a valid presentation target")
+    require(type(target) is int and target in range(4), "Task3 episode lacks a valid presentation target")
     return target
 
 
@@ -537,7 +537,7 @@ def memory_selection_evidence(episode, frames, stride):
 
 def compare_closed_loop(report, paths):
     """Descriptive paired evidence, never an invented open-loop success formula."""
-    mapping = {1: "mujoco_pickplace", 3: "mujoco_chopstick", 4: "mujoco_drawer_memory"}
+    mapping = {1: "mujoco_pickplace", 2: "mujoco_chopstick", 3: "mujoco_drawer_memory"}
     identity = report["checkpoint"]
     rows, seen = [], set()
     for path in paths:
@@ -545,7 +545,9 @@ def compare_closed_loop(report, paths):
         source_rows = content if isinstance(content, list) else content["episodes"]
         for row in source_rows:
             number = int(row["task"])
-            target = row.get("target_drawer_annotation_only") if number == 4 else None
+            require(row.get("task_key") == mapping.get(number) and number in mapping,
+                    "Closed-loop comparison requires a summary from the current evaluator")
+            target = row.get("target_drawer_annotation_only") if number == 3 else None
             key = (number, int(row["seed"]), target)
             require(key not in seen, f"Duplicate closed-loop scene/presentation: {key}")
             seen.add(key)
@@ -584,7 +586,7 @@ def compare_closed_loop(report, paths):
                     or row.get("environment_compatibility", {}).get("status") != "verified"):
                 unverified_environment.append(row["seed"])
                 continue
-            target = row.get("target_drawer_annotation_only") if number == 4 else None
+            target = row.get("target_drawer_annotation_only") if number == 3 else None
             episode = selected.get((row["seed"], target))
             group = (f"{key}/full/episode/{episode['episode_index']}" if episode else "")
             if (not episode or episode["selected_windows"] != episode["candidate_windows"]
@@ -740,7 +742,11 @@ class LocalPredictor:
             values = action.detach().float().cpu().numpy().reshape(-1, 24)
         if observation_decoder is not None:
             self.last_diagnostics = dict(observation_decoder.last_diagnostics or {})
-        return denormalize_actions(values, self.stats[payload["task_key"]]["action"])
+        actions = denormalize_actions(values, self.stats[payload["task_key"]]["action"])
+        if (payload["task_key"] == "mujoco_drawer_memory"
+                and config.get("task4_binary_gripper_supervision", False)):
+            actions[:, 6] = values[:, 6] > 0
+        return actions
 
 
 def normalize_proprioception(states, stats):
@@ -968,7 +974,7 @@ class PhysicsObserver:
 
     @contextmanager
     def monitor_substeps(self):
-        """Observe raw physics after each existing Task3/4 retention callback.
+        """Observe raw physics after each existing Task2/3 retention callback.
 
         The callback is only a clock hook: none of its classifications are read.
         Restore the exact instance state even when stepping or sampling raises.
@@ -993,7 +999,7 @@ class PhysicsObserver:
         """Classify observed raw states; standalone calls cannot cover skipped ticks.
 
         Time-based evidence makes repeated boundary samples idempotent. The
-        suite also installs monitor_substeps for Task3/4 so an opening followed
+        suite also installs monitor_substeps for Task2/3 so an opening followed
         by detachment inside one control interval remains observable.
         """
         import mujoco
@@ -1205,7 +1211,7 @@ class TaskProgressObserver:
     def __init__(self, now, gripper, *, continuous_gripper=False):
         self.last_progress = float(now)
         self.max_gap = 0.
-        # A Task4 handle approach requests aperture .25. Counting every
+        # A Task3 handle approach requests aperture .25. Counting every
         # crossing of .5 as a grasp mislabels normal aperture changes as
         # repeated empty closures. Endpoint hysteresis is diagnostic only;
         # it must never modify the executed aperture or task outcome.
@@ -1300,7 +1306,7 @@ def summarize_outcomes(rows):
 
 def run_closed_loop_suite(predictor, task_seeds, memory_frames, stride, output, max_steps=None,
                           *, target_override=None, stop_after_selection=False):
-    from mujoco_pickplace.tasks import get_task, evaluation_failure_stop, task_environment_contract
+    from mujoco_pickplace.tasks import get_task, evaluation_failure_stop, task_environment_contract, public_task_id
     from mujoco_pickplace.episode_dataset import compare_environment_contract
     from mujoco_pickplace.eval_policy_client import GripperCommandFilter, PrecisionExecutionController
     import mujoco
@@ -1312,7 +1318,7 @@ def run_closed_loop_suite(predictor, task_seeds, memory_frames, stride, output, 
         compatibility = compare_environment_contract(
             (predictor.model.config.get("task_environment_contracts") or {}).get(task.key), task_environment_contract(task))
         if compatibility["status"] == "mismatch":
-            raise ValueError(f"Task{number} checkpoint/environment mismatch: {compatibility['differences']}")
+            raise ValueError(f"Task{public_task_id(number)} checkpoint/environment mismatch: {compatibility['differences']}")
         if task.action_mask != TASK_CONTRACTS[number].action_mask or task.instruction != TASK_CONTRACTS[number].instruction:
             raise ValueError("Runtime task registry differs from independent action/instruction contract")
         for seed in seeds:
@@ -1362,7 +1368,7 @@ def run_closed_loop_suite(predictor, task_seeds, memory_frames, stride, output, 
                           "execution_horizon":(14 if legacy else 4) if number==1 else 1,
                           "gripper_debounce_steps":task.gripper_open_required_steps or 2,
                           "precision_replan":not legacy if number==1 else False}
-                trace=output/f"task{number}_seed{seed}.jsonl"
+                trace=output/f"task{public_task_id(number)}_seed{seed}.jsonl"
                 with trace.open("x",encoding="utf-8") as stream:
                     while step<budget and not done and not stop:
                         times=np.array([h[0] for h in history]); indices,valid=history_indices(times,len(times)-1,memory_frames,stride)
@@ -1440,7 +1446,7 @@ def run_closed_loop_suite(predictor, task_seeds, memory_frames, stride, output, 
                                 break
                 censored=not done and ((not stop and budget<default_budget)
                                        or stop=="confirmed_drawer_selection_probe_end")
-                reports.append({"task":number,"seed":int(seed),"steps":step,"environment_success":bool(done),
+                reports.append({"task":public_task_id(number),"task_key":task.key,"seed":int(seed),"steps":step,"environment_success":bool(done),
                     "drop_disagreement":bool(number != 1 and env.transport_dropped != evidence["drop_observed"]),
                     "physics_disagreement_steps":disagreement_steps,"task_progress":progress_evidence,
                     "environment_compatibility":compatibility,
@@ -1462,7 +1468,7 @@ def run_closed_loop_suite(predictor, task_seeds, memory_frames, stride, output, 
                     observation_hooks.close()
                 finally:
                     env.renderer.close()
-    result={"tasks":{str(task):summarize_outcomes([r for r in reports if r["task"]==task]) for task in task_seeds},
+    result={"tasks":{str(public_task_id(task)):summarize_outcomes([r for r in reports if r["task"]==public_task_id(task)]) for task in task_seeds},
             "episodes":reports,"success_rate_source":"real_closed_loop_rollouts_not_action_error_conversion"}
     (output/"summary.json").write_text(json.dumps(result,indent=2)+"\n")
     return result
@@ -1689,7 +1695,7 @@ def replay_alignment(episode, task_number, execution_steps, *, image_size=64, ob
                         "image_alignment_verified":False}
             if episode.phases[index] in {"observe_target","presentation_close"}:
                 if presentation is None:
-                    raise ValueError("Human presentation phase outside Task4")
+                    raise ValueError("Human presentation phase outside Task3")
                 next(presentation)
             else:
                 if executed >= execution_steps:
@@ -1899,7 +1905,9 @@ def replay_alignment(episode, task_number, execution_steps, *, image_size=64, ob
 def run(args, report):
     sys.path.insert(0, str(ROOT))
     import yaml
-    tasks = [TASK_CONTRACTS[number] for number in args.tasks]
+    from mujoco_pickplace.tasks import PUBLIC_TASK_IDS
+
+    tasks = [TASK_CONTRACTS[PUBLIC_TASK_IDS[number]] for number in args.tasks]
     config, stats, frames, horizon, stride = validate_checkpoint(args.ckpt_dir, tasks)
     report.update(checkpoint={"path": str(args.ckpt_dir), "config_sha256": sha256(args.ckpt_dir / "config.json"),
                               "norm_stats_sha256": sha256(args.ckpt_dir / "norm_stats.json"),
@@ -2196,7 +2204,7 @@ def run(args, report):
                   replay_terminal_failures=replay_terminal_failures,
                   paired_memory_and_seed_metrics={k: distribution(v) for k, v in paired.items()})
     if missing_memory:
-        report["warnings"].append("Some Task4 selection windows lack certified target history under this checkpoint's memory contract.")
+        report["warnings"].append("Some Task3 selection windows lack certified target history under this checkpoint's memory contract.")
     if args.audit_only:
         report["status"] = "data_audit_complete_model_not_tested"
     else:
@@ -2247,7 +2255,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--ckpt-dir", type=Path, default=DEFAULT_BACKBONE, help="Checkpoint backbone to test")
     parser.add_argument("--output", type=Path, default=ROOT / "mujoco_pickplace/outputs" / datetime.now(timezone.utc).strftime("open_loop_step_final_%Y%m%d_%H%M%S_%f"), help="NEW report directory; never overwritten")
-    parser.add_argument("--tasks", type=int, nargs="+", choices=(1, 3, 4), default=[1, 3, 4])
+    parser.add_argument("--tasks", type=int, nargs="+", choices=(1, 2, 3), default=[1, 2, 3])
     parser.add_argument("--dataset-config", type=Path, default=EVO / "dataset/config.yaml",
                         help="Evaluation dataset paths/contracts, not proof of checkpoint training provenance")
     parser.add_argument("--training-dataset", type=Path, action="append", default=[],
@@ -2278,7 +2286,7 @@ def parse_args(argv=None):
 
     require(args.replay_steps >= 0 and args.closed_loop_episodes >= 0 and (args.closed_loop_max_steps is None or args.closed_loop_max_steps > 0),
             "Invalid closed-loop budget")
-    require(not args.drawer_selection_probe or 4 in args.tasks, "Drawer selection probe requires Task4")
+    require(not args.drawer_selection_probe or 3 in args.tasks, "Drawer selection probe requires Task3")
     require(args.closed_loop_max_steps is None or args.closed_loop_episodes > 0 or args.drawer_selection_probe,
             "--closed-loop-max-steps requires --closed-loop-episodes or --drawer-selection-probe")
     require(not args.audit_only or not (args.closed_loop_summary or args.limits or args.closed_loop_episodes or args.drawer_selection_probe),

@@ -1,4 +1,5 @@
-# One Panda embodiment and one EVO checkpoint for Tasks 1, 3 and 4.
+# One Panda embodiment and one EVO checkpoint for public Tasks 1, 2 and 3.
+# Numeric task_id values below belong to the persisted dataset contract.
 max_action_dim: 24
 max_state_dim: 24
 max_views: 3
@@ -58,14 +59,18 @@ data_groups:
         handle_axis: horizontal
         cabinet_position_m: [0.6580384757729336, -0.03, 0.03]
         cabinet_yaw_radians: 0.5235987755982988
-        expert_transfer_path: local_turn_symmetric_grasp_clear_workspace_v2
+        expert_transfer_path: open_hand_corrective_approach_v3
         expert_object_grasp_hand_z_offset_m: 0.104
         expert_handle_approach_offset_frame: cabinet
         common_observation_hand_position_m: [0.29, -0.13, 0.42]
         observation_hand_xyz_jitter_m: [0.008, 0.012, 0.010]
         common_execution_hand_position_m: [0.34, -0.13, 0.34]
         execution_hand_xyz_jitter_m: [0.008, 0.012, 0.010]
-        expert_handle_approach_xyz_jitter_m: [0.003, 0.004, 0.004]
+        expert_handle_pregrasp_offset_low_m: [-0.006, -0.008, -0.015]
+        expert_handle_pregrasp_offset_high_m: [0.0, 0.008, 0.015]
+        expert_handle_approach_gripper: 1.0
+        expert_object_approach_xyz_jitter_m: [0.015, 0.015, 0.010]
+        gripper_execution: binary_immediate
         presentation_close_duration_seconds: 1.2
         presentation_closed_at_joint_stop: true
         memory_frames: 6

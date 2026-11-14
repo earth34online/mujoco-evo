@@ -255,8 +255,8 @@ def parse_args(argv=None):
         description="Evaluate all registered MuJoCo tasks with one Evo-1 checkpoint."
     )
     selection = parser.add_mutually_exclusive_group()
-    selection.add_argument("--task", type=int, choices=(1, 3, 4))
-    selection.add_argument("--tasks", type=int, nargs="+", choices=(1, 3, 4))
+    selection.add_argument("--task", type=int, choices=(1, 2, 3))
+    selection.add_argument("--tasks", type=int, nargs="+", choices=(1, 2, 3))
     parser.add_argument("--server-url", default=SERVER_URL)
     parser.add_argument("--num-episodes", type=int, default=NUM_EPISODES)
     parser.add_argument(
@@ -272,7 +272,7 @@ def parse_args(argv=None):
         help=(
             "Actions executed before replanning. Omitted: use the checkpoint "
             "contract for Task1 (14 for legacy Stage1, 4 for π-MEM). "
-            "Task3/Task4 require horizon=1 for contact feedback; conflicting overrides fail."
+            "Task2/Task3 require horizon=1 for contact feedback; conflicting overrides fail."
         ),
     )
     parser.add_argument(
@@ -294,7 +294,7 @@ def parse_args(argv=None):
         help=(
             "Consecutive strong open predictions required before release "
             "for Task1 (default: 2; closing remains immediate as in success_random). "
-            "Task3 uses immediate binary transitions to match its expert; Task4 is continuous."
+            "Task2 and Task3 use immediate binary transitions."
         ),
     )
     parser.add_argument(
@@ -354,16 +354,16 @@ def parse_args(argv=None):
         a == "--memory-stride-steps" or a.startswith("--memory-stride-steps=")
         for a in raw_args
     )
-    args.tasks = args.tasks or ([args.task] if args.task is not None else [1, 3, 4])
+    args.tasks = args.tasks or ([args.task] if args.task is not None else [1, 2, 3])
     if len(args.tasks) != len(set(args.tasks)):
         parser.error("Each task may be selected only once")
     if (
         args.horizon is not None
         and args.horizon != 1
-        and any(n in (3, 4) for n in args.tasks)
+        and any(n in (2, 3) for n in args.tasks)
     ):
         parser.error(
-            "Task3/Task4 require --horizon 1; use --task 1 for a different Task1 horizon"
+            "Task2/Task3 require --horizon 1; use --task 1 for a different Task1 horizon"
         )
     if args.num_episodes < 1:
         parser.error("--num-episodes must be positive")

@@ -793,6 +793,8 @@ async def check_policy_contact_precision(datasets, policy_url, report_path):
     The policy receives exactly the public image/state/history contract. Phases
     and expert labels select diagnostic samples and measure errors only.
     """
+    from mujoco_pickplace.tasks import public_task_id
+
     import av
     import websockets
     from collections import deque
@@ -992,7 +994,7 @@ async def check_policy_contact_precision(datasets, policy_url, report_path):
                         maximum=float(max(values)),
                     )
             task_result = dict(
-                task=task.number,
+                task=public_task_id(task.number),
                 dataset=str(path),
                 seed=episode["seed"],
                 episode_index=episode["episode_index"],
@@ -1018,14 +1020,14 @@ async def check_policy_contact_precision(datasets, policy_url, report_path):
 def parse_args(argv=None):
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
-    from mujoco_pickplace.tasks import TASKS
+    from mujoco_pickplace.tasks import PUBLIC_TASK_IDS
 
     parser = argparse.ArgumentParser(
         description="Check the MuJoCo task suite and its shared Evo interface."
     )
     selection = parser.add_mutually_exclusive_group()
-    selection.add_argument("--tasks", type=int, nargs="+", choices=list(TASKS))
-    selection.add_argument("--task", type=int, choices=list(TASKS))
+    selection.add_argument("--tasks", type=int, nargs="+", choices=list(PUBLIC_TASK_IDS))
+    selection.add_argument("--task", type=int, choices=list(PUBLIC_TASK_IDS))
     parser.add_argument(
         "--dataset-dir",
         type=Path,
@@ -1077,7 +1079,7 @@ def parse_args(argv=None):
         help="File for phase errors and controlled drawer contact replay; normal terminal output is unchanged.",
     )
     args = parser.parse_args(argv)
-    args.tasks = args.tasks or ([args.task] if args.task is not None else list(TASKS))
+    args.tasks = args.tasks or ([args.task] if args.task is not None else list(PUBLIC_TASK_IDS))
     if len(set(args.tasks)) != len(args.tasks):
         parser.error("Tasks must be unique")
     if (
@@ -1103,10 +1105,11 @@ def parse_args(argv=None):
 
 def main():
     args = parse_args()
-    from mujoco_pickplace.tasks import get_task
+    from mujoco_pickplace.tasks import get_task, PUBLIC_TASK_IDS
 
     datasets = []
-    for number in args.tasks:
+    for public_number in args.tasks:
+        number = PUBLIC_TASK_IDS[public_number]
         task = get_task(number)
         path = (
             task.dataset
@@ -1117,7 +1120,7 @@ def main():
                 else args.dataset_dir / task.dataset.name
             )
         )
-        print(f"Checking Task{number}: {path}", flush=True)
+        print(f"Checking Task{public_number}: {path}", flush=True)
         info = check_raw_dataset(
             path,
             require_precision_grasp=args.require_precision_grasp,
