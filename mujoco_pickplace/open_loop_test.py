@@ -31,8 +31,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 EVO = ROOT / "Evo-1/Evo_1"
-DEFAULT_BACKBONE = ROOT / "ckpt/evo1_mujoco_pickplace_stage3/step_final"
-ARCHIVED_DIAGNOSTIC_BACKBONE = ROOT / "ckpt/archive/evo1_mujoco_pickplace_stage3_stepfinal80000_native_feedback_v1"
+DEFAULT_BACKBONE = ROOT / "ckpt/archive/evo_pi-mem_success"
 HUMAN_PHASES = {"observe_target", "presentation_close"}
 VARIANTS = ("full", "current_only", "current_images", "reverse_history_images")
 
@@ -1926,47 +1925,6 @@ def run(args, report):
         EVO / "model/internvl3/temporal_vision_encoder.py", ROOT / "mujoco_pickplace/task_env.py",
         ROOT / "mujoco_pickplace/tasks.py", ROOT / "mujoco_pickplace/pick_place_env.py",
         ROOT / "mujoco_pickplace/eval_policy_client.py")}
-    # The shipped archive has independently checked current controller provenance.
-    # Use it for teacher-forced diagnostics only, preserving the training contract.
-    diagnostic_contracts = {}
-    if args.ckpt_dir == ARCHIVED_DIAGNOSTIC_BACKBONE.resolve() and not (args.closed_loop_episodes or args.drawer_selection_probe):
-        bundle = read_json(args.ckpt_dir / "feedback_bundle.json")
-        source = bundle["source"]
-        require(source["config_sha256"] == report["checkpoint"]["config_sha256"] and
-                source["norm_stats_sha256"] == report["checkpoint"]["norm_stats_sha256"],
-                "Default diagnostic bundle source metadata mismatch")
-        diagnostic_contracts = bundle["task_environment_contracts"]
-    dataset_config = yaml.safe_load(args.dataset_config.read_text(encoding="utf-8"))
-    entries = {}
-    for group in dataset_config["data_groups"].values():
-        for key, entry in group.items():
-            require(key not in entries, f"Duplicate dataset configuration key {key}")
-            entries[key] = {**entry, "path": str(args.dataset_config.parent / Path(entry["path"]).expanduser())}
-    report["dataset_config"] = {"path": str(args.dataset_config), "sha256": sha256(args.dataset_config)}
-    # Split checking needs the caller's complete training sources; default is diagnostic.
-    require(not args.require_heldout or args.training_dataset, "--require-heldout needs --training-dataset roots")
-    training = defaultdict(lambda: {"seeds": set(), "hashes": set(), "trajectories": set()})
-    declared_training_tasks = set()
-    for root in args.training_dataset:
-        import pandas as pd
-        meta = read_json(root / "meta/dataset.json")
-        training_rows = read_jsonl(root / "meta/episodes.jsonl")
-        require(training_rows, f"Empty declared training dataset: {root}")
-        declared_training_tasks.add(meta["task"])
-        for row in training_rows:
-            path = safe_child(root, row["data_path"])
-            frame = pd.read_parquet(path, columns=["observation.state", "action", "timestamp"])
-            training[meta["task"]]["seeds"].add(row["seed"])
-            training[meta["task"]]["hashes"].add(sha256(path))
-            training[meta["task"]]["trajectories"].add(trajectory_signature(
-                np.stack(frame["observation.state"]), np.stack(frame["action"]), frame.timestamp.to_numpy()))
-    training_sources_complete_for_tasks = all(t.instruction in declared_training_tasks for t in tasks)
-    require(not args.require_heldout or training_sources_complete_for_tasks,
-            "--require-heldout needs training-source declarations for every evaluated task")
-    predictor = None
-    scores = Scores()
-    paired = defaultdict(list)
-    rng = np.random.default_rng(args.seed)
     planned, processed, all_overlap = 0, 0, 0
     missing_memory = []
     stamps = {}
@@ -1984,14 +1942,7 @@ def run(args, report):
         recorded = validate_recorded_environment_contract(meta)
         checked = compare_environment_contract((config.get("task_environment_contracts") or {}).get(task.key), recorded)
         report["environment_compatibility"][task.key] = checked
-        if (checked["status"] == "mismatch" and task.key in diagnostic_contracts
-                and compare_environment_contract(diagnostic_contracts[task.key], recorded)["status"] == "verified"
-                and set(checked["differences"]) <= {"controller_sha256", "controller_sources_sha256.task_env.py"}
-                and not args.require_heldout):
-            report["warnings"].append(
-                f"{task.key}: original checkpoint controller provenance differs. "
-                "Using the archive's separately qualified current controller for teacher-forced diagnosis only.")
-        elif checked["status"] == "mismatch" and args.audit_only:
+        if checked["status"] == "mismatch" and args.audit_only:
             report["warnings"].append(
                 f"{task.key}: checkpoint/environment mismatch recorded. Data-only audit/replay "
                 "continues without policy inference; this does not validate the checkpoint. "

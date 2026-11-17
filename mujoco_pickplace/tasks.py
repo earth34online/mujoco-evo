@@ -487,8 +487,19 @@ def _recorded_recovery_sources(path, task_number, source_kind=None):
             if record["drawer_selection_status"] == "correct" and record["opened_drawer"] is not None:
                 if (source_kind in (None, "object_release_timing")
                         and record.get("termination_status") == "physical_complete_terminal_pending"):
-                    # Resume while the object is still held, before descent
-                    # takes the hand below the expert's safe release pose.
+                    settled = next((row for row in rows
+                                    if row["outcome"]["physical_complete"]
+                                    and not row["outcome"]["terminal_requirements"]["gripper_open"]
+                                    and not row["outcome"]["failure_events"]
+                                    and not row["physics_contacts"]["two_finger_contact"]
+                                    and row["ik_status"]["execution"] == "hold_unsafe_pose"), None)
+                    if settled is not None:
+                        result.append(dict(seed=record["seed"], episode=episode, rows=rows,
+                            path=str(path), sha256=digest, run_id=record["run_id"],
+                            kind="object_release_timing", intervention_step=settled["step"],
+                            settled_release_recovery=True))
+                        continue
+                    # Fall back to a held state before the unsafe descent.
                     terminal_lower = []
                     for row in reversed(rows):
                         outcome = row["outcome"]
@@ -503,11 +514,42 @@ def _recorded_recovery_sources(path, task_number, source_kind=None):
                             else:
                                 terminal_lower.append(row)
                     if terminal_lower:
-                        intervention = terminal_lower[-1]["step"]
+                        # Replay to a held state near the release height. A
+                        # fixed expert descent from the start of a long policy
+                        # approach can exhaust the waypoint controller budget.
+                        start_z = min(row["state_after"][2] for row in terminal_lower) + 0.04
+                        intervention = next(
+                            (row["step"] for row in terminal_lower if row["state_after"][2] >= start_z),
+                            terminal_lower[-1]["step"],
+                        )
                         result.append(dict(seed=record["seed"], episode=episode, rows=rows,
                             path=str(path), sha256=digest, run_id=record["run_id"],
                             kind="object_release_timing", intervention_step=intervention))
                         continue
+                if (source_kind in (None, "object_release_timing")
+                        and record.get("termination_status") == "step_limit"
+                        and record.get("object_lifted")
+                        and not record.get("failure_events")
+                        and rows[-1]["ik_status"]["execution"] == "hold_unsafe_pose"
+                        and rows[-1]["raw_action"][6] <= .2
+                        and any("receiving_area" in contact["geoms"] for contact in
+                                rows[-1]["ik_status"].get("limiting_pose_contact_names", ()))):
+                    # Rewind an obstructed landing to before support, while
+                    # the robot still has a secure grip and room to re-centre.
+                    support = next((row for row in rows if
+                                    row["outcome"]["quality_checks"]["object_lifted"]
+                                    and row["outcome"]["placement"]["supported"]), None)
+                    if support is not None:
+                        held = next((row for row in reversed(rows[:support["step"] - 1])
+                                     if row["outcome"]["quality_checks"]["object_lifted"]
+                                     and row["physics_contacts"]["two_finger_contact"]
+                                     and row["executed_action"][6] <= .2
+                                     and row["state_after"][2] >= support["state_after"][2] + .04), None)
+                        if held is not None:
+                            result.append(dict(seed=record["seed"], episode=episode, rows=rows,
+                                path=str(path), sha256=digest, run_id=record["run_id"],
+                                kind="object_release_timing", intervention_step=held["step"]))
+                            continue
                 if source_kind in (None, "object_release_timing") and record.get("transport_drop"):
                     for previous, released in zip(rows, rows[1:]):
                         outcome = previous["outcome"]
@@ -515,7 +557,7 @@ def _recorded_recovery_sources(path, task_number, source_kind=None):
                                 and not outcome["failure_events"]
                                 and previous["physics_contacts"]["two_finger_contact"]
                                 and previous["executed_action"][6] <= .2
-                                and .2 < released["executed_action"][6] <= .5
+                                and released["executed_action"][6] > .2
                                 and not released["physics_contacts"]["two_finger_contact"]
                                 and released["outcome"]["placement"]["supported"]):
                             result.append(dict(seed=record["seed"], episode=episode, rows=rows,
@@ -737,6 +779,7 @@ def _replay_handle_policy_state_context(task, env, source):
 def _replay_drawer_object_context(task, env, source):
     """Replay a certified drawer prefix and expose only corrective expert labels."""
     placing = source["kind"] == "object_release_timing"
+    settled_release = source.get("settled_release_recovery", False)
     replay_error = 0.0
     for row in source["rows"][:source["intervention_step"]]:
         replay_error = max(replay_error, float(np.max(
@@ -754,14 +797,22 @@ def _replay_drawer_object_context(task, env, source):
     aperture = float(sum(env.robot_state()[6:8]))
     empty_grasp = source["kind"] == "object_empty_grasp"
     contact = bool(env.contacts()[0])
-    if (env.first_selected_drawer != env.target or opening < .165 or contact != placing
-            or (placing and (not env.was_lifted or env.gripper > .2))
+    if (env.first_selected_drawer != env.target or opening < .165
+            or contact != (placing and not settled_release)
+            or (placing and not env.was_lifted)
+            or (placing and not settled_release and env.gripper > .2)
+            or (settled_release and (env.gripper > .5 or not env.outcome()["physical_complete"]))
             or (empty_grasp and (aperture >= .006 or env.gripper > .2))):
         raise RecoveryContextRejected("Recorded post-opening state did not physically reproduce")
     env._recorded_object_failure = dict(
         safe_object_empty_grasp_reproduced=empty_grasp,
         safe_object_policy_state_reproduced=source["kind"] == "object_policy_state",
         safe_object_release_state_reproduced=placing,
+        settled_release_recovery=settled_release,
+        recorded_settled_placement=settled_release and env.outcome()["physical_complete"],
+        recorded_transport_retained=(
+            settled_release and env.was_lifted and not env.transport_dropped
+        ),
         recorded_intervention_sim_time=float(env.data.time),
         recorded_replay_max_state_error=replay_error,
         recorded_selected_drawer=int(env.first_selected_drawer),
@@ -771,7 +822,8 @@ def _replay_drawer_object_context(task, env, source):
         recorded_object_contact=contact,
     )
     context_length = len(env.samples)
-    env.hold(1, 0.0 if placing else 1.0, "recover")
+    if not settled_release:
+        env.hold(1, 0.0 if placing else 1.0, "recover")
     return context_length
 
 
@@ -879,12 +931,39 @@ def run_task4_tolerant_expert(env):
     return _continue_drawer_placement(env)
 
 
-def _continue_drawer_placement(env):
-    receiving_xy = env.data.geom_xpos[env.model.geom("receiving_area").id, :2].copy()
-    if not env.move([*receiving_xy, env.height + 0.15], 0.0, "lower"):
+def _recover_settled_drawer_release(env):
+    """Teach a safe aperture change after a low placement, during collection."""
+    hand = env.data.xpos[env.hand].copy()
+    hand[2] = max(hand[2] + .024, env.height + .15)
+    if not env.move(hand, 0.0, "recover"):
         return False
     env.hold(round(1.0 / (env.model.opt.timestep * env.CONTROL_NSTEP)), 1.0, "release")
-    if not env.move([*receiving_xy, env.height + 0.26], 1.0, "retreat"):
+    if not env.move([*hand[:2], env.height + .26], 1.0, "retreat"):
+        return False
+    return env.settle()
+
+
+def _continue_drawer_placement(env, *, from_policy=False):
+    receiver = env.model.geom("receiving_area").id
+    receiving_xy = env.data.geom_xpos[receiver, :2].copy()
+    lower_target = np.array([*receiving_xy, env.height + 0.15])
+    if from_policy:
+        # Correction-only: an off-centre grasp changes the object pose for a
+        # given wrist pose. Use the actual held object to pick a safe release.
+        low, high = env.object_bounds()
+        hand = env.data.xpos[env.hand].copy()
+        lower_target = hand.copy()
+        if not env._target_xy_contains(low, high):
+            lower_target[:2] += receiving_xy - np.mean([low[:2], high[:2]], axis=0)
+        clearance = low[2] - env.height
+        lower_target[2] += np.clip(clearance, .012, .045) - clearance
+        # Keep a closed-hand target immediately before the first release frame.
+        if np.linalg.norm(lower_target - hand) < .002:
+            env.hold(1, 0.0, "lower")
+    if not env.move(lower_target, 0.0, "lower"):
+        return False
+    env.hold(round(1.0 / (env.model.opt.timestep * env.CONTROL_NSTEP)), 1.0, "release")
+    if not env.move([*lower_target[:2], env.height + 0.26], 1.0, "retreat"):
         return False
     return env.settle()
 
@@ -974,7 +1053,10 @@ def collect_episode(task, env, seed, max_steps, compact_static_frames=False, rec
             if kind == "object_policy_state":
                 succeeded = _continue_drawer_after_opening(env)
             elif kind == "object_release_timing":
-                succeeded = _continue_drawer_placement(env)
+                if recovery_context.get("settled_release_recovery"):
+                    succeeded = _recover_settled_drawer_release(env)
+                else:
+                    succeeded = _continue_drawer_placement(env, from_policy=True)
             elif kind == "object_empty_grasp":
                 succeeded = _continue_drawer_object_expert(env)
             else:
@@ -1036,6 +1118,13 @@ def collect_episode(task, env, seed, max_steps, compact_static_frames=False, rec
                     name: quality["checks"].pop(name)
                     for name in ("horizontal_handle_approach", "handle_contact_through_pull")
                 }
+                if recovery_context.get("settled_release_recovery"):
+                    # This suffix starts after transport. Verify the reproduced
+                    # prefix's contact outcome and the physical drop monitor.
+                    quality["checks"]["transport_retained"] = bool(
+                        source_record["recorded_transport_retained"]
+                        and not env.transport_dropped
+                    )
                 quality["failed_checks"] = [
                     name for name, passed in quality["checks"].items() if not passed
                 ]
@@ -1338,13 +1427,13 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
     if args.start_seed is None:
         client.log.info("Random evaluation start seed: %s", seed)
     diagnostics = Path(args.diagnostics_jsonl) if args.diagnostics_jsonl else None
-    if diagnostics is not None:
-        diagnostics.parent.mkdir(parents=True, exist_ok=True)
-        diagnostics.write_text("")
     async with websockets.connect(
         args.server_url, max_size=100_000_000, ping_timeout=None, proxy=None
     ) as socket:
         metadata = await client.request_model_metadata(socket)
+        client.verify_checkpoint_identity(
+            metadata, getattr(args, "expected_checkpoint", None), getattr(args, "expected_step", None)
+        )
         memory_frames = int(metadata.get("memory_frames", 1))
         stride_seconds = metadata.get("memory_stride_seconds")
         if stride_seconds is None or stride_seconds <= 0:
@@ -1365,6 +1454,19 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
             raise ValueError(
                 f'Checkpoint lacks task statistics: {required}; available: {metadata.get("normalization_keys")}'
             )
+        from . import release
+        is_release = ((metadata.get("checkpoint_identity") or {}).get("weights_sha256")
+                      == release.WEIGHTS_SHA256)
+        if getattr(args, "expected_checkpoint", None) == release.CHECKPOINT and not is_release:
+            raise ValueError("Release checkpoint has an unexpected model hash")
+        ensemble_drawer_gripper = getattr(args, "task3_gripper_temporal_ensemble", None)
+        if ensemble_drawer_gripper is None:
+            ensemble_drawer_gripper = is_release and 4 in numbers
+        task1_open_threshold = getattr(args, "task1_gripper_open_threshold", None)
+        if task1_open_threshold is None:
+            task1_open_threshold = release.TASK1_OPEN_THRESHOLD if is_release else 0.6
+        if ensemble_drawer_gripper and not metadata.get("drawer_gripper_binary"):
+            raise ValueError("The Task3 gripper ensemble requires a binary-gripper checkpoint")
         compatibility = {}
         for number in numbers:
             task = get_task(number)
@@ -1391,6 +1493,9 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
             ):
                 raise ValueError(f"{directory} contains a prior evaluation; choose a fresh --video-dir")
         output.mkdir(parents=True, exist_ok=True)
+        if diagnostics is not None:
+            diagnostics.parent.mkdir(parents=True, exist_ok=True)
+            diagnostics.write_text("")
         run_state["started"] = True
         _persist_evaluation_summary(run_state, "running")
         for number in numbers:
@@ -1433,7 +1538,12 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                 history = ObservationHistory(memory_frames, stride_seconds)
                 frames = []
                 grip = client.GripperCommandFilter(
-                    required_steps=task.gripper_open_required_steps or args.gripper_debounce_steps
+                    required_steps=task.gripper_open_required_steps or args.gripper_debounce_steps,
+                    open_threshold=task1_open_threshold if number == 1 else 0.6,
+                )
+                gripper_ensemble = (
+                    client.AlignedBinaryGripperEnsemble()
+                    if number == 4 and ensemble_drawer_gripper else None
                 )
                 precision = client.PrecisionExecutionController()
                 done = False
@@ -1531,6 +1641,8 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                                    if number == 4 else {}),
                             ),
                         )
+                        if gripper_ensemble is not None:
+                            chunk[0, 6] = gripper_ensemble.update(chunk[:, 6])
                         for action in chunk[:horizon]:
                             before_state = observation["robot_state"].copy()
                             raw_action = action[:7].copy()
@@ -1666,6 +1778,12 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
                         seed=episode_seed,
                         success=bool(done),
                         steps=step,
+                        gripper_execution=dict(
+                            open_threshold=grip.open_threshold,
+                            close_threshold=grip.close_threshold,
+                            open_debounce_steps=grip.required_steps,
+                            temporal_ensemble=gripper_ensemble is not None,
+                        ),
                         checkpoint_metadata=metadata,
                         checkpoint_identity_verified=bool(metadata.get("checkpoint_identity", {}).get("weights_sha256")
                                                           if metadata.get("checkpoint_identity") else False),

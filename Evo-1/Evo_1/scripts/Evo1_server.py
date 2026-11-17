@@ -23,9 +23,8 @@ from model.action_head.observation_decoder import attach_observation_decoder, ba
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_CKPT_DIR = (
-    REPO_ROOT / "ckpt" / "evo1_mujoco_pickplace_stage3" / "step_final"
-)
+sys.path.insert(0, str(REPO_ROOT))
+from mujoco_pickplace.release import CHECKPOINT as DEFAULT_CKPT_DIR
 DEFAULT_VLM_REPO_ID = "OpenGVLab/InternVL3-1B"
 
 
@@ -490,6 +489,7 @@ async def handle_request(websocket, model, normalizer, use_state):
                     "memory_stride_seconds": model.config.get('memory_stride_seconds'),
                     "memory_stride_steps": int(model.config.get('memory_stride_steps', 5)),
                     "normalization_keys": list(normalizer.stats_by_key),
+                    "drawer_gripper_binary": bool(model.config.get("task4_binary_gripper_supervision", False)),
                     "state_normalization_contracts": getattr(normalizer, "state_normalization_contracts", {}),
                     "legacy_inference_contract": legacy,
                     "recommended_execution_horizon": 14 if legacy else 4,

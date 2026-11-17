@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import base64
+from collections import deque
 import io
 import json
 import logging
@@ -18,6 +19,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mujoco_pickplace.pick_place_env import PickPlaceEnv
+from mujoco_pickplace import release
 
 SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
@@ -43,6 +45,22 @@ PRECISION_REPLAN_Z = (
 CKPT_NAME = "Evo1_mujoco_pickplace"
 LOG_FILE = f"./log_file/{CKPT_NAME}.txt"
 log = logging.getLogger(__name__)
+
+
+class AlignedBinaryGripperEnsemble:
+    """Combine up to four predictions for the current control tick."""
+
+    def __init__(self):
+        self.predictions = deque(maxlen=4)
+
+    def update(self, scores):
+        scores = np.asarray(scores, dtype=np.float32)
+        if scores.ndim != 1 or len(scores) < 4 or not np.isin(scores, (0, 1)).all():
+            raise ValueError("Temporal ensemble requires a binary gripper action chunk")
+        self.predictions.append(scores.copy())
+        aligned = [prior[offset] for offset, prior in enumerate(reversed(self.predictions))]
+        weights = np.exp(-0.01 * np.arange(len(aligned)))
+        return float(np.dot(aligned[::-1], weights) / weights.sum())
 
 
 class GripperCommandFilter:
@@ -250,6 +268,18 @@ def obs_to_payload(
     }
 
 
+def verify_checkpoint_identity(metadata, expected_checkpoint=None, expected_step=None):
+    identity = metadata.get("checkpoint_identity") or {}
+    path = identity.get("path")
+    step = identity.get("step")
+    if expected_checkpoint is not None and (
+        not path or Path(path).expanduser().resolve() != Path(expected_checkpoint).expanduser().resolve()
+    ):
+        raise ValueError(f"Wrong server checkpoint: expected {expected_checkpoint}, received {path!r} (step {step!r})")
+    if expected_step is not None and step != expected_step:
+        raise ValueError(f"Wrong server training step: expected {expected_step}, received {step!r} ({path!r})")
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Evaluate all registered MuJoCo tasks with one Evo-1 checkpoint."
@@ -258,6 +288,10 @@ def parse_args(argv=None):
     selection.add_argument("--task", type=int, choices=(1, 2, 3))
     selection.add_argument("--tasks", type=int, nargs="+", choices=(1, 2, 3))
     parser.add_argument("--server-url", default=SERVER_URL)
+    parser.add_argument("--expected-checkpoint", type=Path,
+                        help="Require this checkpoint directory on the connected server before evaluating.")
+    parser.add_argument("--expected-step", type=int,
+                        help="Require this checkpoint training step before evaluating.")
     parser.add_argument("--num-episodes", type=int, default=NUM_EPISODES)
     parser.add_argument(
         "--max-steps",
@@ -298,6 +332,12 @@ def parse_args(argv=None):
         ),
     )
     parser.add_argument(
+        "--task1-gripper-open-threshold",
+        type=float,
+        default=None,
+        help="Task1 open score required by the existing debounce filter (release: 0.45, other checkpoints: 0.6).",
+    )
+    parser.add_argument(
         "--precision-replan",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -306,6 +346,10 @@ def parse_args(argv=None):
             "boundaries request a fresh observation. Omitted: disabled for "
             "legacy Stage1 and enabled for π-MEM."
         ),
+    )
+    parser.add_argument(
+        "--task3-gripper-temporal-ensemble", action=argparse.BooleanOptionalAction, default=None,
+        help="Combine aligned binary predictions for Task3 gripper commands.",
     )
     parser.add_argument("--render", action="store_true", help="Show the front view.")
     parser.add_argument("--video-dir", default=str(DEFAULT_VIDEO_DIR))
@@ -365,6 +409,8 @@ def parse_args(argv=None):
         parser.error(
             "Task2/Task3 require --horizon 1; use --task 1 for a different Task1 horizon"
         )
+    if args.expected_step is not None and args.expected_step < 0:
+        parser.error("--expected-step must be nonnegative")
     if args.num_episodes < 1:
         parser.error("--num-episodes must be positive")
     if args.max_steps is not None and args.max_steps < 1:
@@ -379,6 +425,16 @@ def parse_args(argv=None):
         parser.error("--memory-frames must be at least 1")
     if args.memory_stride_steps < 1:
         parser.error("--memory-stride-steps must be at least 1")
+    if args.server_url == SERVER_URL and args.expected_checkpoint is None and args.expected_step is None:
+        args.expected_checkpoint = release.CHECKPOINT
+        args.expected_step = release.TRAINING_STEP
+    if args.task1_gripper_open_threshold is not None:
+        if not 0.4 < args.task1_gripper_open_threshold <= 1.0:
+            parser.error("--task1-gripper-open-threshold must be greater than 0.4 and at most 1")
+        if 1 not in args.tasks:
+            parser.error("--task1-gripper-open-threshold requires Task1")
+    if args.task3_gripper_temporal_ensemble and 3 not in args.tasks:
+        parser.error("--task3-gripper-temporal-ensemble requires Task3")
     if args.gripper_debounce_steps < 1:
         parser.error("--gripper-debounce-steps must be at least 1")
     return args

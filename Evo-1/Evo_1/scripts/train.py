@@ -39,6 +39,10 @@ if (
     os.environ.pop("DEEPSPEED_CONFIG_FILE", None)
     _single_gpu_deepspeed_disabled = True
 
+if "--pi-mem" in sys.argv:
+    os.environ.setdefault("ACCELERATE_USE_DEEPSPEED", "false")
+    os.environ.setdefault("ACCELERATE_MIXED_PRECISION", "bf16")
+
 accelerator = Accelerator()
 wandb = None
 swanlab = None
@@ -317,7 +321,7 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
             inherited_statistics_keys=sorted(set(checkpoint_stats) - active_stats),
         )
     if accelerator is None or accelerator.is_main_process:
-        logging.info(f"Loaded {len(dataset)} samples from {config.get('data_paths', config.get('dataset_config_path'))} ({dataset_type})")
+        logging.info(f"Loaded {len(dataset)} samples from {config.get('data_paths') or config.get('dataset_config_path')} ({dataset_type})")
     return dataset
 
 
@@ -747,10 +751,17 @@ def train(config):
                 if json.load(source_file).get("observation_action_decoder") is not None:
                     raise ValueError("Cannot resume a composite inference bundle as flow training; use its recorded original backbone checkpoint explicitly")
     resolve_terminal_action_padding(config)
-    binary_gripper = config.get("action_head") == "direct" and bool(config.get("drawer_intent_supervision"))
+    binary_gripper = config.get("task4_binary_gripper_supervision")
     if config.get("resume") and not config.get("resume_pretrain"):
         with open(os.path.join(config["resume_path"], "config.json"), encoding="utf-8") as source:
-            binary_gripper = bool(json.load(source).get("task4_binary_gripper_supervision", False))
+            recorded_binary = bool(json.load(source).get("task4_binary_gripper_supervision", False))
+        if binary_gripper is not None and binary_gripper != recorded_binary:
+            raise ValueError("Exact resume cannot change Task3 gripper supervision; use --resume_pretrain to start a new run")
+        binary_gripper = recorded_binary
+    if binary_gripper is None:
+        binary_gripper = config.get("action_head") == "direct" and bool(config.get("drawer_intent_supervision"))
+    if binary_gripper and config.get("action_head") != "direct":
+        raise ValueError("Task3 binary gripper supervision requires --action_head direct")
     config["task4_binary_gripper_supervision"] = binary_gripper
     resolve_frozen_embedder_eval(config)
     resolve_checkpoint_temporal_storage(config)
@@ -1214,6 +1225,8 @@ def train(config):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train Evo-1")
+    parser.add_argument("--pi-mem", action="store_true",
+                        help="Use the released three-task MuJoCo training profile.")
 
     # Basic config
     parser.add_argument("--device", type=str, default="cuda")
@@ -1458,6 +1471,26 @@ if __name__ == "__main__":
     )
     parser.add_argument("--seed", type=int, default=None, help="Training RNG seed for independent replicates")
     parser.add_argument("--drawer_intent_supervision", action="store_true")
+    parser.add_argument("--task3_binary_gripper_supervision", dest="task4_binary_gripper_supervision",
+                        action=argparse.BooleanOptionalAction, default=None,
+                        help="Binary drawer gripper supervision (default with direct actions and drawer intent supervision).")
+    if "--pi-mem" in sys.argv[1:]:
+        parser.set_defaults(
+            action_head="direct", drawer_intent_supervision=True,
+            task4_binary_gripper_supervision=True, memory_event_sampling=True,
+            batch_size=2, max_steps=40000, warmup_steps=1000, ckpt_interval=2000,
+            log_interval=20, lr=1e-5, dropout=0.1, weight_decay=1e-3,
+            memory_frames=6, memory_stride_steps=5, memory_stride_seconds=1.0,
+            temporal_layer_interval=4, temporal_drop_past_after_layer=20,
+            gradient_checkpointing=True, compact_masked_views=True,
+            frozen_embedder_eval=True, mask_terminal_action_padding=True,
+            run_name="evo_pi_mem",
+            disable_wandb=True, disable_swanlab=True,
+            dataset_config_path=str(PROJECT_ROOT / "mujoco_pickplace/pi_mem_release_data.yaml"),
+            resume=True, resume_pretrain=True,
+            resume_path=str(PROJECT_ROOT / "ckpt/archive/evo_pi-mem_success"),
+            save_dir=str(PROJECT_ROOT / "ckpt" / datetime.now().strftime("evo_pi_mem_%Y%m%d_%H%M%S_%f")),
+        )
     args = parser.parse_args()
     config = vars(args)
 

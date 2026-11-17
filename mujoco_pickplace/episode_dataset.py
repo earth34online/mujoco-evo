@@ -487,13 +487,18 @@ def _validate_object_failure_source(source, quality):
         "recorded_drawer_open_m", "recorded_aperture_m", "recorded_gripper_command")]
     empty_grasp = source["kind"] == "object_empty_grasp"
     placing = source["kind"] == "object_release_timing"
+    settled_release = source.get("settled_release_recovery", False)
     certificate = {
         "object_empty_grasp": "safe_object_empty_grasp_reproduced",
         "object_policy_state": "safe_object_policy_state_reproduced",
         "object_release_timing": "safe_object_release_state_reproduced",
     }[source["kind"]]
     if (source.get(certificate) is not True
-            or source.get("recorded_object_contact") is not placing
+            or not isinstance(settled_release, bool)
+            or (settled_release and (not placing
+                or source.get("recorded_settled_placement") is not True
+                or source.get("recorded_transport_retained") is not True))
+            or source.get("recorded_object_contact") is not (placing and not settled_release)
             or type(source.get("recorded_selected_drawer")) is not int
             or source["recorded_selected_drawer"] != quality.get("target_drawer_diagnostic_only")
             or any(isinstance(v, bool) or not isinstance(v, (int, float))
@@ -501,7 +506,8 @@ def _validate_object_failure_source(source, quality):
             or values[0] < 0 or not 0 <= values[1] <= 1e-4
             or values[2] < .165
             or (empty_grasp and (not -.001 <= values[3] < .006 or not 0 <= values[4] <= .2))
-            or (not empty_grasp and not 0 <= values[4] <= (.2 if placing else 1.0))
+            or (placing and not 0 <= values[4] <= (.5 if settled_release else .2))
+            or (not placing and not empty_grasp and not 0 <= values[4] <= 1.0)
             or type(source.get("intervention_step")) is not int
             or source["intervention_step"] < 2
             or len(str(source.get("sha256", ""))) != 64
@@ -980,12 +986,14 @@ def _same_task4_controller(base, source, snapshots):
     return control_trees[0] == control_trees[1]
 
 
-def build_task4_correction_candidate(sources, output, controller_sources=None):
+def build_task4_correction_candidate(sources, output, controller_sources=None, *, base_config=None):
     """Build a Task4 training candidate from base data and certified corrections."""
     import tempfile
     import yaml
 
-    base_config = Path(__file__).resolve().parents[1] / "Evo-1/Evo_1/dataset/config.yaml"
+    if base_config is None:
+        base_config = Path(__file__).resolve().parents[1] / "Evo-1/Evo_1/dataset/config.yaml"
+    base_config = Path(base_config).resolve()
     config = yaml.safe_load(base_config.read_text())
     tasks = config["data_groups"]["mujoco_panda"]
     for task in tasks.values():
@@ -1066,11 +1074,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Build a Task4 training candidate from base data and certified corrections.")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--base-config", type=Path,
+                        help="Start from the recorded training configuration of a checkpoint.")
     parser.add_argument("--controller-sources", type=Path,
                         help="Hash-named task_env.py snapshots for proving expert-only differences.")
     parser.add_argument("sources", nargs="+", type=Path)
     args = parser.parse_args()
     output = args.output.resolve()
     count = build_task4_correction_candidate(
-        [source.resolve() for source in args.sources], output, args.controller_sources)
+        [source.resolve() for source in args.sources], output, args.controller_sources,
+        base_config=args.base_config)
     print(f"Added {count} certified corrections; training config: {output / 'config.yaml'}")
