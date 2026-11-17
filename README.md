@@ -8,7 +8,7 @@
 | Task2 | 筷子入盒 | 双指夹起，搬运无掉落，入盒后松手静置 |
 | Task3 | 记忆抽屉取物 | 基于观测历史打开正确抽屉，取物并稳定放入接收区 |
 
-当前发布候选为 `ckpt/archive/evo_pi-mem_success`。它是 40,000 步续训的 `step_final`，抽屉在固定权重的 10 回合开发对照中从 6/10 提升至 10/10，并通过另一组 10 回合正式入口复测。三任务较大留出评估单独记录。详见 [修复与评估记录](Problem_Fix/README.md)。
+当前发布候选为 `ckpt/archive/evo_pi-mem_success`。它是 40,000 步续训的 `step_final`，抽屉在固定权重的 10 回合开发对照中从 6/10 提升至 10/10，并通过另一组 10 回合正式入口复测。独立留出各 30 回合，方块 28/30、筷子 30/30、抽屉 26/30。方块的两次失败仍需单独定位。详见 [修复与评估记录](Problem_Fix/README.md)。
 
 ## 准备环境
 
@@ -33,7 +33,7 @@ conda activate mujoco
 python -m mujoco_pickplace.eval_policy_client
 ```
 
-默认连接端口 9000，检查归档 checkpoint 的路径、40,000 步身份和权重哈希，按现行三个任务各评估 10 回合。发布权重会自动启用 Task3 的时间对齐夹爪预测，Task1 开爪阈值为 0.45。评估会生成随机种子并记录，结果目录包含视频、逐步动作、权重身份和 `summary.json`。单任务用 `--task 3`，三任务较大评估用 `--num-episodes 30`。需要明确对照时传入已登记的 `--start-seed`。
+默认连接端口 9000，检查归档 checkpoint 的路径、40,000 步身份和权重哈希，按现行三个任务各评估 10 回合。发布权重会自动启用 Task3 的时间对齐夹爪预测，Task1 开爪阈值为 0.45。评估会生成随机种子并记录，结果目录包含视频、逐步动作、运行日志 `client.log`、权重身份和 `summary.json`。单任务用 `--task 3`，三任务较大评估用 `--num-episodes 30`。需要明确对照时传入已登记的 `--start-seed`。
 
 另选权重时，服务端传 `--ckpt-dir`，客户端传相同的 `--expected-checkpoint` 和实际的 `--expected-step`。基于新代码的二分类抽屉权重可用 `--task3-gripper-temporal-ensemble` 显式试验，在发布权重上用 `--no-task3-gripper-temporal-ensemble` 做同权重对照。
 
@@ -69,3 +69,5 @@ python scripts/train.py --pi-mem
 - `Evo-1/Evo_1/` 包含训练、推理、数据读取和动作头，沿用 [MINT Evo-1](https://github.com/MINT-SJTU/Evo-1) 的入口布局。
 - `mujoco_pickplace/open_loop_test.py` 支持数据审计、动作预测和物理回放。开环误差与闭环任务结果分别报告。
 - `Problem_Fix/` 保留已落地的修复、判分口径和关键证据。
+
+快速检查发布入口及夹爪时序时，在装有 pytest 的环境中，从仓库根目录运行 `python -m pytest tests/test_pi_mem_release.py`。

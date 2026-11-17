@@ -337,7 +337,8 @@ def task_environment_contract(task, configuration=None, *, randomize_task=True, 
     for xml_path in list(paths):
         for element in ET.parse(xml_path).getroot().iter():
             if element.tag in {"mesh", "texture", "hfield", "skin"} and element.get("file"):
-                paths.append((panda / "assets" / element.get("file")).resolve())
+                # Fingerprint the logical repo path even when Menagerie is a linked checkout.
+                paths.append(Path(os.path.normpath(panda / "assets" / element.get("file"))))
     assets = {path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in sorted(set(paths))}
     controller = ROOT / "mujoco_pickplace" / ("pick_place_env.py" if task.number == 1 else "task_env.py")

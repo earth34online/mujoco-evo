@@ -2,7 +2,7 @@ max_action_dim: 24
 max_state_dim: 24
 max_views: 3
 normalization_scope: dataset
-cache_namespace: mujoco_panda_multitask
+cache_namespace: mujoco_panda_pi_mem_release
 preserve_spatial_calibration: true
 data_groups:
   mujoco_panda:
