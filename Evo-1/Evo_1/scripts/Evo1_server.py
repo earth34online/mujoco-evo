@@ -24,7 +24,10 @@ from model.action_head.observation_decoder import attach_observation_decoder, ba
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
-from mujoco_pickplace.release import CHECKPOINT as DEFAULT_CKPT_DIR
+from mujoco_pickplace.release import (
+    CHECKPOINT as DEFAULT_CKPT_DIR,
+    recommended_execution_horizon,
+)
 DEFAULT_VLM_REPO_ID = "OpenGVLab/InternVL3-1B"
 
 
@@ -492,7 +495,9 @@ async def handle_request(websocket, model, normalizer, use_state):
                     "drawer_gripper_binary": bool(model.config.get("task4_binary_gripper_supervision", False)),
                     "state_normalization_contracts": getattr(normalizer, "state_normalization_contracts", {}),
                     "legacy_inference_contract": legacy,
-                    "recommended_execution_horizon": 14 if legacy else 4,
+                    "recommended_execution_horizon": recommended_execution_horizon(
+                        getattr(model, "checkpoint_identity", None), 14 if legacy else 4
+                    ),
                     "recommended_precision_replan": not legacy,
                     "recommended_grasp_x_bias": 0.006 if legacy else 0.004,
                 }))

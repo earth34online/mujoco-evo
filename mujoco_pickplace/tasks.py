@@ -1473,7 +1473,7 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
             task = get_task(number)
             current = task_environment_contract(task, randomize_task=args.randomize_task,
                                                  randomization_scale=args.randomization_scale)
-            checked = compare_environment_contract(
+            checked = release.compare_evaluation_environment(
                 (metadata.get("task_environment_contracts") or {}).get(task.key), current)
             compatibility[task.key] = checked
             if checked["status"] == "mismatch":

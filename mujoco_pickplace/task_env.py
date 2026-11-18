@@ -114,6 +114,7 @@ def scene_xml(task, height=0.03, target=0, scene_path=None):
 
 
 class NativePanda:
+    DRAWER_PHYSICS_SUBSTEPS = 2
     CONTROL_NSTEP = 100
     def __init__(
         self,
@@ -781,6 +782,19 @@ class NativePanda:
             setattr(self, attribute, count)
             self.rows[-1]["pose_tracking"]["consecutive_" + name + "_steps"] = count
 
+    def _physics_tick(self):
+        # Force-limited Panda servos can lose implicit damping at saturation.
+        # Refine integration, preserving the original action/contact clock.
+        if self.task != 4:
+            mujoco.mj_step(self.model, self.data)
+            return
+        timestep = self.model.opt.timestep
+        self.model.opt.timestep = timestep / self.DRAWER_PHYSICS_SUBSTEPS
+        try:
+            mujoco.mj_step(self.model, self.data, nstep=self.DRAWER_PHYSICS_SUBSTEPS)
+        finally:
+            self.model.opt.timestep = timestep
+
     def integrate(self, q, grip):
         self.gripper = grip
         self.arm_target = q
@@ -799,7 +813,7 @@ class NativePanda:
         for _ in range(self.CONTROL_NSTEP):
             if hasattr(self, "_presentation_substep"):
                 self._presentation_substep()
-            mujoco.mj_step(self.model, self.data)
+            self._physics_tick()
             object_contact, n, d = self.contacts()
             self._object_contact_seconds = (
                 self._object_contact_seconds + self.model.opt.timestep if object_contact else 0.0

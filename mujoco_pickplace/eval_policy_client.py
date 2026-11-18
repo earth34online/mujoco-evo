@@ -326,6 +326,10 @@ def resolve_execution_policy(args, metadata):
     recommended_precision = bool(
         metadata.get("recommended_precision_replan", not legacy)
     )
+    # Re-observe during the approach before the precision trigger fires.
+    recommended_horizon = release.recommended_execution_horizon(
+        metadata.get("checkpoint_identity"), recommended_horizon
+    )
     horizon = recommended_horizon if args.horizon is None else int(args.horizon)
     precision_replan = (
         recommended_precision
