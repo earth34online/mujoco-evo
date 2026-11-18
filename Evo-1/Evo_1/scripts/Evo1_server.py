@@ -24,10 +24,15 @@ from model.action_head.observation_decoder import attach_observation_decoder, ba
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
-from mujoco_pickplace.release import (
-    CHECKPOINT as DEFAULT_CKPT_DIR,
-    recommended_execution_horizon,
-)
+DEFAULT_CKPT_DIR = REPO_ROOT / "ckpt/archive/evo_pi-mem_success"
+ARCHIVE_WEIGHTS_SHA256 = "97112fd84f1de67192c032a608b6a2d7529ef2a14ed65284c7cb15b9532bfabb"
+
+
+def recommended_execution_horizon(checkpoint_identity, fallback):
+    if (checkpoint_identity or {}).get("weights_sha256") == ARCHIVE_WEIGHTS_SHA256:
+        return 1
+    return fallback
+
 DEFAULT_VLM_REPO_ID = "OpenGVLab/InternVL3-1B"
 
 

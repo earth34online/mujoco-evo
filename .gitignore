@@ -14,8 +14,7 @@ coverage.xml
 htmlcov/
 .ipynb_checkpoints/
 
-/tests/*
-!/tests/test_pi_mem_release.py
+/tests/
 
 # Python package/build outputs
 build/

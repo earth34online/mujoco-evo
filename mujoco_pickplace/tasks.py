@@ -1455,17 +1455,16 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
             raise ValueError(
                 f'Checkpoint lacks task statistics: {required}; available: {metadata.get("normalization_keys")}'
             )
-        from . import release
         is_release = ((metadata.get("checkpoint_identity") or {}).get("weights_sha256")
-                      == release.WEIGHTS_SHA256)
-        if getattr(args, "expected_checkpoint", None) == release.CHECKPOINT and not is_release:
+                      == client.WEIGHTS_SHA256)
+        if getattr(args, "expected_checkpoint", None) == client.CHECKPOINT and not is_release:
             raise ValueError("Release checkpoint has an unexpected model hash")
         ensemble_drawer_gripper = getattr(args, "task3_gripper_temporal_ensemble", None)
         if ensemble_drawer_gripper is None:
             ensemble_drawer_gripper = is_release and 4 in numbers
         task1_open_threshold = getattr(args, "task1_gripper_open_threshold", None)
         if task1_open_threshold is None:
-            task1_open_threshold = release.TASK1_OPEN_THRESHOLD if is_release else 0.6
+            task1_open_threshold = client.TASK1_OPEN_THRESHOLD if is_release else 0.6
         if ensemble_drawer_gripper and not metadata.get("drawer_gripper_binary"):
             raise ValueError("The Task3 gripper ensemble requires a binary-gripper checkpoint")
         compatibility = {}
@@ -1473,7 +1472,7 @@ async def _evaluate_tasks(numbers=None, argv=None, args=None, *, run_state):
             task = get_task(number)
             current = task_environment_contract(task, randomize_task=args.randomize_task,
                                                  randomization_scale=args.randomization_scale)
-            checked = release.compare_evaluation_environment(
+            checked = client.compare_evaluation_environment(
                 (metadata.get("task_environment_contracts") or {}).get(task.key), current)
             compatibility[task.key] = checked
             if checked["status"] == "mismatch":

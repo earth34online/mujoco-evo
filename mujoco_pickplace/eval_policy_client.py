@@ -8,6 +8,7 @@ import os
 import time
 import sys
 from datetime import datetime
+from collections import deque
 from pathlib import Path
 
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -18,13 +19,62 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mujoco_pickplace.pick_place_env import PickPlaceEnv
-from mujoco_pickplace import release
-from mujoco_pickplace.action_execution import (
-    AlignedBinaryGripperEnsemble,
-    GripperCommandFilter,
-    PRECISION_REPLAN_Z,
-    PrecisionExecutionController,
-)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CHECKPOINT = PROJECT_ROOT / "ckpt/archive/evo_pi-mem_success"
+TRAINING_STEP = 40000
+WEIGHTS_SHA256 = "97112fd84f1de67192c032a608b6a2d7529ef2a14ed65284c7cb15b9532bfabb"
+TASK1_OPEN_THRESHOLD = 0.45
+EXECUTION_HORIZON = 1
+
+
+def recommended_execution_horizon(checkpoint_identity, fallback):
+    """Select the validated default for the archived checkpoint."""
+    if (checkpoint_identity or {}).get("weights_sha256") == WEIGHTS_SHA256:
+        return EXECUTION_HORIZON
+    return fallback
+
+
+# Explicit source transition, not a replacement for recorded training provenance.
+DRAWER_CONTROLLER_BEFORE = "243c0f5c52ea74cebcb5c5fec251daa8c397bb058ba9626e37ad2938158fdd55"
+DRAWER_CONTROLLER_AFTER = "02fb52dc26daa70d5e53ef49464f112bc705d495f097c008a041d1b4dc874397"
+
+
+def compare_evaluation_environment(trained, current):
+    """Recognize the reviewed numerical refinement; reject any other mismatch."""
+    import copy
+    import hashlib
+    import json
+    from .episode_dataset import compare_environment_contract
+
+    checked = compare_environment_contract(trained, current)
+    if checked["status"] != "mismatch" or current.get("task_id") not in (3, 4):
+        return checked
+    before = (trained or {}).get("controller_sources_sha256", {})
+    after = current.get("controller_sources_sha256", {})
+    if (before.get("task_env.py") != DRAWER_CONTROLLER_BEFORE
+            or after.get("task_env.py") != DRAWER_CONTROLLER_AFTER):
+        return checked
+    previous = copy.deepcopy(current)
+    previous["controller_sources_sha256"]["task_env.py"] = DRAWER_CONTROLLER_BEFORE
+    previous["controller_sha256"] = hashlib.sha256(
+        json.dumps(previous["controller_sources_sha256"], sort_keys=True).encode()
+    ).hexdigest()
+    if compare_environment_contract(trained, previous)["status"] != "verified":
+        return checked
+    return dict(
+        status="verified",
+        differences=checked["differences"],
+        runtime_refinement=dict(
+            name="panda_drawer_half_step_v1",
+            training_controller_sha256=DRAWER_CONTROLLER_BEFORE,
+            runtime_controller_sha256=DRAWER_CONTROLLER_AFTER,
+            physics_substeps=2 if current["task_id"] == 4 else 1,
+            control_period_seconds=current["control_period_seconds"],
+            reason="Drawer-only numerical integration refinement; other native task unchanged",
+        ),
+    )
+
 
 SERVER_URL = "ws://127.0.0.1:9000"
 PROMPT = "pick up the blue cube and place it on the green target"
@@ -44,6 +94,145 @@ FRAMES_PER_STEP = 4
 MEMORY_FRAMES = 6
 MEMORY_STRIDE_STEPS = 5
 log = logging.getLogger(__name__)
+
+
+PRECISION_REPLAN_Z = (
+    PickPlaceEnv.CUBE_SUPPORT_Z + PickPlaceEnv.EXPERT_GRASP_OFFSET + 0.050
+)
+
+
+
+class AlignedBinaryGripperEnsemble:
+    """Combine up to four predictions for the current control tick."""
+
+    def __init__(self):
+        self.predictions = deque(maxlen=4)
+
+    def update(self, scores):
+        scores = np.asarray(scores, dtype=np.float32)
+        if scores.ndim != 1 or len(scores) < 4 or not np.isin(scores, (0, 1)).all():
+            raise ValueError("Temporal ensemble requires a binary gripper action chunk")
+        self.predictions.append(scores.copy())
+        aligned = [prior[offset] for offset, prior in enumerate(reversed(self.predictions))]
+        weights = np.exp(-0.01 * np.arange(len(aligned)))
+        return float(np.dot(aligned[::-1], weights) / weights.sum())
+
+
+class GripperCommandFilter:
+    """Close immediately; debounce only the unsafe open transition."""
+
+    def __init__(
+        self,
+        required_steps=2,
+        close_threshold=0.4,
+        open_threshold=0.6,
+        initial_command=1.0,
+    ):
+        if required_steps < 1:
+            raise ValueError("required_steps must be at least 1")
+        if not 0.0 <= close_threshold < open_threshold <= 1.0:
+            raise ValueError("gripper thresholds must satisfy 0 <= close < open <= 1")
+        self.required_steps = int(required_steps)
+        self.close_required_steps = 1
+        self.close_threshold = float(close_threshold)
+        self.open_threshold = float(open_threshold)
+        self.command = float(initial_command)
+        self.candidate = self.command
+        self.candidate_steps = 0
+
+    def update(self, score):
+        score = float(score)
+        if not np.isfinite(score):
+            raise ValueError(f"Non-finite gripper score: {score}")
+        if score <= self.close_threshold:
+            requested = 0.0
+        elif score >= self.open_threshold:
+            requested = 1.0
+        else:
+            requested = self.command
+
+        if requested == self.command:
+            self.candidate = self.command
+            self.candidate_steps = 0
+            return self.command
+        if requested != self.candidate:
+            self.candidate = requested
+            self.candidate_steps = 1
+        else:
+            self.candidate_steps += 1
+        transition_steps = (
+            self.close_required_steps if requested < 0.5 else self.required_steps
+        )
+        if self.candidate_steps >= transition_steps:
+            self.command = requested
+            self.candidate_steps = 0
+        return self.command
+
+
+class PrecisionExecutionController:
+    """Replan grasp-sensitive actions without simulator privileged state.
+
+    The controller only reads the policy-visible 8-D proprioception.  It keeps
+    the normal action-chunk horizon for free-space motion and replans every
+    step near the grasp plane.  A gripper transition is executed at its
+    predicted position in the chunk, then ends that chunk so π-MEM receives a
+    fresh visual/proprioceptive observation of the changed gripper state.
+
+    Finger opening is deliberately not treated as grasp confirmation.  A
+    corner collision and a stable two-pad grasp can produce nearly identical
+    finger qpos, so latching either as success can disable the recovery loop
+    precisely after a localization error.
+    """
+
+    def __init__(self, precision_z=PRECISION_REPLAN_Z):
+        self.precision_z = float(precision_z)
+
+    @staticmethod
+    def _validate_robot_state(robot_state):
+        robot_state = np.asarray(robot_state, dtype=np.float32)
+        if robot_state.shape != (8,):
+            raise ValueError(f"Expected 8-D robot_state, got {robot_state.shape}")
+        if not np.isfinite(robot_state).all():
+            raise ValueError("robot_state contains NaN or Inf")
+        return robot_state
+
+    def execution_horizon(
+        self,
+        action_chunk,
+        requested_horizon,
+        robot_state,
+        gripper_filter,
+        enabled=True,
+    ):
+        robot_state = self._validate_robot_state(robot_state)
+        prefix = np.asarray(action_chunk, dtype=np.float32)[:requested_horizon]
+        if prefix.ndim != 2 or prefix.shape[1] < 7:
+            raise ValueError("action_chunk must have shape [horizon, >=7]")
+
+        if not enabled:
+            return int(requested_horizon)
+
+        near_grasp_plane = float(robot_state[2]) <= self.precision_z
+        if near_grasp_plane:
+            return 1
+
+        # Do not collapse to horizon=1 merely because a later action requests
+        # closing: doing so repeatedly discards the transition before it can
+        # execute.  Run through the first transition and then replan.  The same
+        # boundary makes release debounce meaningful across independent model
+        # observations instead of letting two open scores from one stale chunk
+        # release an object during transport.
+        if gripper_filter.command >= 0.5:
+            transition_indices = np.flatnonzero(
+                prefix[:, 6] <= gripper_filter.close_threshold
+            )
+        else:
+            transition_indices = np.flatnonzero(
+                prefix[:, 6] >= gripper_filter.open_threshold
+            )
+        if transition_indices.size:
+            return int(transition_indices[0]) + 1
+        return int(requested_horizon)
 
 
 def configure_logging(output_dir=DEFAULT_VIDEO_DIR):
@@ -293,8 +482,8 @@ def parse_args(argv=None):
     if args.memory_stride_steps < 1:
         parser.error("--memory-stride-steps must be at least 1")
     if args.server_url == SERVER_URL and args.expected_checkpoint is None and args.expected_step is None:
-        args.expected_checkpoint = release.CHECKPOINT
-        args.expected_step = release.TRAINING_STEP
+        args.expected_checkpoint = CHECKPOINT
+        args.expected_step = TRAINING_STEP
     if args.task1_gripper_open_threshold is not None:
         if not 0.4 < args.task1_gripper_open_threshold <= 1.0:
             parser.error("--task1-gripper-open-threshold must be greater than 0.4 and at most 1")
@@ -327,7 +516,7 @@ def resolve_execution_policy(args, metadata):
         metadata.get("recommended_precision_replan", not legacy)
     )
     # Re-observe during the approach before the precision trigger fires.
-    recommended_horizon = release.recommended_execution_horizon(
+    recommended_horizon = recommended_execution_horizon(
         metadata.get("checkpoint_identity"), recommended_horizon
     )
     horizon = recommended_horizon if args.horizon is None else int(args.horizon)
